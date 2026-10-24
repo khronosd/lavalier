@@ -60,6 +60,11 @@ logs/
 Audio is deleted after 14 days by default; transcripts and day files stay.
 Starred, pinned and failed clips are kept.
 
+## Known limitations
+
+- A conversation that crosses midnight appears in both day files, split at
+  midnight: clips are grouped per day.
+
 ## Tests
 
 `.venv/bin/pytest -q` runs the suite. The fixture test for the 2026-10-23

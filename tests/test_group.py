@@ -62,3 +62,17 @@ def test_clock_suspect_conversation_id_takes_its_date_from_the_day(cfg, clip):
     c = dataclasses.replace(clip(0, 16_000), day=date(2026, 10, 24), clock_suspect=True)
     start = datetime.fromtimestamp(0)
     assert group_clips([c], [], cfg)[0].conversation_id == f"c-20261024-{start:%H%M%S}"
+
+
+def test_conversation_crossing_midnight_splits_into_both_days(db, cfg, clip):
+    """Known v1 limitation (README): grouping is per day, so a 40 s gap across midnight splits."""
+    late = clip(T(23, 59, 0), T(23, 59, 30))
+    after = int(datetime(2026, 10, 24, 0, 0, 10).timestamp() * 1000)
+    early = clip(after, after + 30_000)
+    db.add_clip(late)
+    db.add_clip(early)
+    before = rebuild_day(db, date(2026, 10, 23), cfg)
+    next_day = rebuild_day(db, date(2026, 10, 24), cfg)
+    assert [c.clip_ids for c in before] == [[late.clip_id]]
+    assert [c.clip_ids for c in next_day] == [[early.clip_id]]
+    assert next_day[0].conversation_id == "c-20261024-000010"
