@@ -271,6 +271,7 @@ def test_device_status_round_trip_and_latest(db):
     db.record_device_status(replace(snap, read_at_ms=2000, recording_state="NOT_RECORDING"), source="live", charger_signal="none")
     latest, source, signal = db.latest_device_status()
     assert (latest.read_at_ms, latest.recording_state, source, signal) == (2000, "NOT_RECORDING", "live", "none")
+    assert latest.storage_instance == 11232415790841468546
     assert snap.pages_waiting == 787
     assert replace(snap, oldest_page=5, newest_page=4).pages_waiting == 0
 
@@ -315,3 +316,17 @@ def test_pages_differing_only_in_storage_instance_are_distinct(db):
     db.add_page(k0, cid, 100, 1, 1792821367981)
     db.add_page(k1, cid, 100, 1, 1792821367981)
     assert db.page_seen(k0) and db.page_seen(k1)
+
+
+@pytest.mark.parametrize("instance", [2**63 - 1, 2**63, 2**64 - 1])
+def test_u64_storage_instance_round_trips_on_both_tables(db, instance):
+    snap = DeviceSnapshot(1000, True, "LISTENING", 0, 1, 90, 0, "USB_DISCONNECTED", "1.1.3", instance)
+    db.record_device_status(snap, source="sync", charger_signal="none")
+    assert db.latest_device_status()[0].storage_instance == instance
+    cid = db.add_capture("captures/u.bin", "dd" * 32, 1, True)
+    key = PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=instance)
+    db.add_page(key, cid, 100, 1, 1792821367981)
+    assert db.page_seen(key)
+    assert not db.page_seen(PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=0))
+    keys = db.pages_for_capture(cid)
+    assert keys == [key] and keys[0].storage_instance == instance
