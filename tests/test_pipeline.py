@@ -122,3 +122,58 @@ def test_drain_resending_pages_of_an_instance_zero_import_decodes_only_the_new_p
     assert (imp.pages_new, imp.pages_duplicate) == (2, 3)
     assert db.capture_decoded(imp.capture_id) and [c.first_page for c in clips] == [4]
     assert len(clips0) == 1 and db.clip(clips0[0].clip_id).capture_id == imp0.capture_id
+
+
+# --- R50: recovering the field state, where the old exact page_seen let re-sent pages in ---
+
+def _field_page(i, *, start=False):
+    from builders import make_audio_flash_page, make_storage_buffer_msg
+    fp = make_audio_flash_page(b"\xb8" + b"A" * 39, did_start_recording=start, absolute_timestamp_ms=T(10, 0, i))
+    return make_storage_buffer_msg(page_index=i, flash_page=fp, ingest_type=2, session=1, run=1)
+
+
+def _field_capture(path, pages):
+    from pendant_client.decode import write_batch_ingest_request
+    write_batch_ingest_request(messages=[_field_page(i, start=i == 1) for i in pages], ble_identifier="test", path=path)
+    return path
+
+
+def _insert_undecoded_drain(db, root, src, instance):
+    """What the drain left behind before R47: its row, its installed copy, and every one of its
+    pages registered under it with the real instance, the re-sent ones included."""
+    import hashlib
+    import shutil
+    from pendant_client.decode import iter_messages_from_bin, storage_page_of
+    from lavalier.pages import page_key
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    installed = root.captures / f"{sha[:12]}-{src.name}"
+    shutil.copyfile(src, installed)
+    messages = list(iter_messages_from_bin(installed))
+    cid = db.add_capture(str(installed.relative_to(root.root)), sha, len(messages), False)
+    for m in messages:
+        sp = storage_page_of(m)
+        db.add_page(page_key(sp, storage_instance=instance), cid, sp.session, sp.ingest_type, 0)
+    return cid, installed
+
+
+import pytest
+
+
+@pytest.mark.parametrize("drain_pages", [[1, 2, 3, 4, 5], [2, 3, 4, 5]],
+                         ids=["dups-from-first-page", "dups-from-mid-recording"])
+def test_recovering_a_drain_that_holds_resent_pages_decodes_only_the_new_pages(root, db, tmp_path, drain_pages):
+    from lavalier.pipeline import import_and_decode
+    imp_a, clips_a = import_and_decode(db, root, _field_capture(tmp_path / "earlier.bin", [1, 2, 3]),
+                                       capture_day=date(2026, 10, 23))                 # CLI import: instance 0
+    assert [(c.first_page, c.last_page) for c in clips_a] == [(1, 3)]
+    events_before = db._conn.execute("SELECT page_index, type, capture_id FROM events ORDER BY id").fetchall()
+    cid_b, installed = _insert_undecoded_drain(db, root, _field_capture(tmp_path / "20261024T055640Z.bin", drain_pages),
+                                               0xA1B2C3D4E5F60718)
+    _, clips = import_and_decode(db, root, installed, capture_day=date(2026, 10, 24), storage_instance=0xA1B2C3D4E5F60718)
+    assert [(c.first_page, c.last_page, c.capture_id) for c in clips] == [(4, 5, cid_b)]
+    every = db._conn.execute("SELECT clip_id, first_page, last_page, capture_id FROM clips ORDER BY first_page").fetchall()
+    assert [tuple(r) for r in every] == [(clips_a[0].clip_id, 1, 3, imp_a.capture_id), (clips[0].clip_id, 4, 5, cid_b)]
+    events_after = db._conn.execute("SELECT page_index, type, capture_id FROM events ORDER BY id").fetchall()
+    assert [tuple(r) for r in events_after[:len(events_before)]] == [tuple(r) for r in events_before]
+    assert all(r["page_index"] > 3 for r in events_after[len(events_before):])     # nothing again for pages 1..3
+    assert db.capture_decoded(cid_b) and installed.exists()

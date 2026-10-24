@@ -127,14 +127,15 @@ def test_zero_timestamp_short_press_surfaces_on_the_fallback_day(root, db, make_
 
 # --- R48: a clip-id collision never aborts a decode ---
 
-def _seed_clip(db, clip_id, first_page):
+def _seed_clip(db, clip_id, first_page, *, last_page=None, run=1, sha="ee"):
     from lavalier.models import ClipRecord
     from conftest import T
-    cid = db.add_capture("captures/earlier.bin", "ee" * 32, 1, True)
+    cid = db.add_capture(f"captures/earlier-{sha}.bin", sha * 32, 1, True)
     db.add_clip(ClipRecord(
         clip_id=clip_id, path=f"audio/2026-10-23/{clip_id}.opus", day=date(2026, 10, 23),
-        first_ms=T(10, 0, 0), last_ms=T(10, 0, 1), chunk_count=2, first_page=first_page, last_page=first_page + 1,
-        run=1, capture_id=cid, opened_with_start_marker=False, closed_with_stop_marker=False, clock_suspect=False))
+        first_ms=T(10, 0, 0), last_ms=T(10, 0, 1), chunk_count=2, first_page=first_page,
+        last_page=first_page + 1 if last_page is None else last_page,
+        run=run, capture_id=cid, opened_with_start_marker=False, closed_with_stop_marker=False, clock_suspect=False))
     return cid
 
 
@@ -158,9 +159,32 @@ def test_colliding_clip_id_from_the_same_first_page_is_skipped(root, db, make_ca
     taken = clip_id_for(T(10, 0, 0))
     earlier = _seed_clip(db, taken, first_page=1)
     imp = import_capture(db, root, make_capture([1, 2], timestamps=[T(10, 0, 0), T(10, 0, 1)]))
-    with caplog.at_level("INFO", logger="lavalier.clips"):
+    with caplog.at_level("WARNING", logger="lavalier.clips"):
         clips = decode_new_pages(db, root, imp, capture_day=date(2026, 10, 24))
     assert clips == [] and db.capture_decoded(imp.capture_id)
     assert [c.clip_id for c in db.clips_for_day(date(2026, 10, 23))] == [taken]
     assert db.clip(taken).capture_id == earlier and not list(root.audio.rglob("*.opus"))
-    assert any(r.levelname == "INFO" and taken in r.getMessage() for r in caplog.records)
+    assert any(r.levelname == "WARNING" and taken in r.getMessage() for r in caplog.records)   # audio is dropped
+
+
+@pytest.mark.parametrize("seed", [dict(first_page=1, last_page=1), dict(first_page=1, run=2)],
+                         ids=["existing-ends-earlier", "existing-from-another-run"])
+def test_same_first_page_is_skipped_only_when_the_existing_clip_covers_the_new_one(root, db, make_capture, seed):
+    from conftest import T
+    from lavalier.pages import import_capture
+    taken = clip_id_for(T(10, 0, 0))
+    _seed_clip(db, taken, **seed)
+    imp = import_capture(db, root, make_capture([1, 2], timestamps=[T(10, 0, 0), T(10, 0, 1)]))
+    clips = decode_new_pages(db, root, imp, capture_day=date(2026, 10, 24))
+    assert [c.clip_id for c in clips] == [f"{taken}-p1"] and db.capture_decoded(imp.capture_id)
+
+
+def test_a_taken_suffixed_id_gets_the_capture_id_too(root, db, make_capture):
+    from conftest import T
+    from lavalier.pages import import_capture
+    taken = clip_id_for(T(10, 0, 0))
+    _seed_clip(db, taken, first_page=99)
+    _seed_clip(db, f"{taken}-p1", first_page=1, last_page=1, sha="dd")
+    imp = import_capture(db, root, make_capture([1, 2], timestamps=[T(10, 0, 0), T(10, 0, 1)]))
+    clips = decode_new_pages(db, root, imp, capture_day=date(2026, 10, 24))
+    assert [c.clip_id for c in clips] == [f"{taken}-p1-c{imp.capture_id}"] and db.capture_decoded(imp.capture_id)

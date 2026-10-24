@@ -378,6 +378,17 @@ class Database:
         ).fetchone()
         return r is not None
 
+    def page_owned_earlier(self, key: PageKey, capture_id: int) -> bool:
+        """Whether a capture older than capture_id already registered this page, with the same
+        instance-0 wildcard as page_seen."""
+        instance = _u64_to_db(key.storage_instance)
+        r = self._conn.execute(
+            'SELECT 1 FROM pages WHERE run = ? AND "index" = ? AND sha256 = ? AND capture_id < ? '
+            "AND (storage_instance = ? OR storage_instance = 0 OR ? = 0)",
+            (key.run, key.index, key.sha256, capture_id, instance, instance),
+        ).fetchone()
+        return r is not None
+
     def pages_for_capture(self, capture_id: int) -> list[PageKey]:
         """The pages this capture registered first, in stream (insertion) order."""
         rows = self._conn.execute(

@@ -51,7 +51,9 @@ def _install_copy(src: Path, dest: Path, sha: str) -> None:
 
 def _owned_payloads(db: Database, capture_id: int, messages: list[bytes], storage_instance: int) -> list[bytes]:
     """The payloads a decode of this capture needs: its own storage pages, once each, and
-    every non-storage message, in stream order (re-read from the stored copy)."""
+    every non-storage message, in stream order (re-read from the stored copy). A page an older
+    capture already registered is left out even when this capture owns a row for it (rows an
+    exact-instance dedup let in), so only pages new to the store reach the decoder."""
     # Matched as page_seen does: instance 0 on either side is "unknown" and matches any instance.
     owned: dict[tuple[int, int, str], set[int]] = {}
     for k in db.pages_for_capture(capture_id):
@@ -70,7 +72,8 @@ def _owned_payloads(db: Database, capture_id: int, messages: list[bytes], storag
             continue
         if storage_instance == 0 or 0 in instances or storage_instance in instances:
             taken.add(ident)
-            out.append(payload)
+            if not db.page_owned_earlier(key, capture_id):
+                out.append(payload)
     return out
 
 
