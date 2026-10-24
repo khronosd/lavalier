@@ -214,3 +214,69 @@ def clip_rows_spanning_midnight(db, clip):
     c.day = date(2026, 10, 23)
     db.add_clip(c)
     return c
+
+
+from pendant_recorder.config import Config
+from pendant_recorder.group import rebuild_day
+from pendant_recorder.models import EventRecord, Segment, Transcript, Word
+
+
+def _words(*specs):
+    return [Word(s, e, w, p) for s, e, w, p in specs]
+
+
+def _real_transcript() -> Transcript:
+    ws1 = _words((0.0, 0.4, " test", 0.9), (0.4, 0.8, " test", 0.9), (0.8, 1.2, " test", 0.9),
+                 (1.2, 1.6, " one", 0.9), (1.6, 2.0, " two", 0.9), (2.0, 2.32, " three", 0.9))
+    ws2 = _words((3.96, 4.4, " test", 0.9), (4.4, 4.8, " test", 0.9), (4.8, 5.2, " test", 0.9),
+                 (5.2, 5.6, " one", 0.9), (5.6, 6.0, " two", 0.9), (6.0, 6.34, " three", 0.9))
+    text = "test test test one two three"
+    return Transcript(
+        text=f"{text} {text}", language="en", model="mlx-community/whisper-large-v3-turbo",
+        segments=[Segment(0.0, 2.32, f" {text}", -0.293, 0.01, ws1),
+                  Segment(3.96, 6.34, f" {text}", -0.293, 0.01, ws2)])
+
+
+def _press(page, ms) -> EventRecord:
+    return EventRecord(
+        page_index=page, absolute_ms=ms, capture_id=1, type="button",
+        payload={"type": "button", "button_event": "BUTTON_SHORT_PRESS",
+                 "button_event_absolute_timestamp_ms": ms})
+
+
+@pytest.fixture
+def seeded_2026_10_23_subset(db, clip_record):
+    cfg = Config()
+    db.add_clip(dataclasses.replace(clip_record, classification=None, transcribed_at=None, mean_db=-27.2))
+    db.set_transcript(clip_record.clip_id, _real_transcript(), "speech", T(23, 0, 0))
+    for cid, first, db_ in (("clip_20261024T055514.111Z", 1792821314111, -44.2),
+                            ("clip_20261024T060125.346Z", 1792821685346, -40.0)):
+        db.add_clip(dataclasses.replace(
+            clip_record, clip_id=cid, path=f"audio/2026-10-23/{cid}.opus", first_ms=first,
+            last_ms=first + 5500, chunk_count=275, first_page=1, last_page=2, run=1,
+            classification=None, transcribed_at=None, mean_db=db_))
+        db.set_transcript(cid, Transcript("", "en", cfg.whisper_model, []), "noise", T(23, 0, 0))
+    db.add_event(_press(7802, 1792821367981))
+    db.add_event(_press(7805, 1792821372732))
+    rebuild_day(db, date(2026, 10, 23), cfg)
+
+
+@pytest.fixture
+def seeded_bad_clock_day(db, clip_record):
+    cfg = Config()
+    first = int(datetime(2026, 10, 24, 9, 0, 0).timestamp() * 1000)
+    c = dataclasses.replace(clip_record, clip_id="clip_20261024T160000.000Z", day=date(2026, 10, 24),
+                            first_ms=first, last_ms=first + 16000, clock_suspect=True,
+                            classification=None, transcribed_at=None)
+    db.add_clip(c)
+    db.set_transcript(c.clip_id, _real_transcript(), "speech", first + 60000)
+    rebuild_day(db, date(2026, 10, 24), cfg)
+
+
+@pytest.fixture
+def seeded_orphan_star(db, clip_record):
+    cfg = Config()
+    db.add_clip(dataclasses.replace(clip_record, classification=None, transcribed_at=None))
+    db.set_transcript(clip_record.clip_id, _real_transcript(), "speech", T(23, 0, 0))
+    db.add_event(_press(7000, T(22, 50, 0)))
+    rebuild_day(db, date(2026, 10, 23), cfg)
