@@ -280,3 +280,30 @@ def seeded_orphan_star(db, clip_record):
     db.set_transcript(clip_record.clip_id, _real_transcript(), "speech", T(23, 0, 0))
     db.add_event(_press(7000, T(22, 50, 0)))
     rebuild_day(db, date(2026, 10, 23), cfg)
+
+
+@pytest.fixture
+def seeded_retention_day(root, db, cfg, clip_record):
+    """Four speech-day clips 10 minutes apart: old, starred, fresh, failed."""
+    day = date(2026, 10, 23)
+    old_at = T(12, 0, 0)
+    specs = [("old", T(10, 0, 0), "speech", old_at),
+             ("starred", T(10, 10, 0), "speech", old_at),
+             ("fresh", T(10, 20, 0), "speech", old_at + 2 * 86_400_000),
+             ("failed", T(10, 30, 0), "failed", None)]
+    ids = []
+    for name, first, classification, transcribed_at in specs:
+        clip_id = f"clip_{name}"
+        rel = f"audio/{day.isoformat()}/{clip_id}.opus"
+        _write_opus(root.audio / day.isoformat() / f"{clip_id}.opus")
+        db.add_clip(dataclasses.replace(
+            clip_record, clip_id=clip_id, path=rel, day=day, first_ms=first,
+            last_ms=first + 15000, classification=None, transcribed_at=None))
+        if classification == "failed":
+            db.set_transcript(clip_id, Transcript("", "en", cfg.whisper_model, []), "failed", None)
+        else:
+            db.set_transcript(clip_id, _real_transcript(), classification, transcribed_at)
+        ids.append(clip_id)
+    db.add_event(_press(1, T(10, 10, 0)))
+    rebuild_day(db, day, cfg)
+    return tuple(db.clip(i) for i in ids)

@@ -151,3 +151,12 @@ def test_set_loudness_persists_outside_transaction(db, clip_record):
     db.set_loudness(clip_record.clip_id, -20.0, -3.0)
     c = db.clip(clip_record.clip_id)
     assert (c.mean_db, c.peak_db) == (-20.0, -3.0)
+
+
+def test_clips_with_audio_for_capture(db, clip_record):
+    db.add_clip(clip_record)
+    db.add_clip(replace(clip_record, clip_id="other", capture_id=2))
+    assert db.clips_with_audio_for_capture(1) == 1
+    db.clear_clip_path(clip_record.clip_id)
+    assert db.clips_with_audio_for_capture(1) == 0
+    assert db.clips_with_audio_for_capture(2) == 1

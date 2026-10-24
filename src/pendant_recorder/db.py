@@ -227,6 +227,12 @@ class Database:
         ).fetchall()
         return [(r["id"], r["path"]) for r in rows]
 
+    def clips_with_audio_for_capture(self, capture_id: int) -> int:
+        r = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM clips WHERE capture_id = ? AND path != ''", (capture_id,)
+        ).fetchone()
+        return r["n"]
+
     # pages
 
     def page_seen(self, key: PageKey) -> bool:
