@@ -177,3 +177,16 @@ test("a field's error goes when the person edits it", async () => {
   fireEvent.input(input, { target: { value: "31" } });
   await waitFor(() => expect(screen.queryByText("retention_days must be 0 or more")).toBeNull());
 });
+
+test("the retention preview does not come back after a tab round trip", async () => {
+  const { rerender } = render(<Settings tab="retention" />);
+  const input = await screen.findByLabelText("Keep audio for (days)");
+  fireEvent.input(input, { target: { value: "30" } });
+  expect(screen.getByText(/deleted 30 days/)).toBeTruthy();
+  rerender(<Settings tab="pendant" />);
+  await screen.findByLabelText("Pendant address");
+  rerender(<Settings tab="retention" />);
+  await screen.findByLabelText("Keep audio for (days)");
+  expect(screen.getByText(/deleted 14 days/)).toBeTruthy();
+  expect((screen.getByLabelText("Keep audio for (days)") as HTMLInputElement).value).toBe("14");
+});

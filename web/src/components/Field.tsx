@@ -14,12 +14,14 @@ interface Props {
   onInput?: (text: string) => void;
   /** Called on every keystroke, so a message about the previous value can go. */
   onEdit?: () => void;
+  /** Called when the field leaves the page (a tab switch), so state kept for it can go. */
+  onGone?: () => void;
 }
 
 const DEBOUNCE_MS = 300;
 
 /** A labelled field that saves one value; the typed text stays until a save succeeds or the saved value changes. */
-export function Field({ name, label, value, help, error, number, onCommit, onInput, onEdit }: Props) {
+export function Field({ name, label, value, help, error, number, onCommit, onInput, onEdit, onGone }: Props) {
   const [text, setText] = useState(value);
   const last = useRef(value);
   const timer = useRef<number | undefined>(undefined);
@@ -33,7 +35,9 @@ export function Field({ name, label, value, help, error, number, onCommit, onInp
     typed.current = value;
     last.current = value;
   }, [value]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const gone = useRef(onGone);
+  gone.current = onGone;
+  useEffect(() => () => { window.clearTimeout(timer.current); gone.current?.(); }, []);
 
   const commit = (t: string) => {
     window.clearTimeout(timer.current);
