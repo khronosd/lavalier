@@ -215,13 +215,14 @@ at the next one. Quit the desktop app too, or it may reconnect when opened.
 
 ## Retention
 
-Audio is deleted after 14 days by default; transcripts and day files stay.
+Audio is deleted after 14 days by default (checked after every processing run
+and once a day by the background app); transcripts and day files stay.
 Starred, pinned and failed clips are kept.
 
 ## The window
 
 `lavalier window` opens a native window on the background app. It shows the
-Journal (days and conversations), the Transcript for a conversation, Search,
+Journal (days and conversations), the Transcript for a day, Search,
 Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights and Connectors are placeholders in this release.
 
 - It needs the background app. If the app is not running it prints how to start
