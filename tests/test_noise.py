@@ -46,3 +46,16 @@ def test_thresholds_are_inclusive_or_exclusive_as_specified(cfg, clip_at):
     # avg_logprob == -0.8 is not greater than the threshold
     assert classify(clip_at(mean_db=-27.2), _t(-0.8, [0.9, 0.9]), cfg) == "noise"
     assert classify(clip_at(mean_db=-27.2), _t(-0.79, [0.9, 0.9]), cfg) == "speech"
+
+
+def test_unknown_confidence_cannot_vouch_for_speech(cfg, clip_at):
+    t = Transcript("a b", "en", "m", [Segment(0, 1, "a b", None, None, [Word(0, 0, "a", None), Word(0, 0, "b", None)])])
+    assert classify(clip_at(mean_db=-27.2), t, cfg) == "noise"
+
+
+def test_unknown_segment_does_not_sink_a_confident_clip(cfg, clip_at):
+    t = Transcript("a b c", "en", "m", [
+        Segment(0, 1, "a", None, None, [Word(0, 0, "a", None)]),
+        Segment(1, 2, "b c", -0.1, 0.0, [Word(0, 0, "b", 0.9), Word(0, 0, "c", 0.9)]),
+    ])
+    assert classify(clip_at(mean_db=-27.2), t, cfg) == "speech"

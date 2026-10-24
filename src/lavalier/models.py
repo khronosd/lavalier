@@ -42,7 +42,7 @@ class Word:
     start_s: float
     end_s: float
     word: str
-    probability: float
+    probability: Optional[float]  # None when whisper reported NaN
 
 
 @dataclass
@@ -50,8 +50,8 @@ class Segment:
     start_s: float
     end_s: float
     text: str
-    avg_logprob: float
-    no_speech_prob: float
+    avg_logprob: Optional[float]  # None when whisper reported NaN
+    no_speech_prob: Optional[float]
     words: list[Word]
 
 

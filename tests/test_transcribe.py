@@ -48,3 +48,15 @@ def test_mlx_unavailable_until_the_model_is_in_the_hf_hub_cache(monkeypatch, tmp
     assert "org/model is not cached" in tr.unavailable_reason()
     (tmp_path / "models--org--model").mkdir()
     assert tr.unavailable_reason() is None
+
+
+def test_mlx_nan_confidence_becomes_unknown(monkeypatch, tmp_path):
+    # mlx_whisper 0.4.3 reports NaN for a window whose log-probabilities collapsed; sqlite would
+    # store it as NULL, so the transcriber hands it over as "unknown" explicitly.
+    nan = float("nan")
+    fake = {"text": " hi", "language": "en", "segments": [{"start": 0.0, "end": 1.0, "text": " hi",
+            "avg_logprob": nan, "no_speech_prob": nan, "words": [{"start": 0.0, "end": 1.0, "word": " hi", "probability": nan}]}]}
+    monkeypatch.setattr("lavalier.transcribe.mlx_whisper.transcribe", lambda *a, **k: fake)
+    t = MlxWhisperTranscriber("m", "en").transcribe(tmp_path / "x.wav")
+    s = t.segments[0]
+    assert s.avg_logprob is None and s.no_speech_prob is None and s.words[0].probability is None

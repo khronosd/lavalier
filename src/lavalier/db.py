@@ -150,7 +150,42 @@ def _migrate_2(c: sqlite3.Connection) -> None:
 
 
 # Numbered, applied in order (the status table is bootstrapped by migrate()); the status row "schema_version" records the last applied.
-MIGRATIONS = [_migrate_1, _migrate_2]
+def _migrate_3(c: sqlite3.Connection) -> None:
+    """Whisper confidence may be unknown (NaN from mlx_whisper); store it as NULL instead of failing the clip."""
+    _run_script(
+        c,
+        """
+        ALTER TABLE segments RENAME TO segments_v2;
+        CREATE TABLE segments (
+            clip_id TEXT NOT NULL REFERENCES clips(clip_id),
+            seq INTEGER NOT NULL,
+            start_s REAL NOT NULL,
+            end_s REAL NOT NULL,
+            text TEXT NOT NULL,
+            avg_logprob REAL,
+            no_speech_prob REAL,
+            PRIMARY KEY (clip_id, seq)
+        );
+        INSERT INTO segments SELECT clip_id, seq, start_s, end_s, text, avg_logprob, no_speech_prob FROM segments_v2;
+        DROP TABLE segments_v2;
+        ALTER TABLE words RENAME TO words_v2;
+        CREATE TABLE words (
+            clip_id TEXT NOT NULL,
+            segment_seq INTEGER NOT NULL,
+            seq INTEGER NOT NULL,
+            start_s REAL NOT NULL,
+            end_s REAL NOT NULL,
+            word TEXT NOT NULL,
+            probability REAL,
+            PRIMARY KEY (clip_id, segment_seq, seq)
+        );
+        INSERT INTO words SELECT clip_id, segment_seq, seq, start_s, end_s, word, probability FROM words_v2;
+        DROP TABLE words_v2;
+        """,
+    )
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "

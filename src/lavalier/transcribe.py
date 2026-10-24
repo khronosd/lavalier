@@ -1,5 +1,6 @@
 """Local speech-to-text: mlx-whisper wrapper, a test fake, and the pending-clip runner."""
 import logging
+import math
 import os
 import tempfile
 import time
@@ -34,6 +35,12 @@ class Transcriber(Protocol):
         ...
 
 
+def _known(x: Optional[float]) -> Optional[float]:
+    """mlx_whisper reports NaN when a decoding window's log-probabilities collapsed; sqlite would
+    store NaN as NULL anyway, so pass it on as None and let readers treat it as unknown."""
+    return None if x is None or math.isnan(x) else float(x)
+
+
 class MlxWhisperTranscriber:
     def __init__(self, model: str, language: str):
         self.model = model
@@ -52,9 +59,9 @@ class MlxWhisperTranscriber:
         segments = [
             Segment(
                 start_s=s["start"], end_s=s["end"], text=s["text"],
-                avg_logprob=s["avg_logprob"], no_speech_prob=s["no_speech_prob"],
+                avg_logprob=_known(s["avg_logprob"]), no_speech_prob=_known(s["no_speech_prob"]),
                 words=[
-                    Word(start_s=w["start"], end_s=w["end"], word=w["word"], probability=w["probability"])
+                    Word(start_s=w["start"], end_s=w["end"], word=w["word"], probability=_known(w["probability"]))
                     for w in s.get("words", [])
                 ],
             )

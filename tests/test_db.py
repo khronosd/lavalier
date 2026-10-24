@@ -234,3 +234,31 @@ def test_a_failing_migration_leaves_no_trace(root, monkeypatch):
         assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS) - 1)
         tables = {r[0] for r in d._conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert "half_done" not in tables and "clips" in tables
+
+
+def test_unknown_confidence_round_trips_as_null(db, clip_record):
+    t = Transcript("hi", "en", "m", [Segment(0.0, 1.0, "hi", None, None, [Word(0.0, 1.0, "hi", None)])])
+    db.add_clip(clip_record)
+    db.set_transcript(clip_record.clip_id, t, "noise", 1)
+    assert db.transcript(clip_record.clip_id) == t
+
+
+def test_migration_3_relaxes_confidence_not_null_and_keeps_rows(root, monkeypatch):
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS[:2])
+    with Database(root.db) as d:
+        d.migrate()
+        d._conn.execute("INSERT INTO segments (clip_id, seq, start_s, end_s, text, avg_logprob, no_speech_prob) "
+                        "VALUES ('c1', 0, 0.0, 1.0, 'hi', -0.3, 0.1)")
+        d._conn.execute("INSERT INTO words (clip_id, segment_seq, seq, start_s, end_s, word, probability) "
+                        "VALUES ('c1', 0, 0, 0.0, 1.0, 'hi', 0.9)")
+        d._conn.commit()
+        monkeypatch.undo()
+        d.migrate()
+        assert d.get_status("schema_version") == "3"
+        assert tuple(d._conn.execute("SELECT avg_logprob, no_speech_prob FROM segments").fetchone()) == (-0.3, 0.1)
+        assert tuple(d._conn.execute("SELECT probability FROM words").fetchone()) == (0.9,)
+        d._conn.execute("INSERT INTO segments (clip_id, seq, start_s, end_s, text, avg_logprob, no_speech_prob) "
+                        "VALUES ('c1', 1, 1.0, 2.0, 'x', NULL, NULL)")
+        d._conn.execute("INSERT INTO words (clip_id, segment_seq, seq, start_s, end_s, word, probability) "
+                        "VALUES ('c1', 1, 0, 1.0, 2.0, 'x', NULL)")
