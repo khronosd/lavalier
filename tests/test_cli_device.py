@@ -1,6 +1,12 @@
+from datetime import datetime
+
+import pytest
+
 from fake_pendant import FakePendant
 from lavalier import cli
 from lavalier.device import DeviceError
+
+_T = datetime.fromtimestamp(1792821367.981).strftime("%Y-%m-%d %H:%M")  # local time, as status prints it
 
 
 def test_sync_dry_run_prints_the_decision(cli_env, monkeypatch):
@@ -103,8 +109,9 @@ def test_device_error_is_reported_once_without_retry(cli_env, monkeypatch):
 
 def test_status_shows_pending_unmute(cli_env, db_at_root):
     db_at_root.set_status("unmute_pending_since_ms", "1792821367981")
-    assert "Unmute pending since" in cli_env.invoke(["status"]).output
-    assert "run 'lavalier unmute' or hold the button" in cli_env.invoke(["status"]).output
+    out = cli_env.invoke(["status"]).output
+    assert "Pendant muted by the recorder, unmute pending since " + _T in out
+    assert "run 'lavalier unmute' or hold the button" in out
 
 
 def test_status_shows_the_last_sync(cli_env, monkeypatch):
@@ -122,3 +129,37 @@ def test_owner_mute_clears_the_recorder_markers(cli_env, monkeypatch, db_at_root
     assert db_at_root.get_status("muted_by_owner_since_ms")
     assert db_at_root.get_status("unmute_pending_since_ms") is None
     assert db_at_root.get_status("muted_by_recorder_since_ms") is None
+
+
+# --- final review fixes: who muted the pendant (C1, I2) ---
+
+def _record(db, state, *, partial=False):
+    from lavalier.models import DeviceSnapshot
+    db.record_device_status(DeviceSnapshot(1792821367981, not partial, state, 0, 9, 90, -10, "USB_DISCONNECTED", "1.1.3", 7),
+                            source="sync", charger_signal="none")
+
+
+def test_status_shows_a_recorder_mute_marker(cli_env, db_at_root):
+    db_at_root.set_status("muted_by_recorder_since_ms", "1792821367981")
+    out = cli_env.invoke(["status"]).output
+    assert "Pendant muted by the recorder since " + _T in out and "unmute pending" not in out
+
+
+def test_status_prefers_the_pending_line_when_both_recorder_keys_are_set(cli_env, db_at_root):
+    db_at_root.set_status("muted_by_recorder_since_ms", "1792821367981")
+    db_at_root.set_status("unmute_pending_since_ms", "1792821367981")
+    out = cli_env.invoke(["status"]).output
+    assert out.count("Pendant muted by the recorder") == 1 and "unmute pending since " + _T in out
+
+
+def test_status_says_muted_by_you(cli_env, db_at_root):
+    db_at_root.set_status("muted_by_owner_since_ms", "1792821367981")
+    _record(db_at_root, "NOT_RECORDING")
+    assert "Pendant muted by you since " + _T in cli_env.invoke(["status"]).output
+
+
+@pytest.mark.parametrize("state,partial", [("LISTENING", False), ("NOT_RECORDING", True)])
+def test_status_does_not_say_muted_by_you_unless_the_last_full_read_is_not_recording(cli_env, db_at_root, state, partial):
+    db_at_root.set_status("muted_by_owner_since_ms", "1792821367981")
+    _record(db_at_root, state, partial=partial)
+    assert "muted by you" not in cli_env.invoke(["status"]).output

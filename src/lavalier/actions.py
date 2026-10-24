@@ -18,7 +18,7 @@ from lavalier.models import DeviceSnapshot
 from lavalier.paths import Paths
 from lavalier.pipeline import ProcessReport, status_summary
 from lavalier.probe import read_status
-from lavalier.sync import MUTED_SINCE, UNMUTE_PENDING, SyncReport, after_sync
+from lavalier.sync import MUTED_SINCE, UNMUTE_PENDING, SyncReport, after_sync, brought_audio
 from lavalier.transcribe import Transcriber
 
 ADDRESS_MISSING = "set pendant_address in config.toml"
@@ -119,7 +119,7 @@ async def status_live(db: Database, paths: Paths, cfg: Config, pendant_factory: 
 def process_after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport,
                        make_transcriber: Callable[[], Transcriber], *, now_ms: int) -> Optional[ProcessReport]:
     """Process what a sync brought in (any outcome) and record it as the last process."""
-    if report.capture is None:
+    if not brought_audio(report):
         return None
     processed = after_sync(db, paths, cfg, report, make_transcriber(), now_ms=now_ms)
     if processed is not None:

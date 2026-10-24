@@ -1,5 +1,6 @@
 """Capture sink: every payload is on disk before the next one is requested (and so before the ack)."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,14 @@ from google.protobuf.message import DecodeError
 from pendant_client.decode import BatchIngestWriter, storage_page_of
 
 from lavalier.paths import Paths
+
+# the name every sink gives its file; an import installs a copy under another name
+SINK_NAME = re.compile(r"^\d{8}T\d{6}Z\.bin$")
+_OPEN: set[Path] = set()  # sinks of this process still being written
+
+
+def open_sink_paths() -> frozenset[Path]:
+    return frozenset(_OPEN)
 
 
 @dataclass(frozen=True)
@@ -37,6 +46,7 @@ class CaptureSink:
         if self._writer is None:
             self._writer = BatchIngestWriter(
                 self.path, ble_identifier=self._ble_identifier, fsync_every=self._fsync_every)
+            _OPEN.add(self.path)
         self._writer.add(payload)
         self._messages += 1
         try:
@@ -52,5 +62,8 @@ class CaptureSink:
     def close(self, *, complete: bool) -> Optional[CaptureFile]:
         if self._writer is None:
             return None
-        self._writer.close()
+        try:
+            self._writer.close()
+        finally:
+            _OPEN.discard(self.path)
         return CaptureFile(self.path, self._messages, self._pages, self._first, self._last, complete)

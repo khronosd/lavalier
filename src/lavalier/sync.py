@@ -21,7 +21,7 @@ from lavalier.device import DeviceError, LinkDropped, Pendant, PendantNotInRange
 from lavalier.lock import LockHeld, SyncLock
 from lavalier.models import DeviceSnapshot
 from lavalier.paths import Paths
-from lavalier.pipeline import ProcessReport, import_and_decode, process
+from lavalier.pipeline import ProcessReport, import_and_decode, process, sweep_orphan_captures
 from lavalier.transcribe import Transcriber
 
 UNMUTE_PENDING_MAX_MS = 30 * 60 * 1000
@@ -50,6 +50,7 @@ class SyncReport:
     status: Optional[DeviceSnapshot] = None
     charger_signal: str = "none"
     error: Optional[str] = None
+    orphans: int = 0                    # stranded captures imported before connecting
 
     def to_json_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -155,9 +156,19 @@ class _Run:
 
     # step 4
     async def retry_pending_unmute(self) -> None:
-        since = _int_status(self.db, UNMUTE_PENDING)
         snap = self.report.status
-        if since is None or not snap.has_all_fields:
+        if not snap.has_all_fields:
+            return
+        since = _int_status(self.db, UNMUTE_PENDING)
+        marker = _int_status(self.db, MUTED_SINCE)
+        if since is None and marker is not None and snap.recording_state == "NOT_RECORDING":
+            # the poll clears the marker on any full LISTENING/RECORDING read, so a marker that
+            # survives to here was left by a session that died between its mute and its restore:
+            # the mute is the recorder's, and the 30-minute window counts from the mute itself
+            self.log.warning("recorder mute since %s was never restored; unmute pending", _iso(marker))
+            self.db.set_status(UNMUTE_PENDING, str(marker))
+            since = marker
+        if since is None:
             return
         if self.now_ms() - since >= UNMUTE_PENDING_MAX_MS:
             self.suffixes.append(f"unmute pending since {_iso(since)}")
@@ -316,15 +327,28 @@ async def run_sync(db: Database, paths: Paths, cfg: Config, pendant: Pendant, *,
             report.outcome, report.reason = "locked", str(e)
             return report
         try:
+            _sweep_orphans(run)
             await _connected(run, dry_run)
         finally:
             lock.release()
+    except asyncio.CancelledError:  # shutdown or a cancelled caller: the restore already ran as it unwound
+        run.add_error("cancelled")
+        raise
     except Exception as e:  # 11. anything unexpected: report it, never retry
         log.exception("sync failed")
         report.outcome, report.error = "error", str(e)
     finally:
         run.finish(run_id)
     return report
+
+
+def _sweep_orphans(run: _Run) -> None:
+    """Import what an earlier drain left in captures/ without importing it (cancelled, killed, or a
+    failed close). Under the lock, so no other drain is writing; never stops the sync."""
+    try:
+        run.report.orphans = len(sweep_orphan_captures(run.db, run.paths, min_age_s=0))
+    except Exception:
+        run.log.exception("orphan capture sweep failed")
 
 
 async def _connected(run: _Run, dry_run: bool) -> None:
@@ -384,9 +408,13 @@ async def _mute_drain_restore(run: _Run) -> None:
         await run.restore()
 
 
+def brought_audio(report: SyncReport) -> bool:
+    return report.capture is not None or report.orphans > 0
+
+
 def after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport, transcriber: Transcriber, *,
                now_ms: int) -> Optional[ProcessReport]:
-    """Process what a sync brought in, whatever its outcome; no capture means nothing came in."""
-    if report.capture is None:
+    """Process what a sync brought in, whatever its outcome; no capture and no orphan means nothing came in."""
+    if not brought_audio(report):
         return None
     return process(db, paths, cfg, transcriber, now_ms=now_ms)

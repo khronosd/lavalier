@@ -1,11 +1,14 @@
 """Chain the stages: loudness, transcription, day files, retention."""
 
+import hashlib
 import logging
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from lavalier import noise
+from lavalier.capture import SINK_NAME, open_sink_paths
 from lavalier.audio import ffmpeg_available, measure_loudness
 from lavalier.clips import decode_new_pages
 from lavalier.config import Config
@@ -101,6 +104,44 @@ def import_and_decode(
     return imp, clips
 
 
+ORPHAN_MIN_AGE_S = 60
+
+
+def sweep_orphan_captures(db: Database, paths: Paths, *, min_age_s: float = ORPHAN_MIN_AGE_S,
+                          now_s=time.time) -> list[ImportResult]:
+    """Import every sink file in captures/ that no captures row knows: what a drain wrote before it
+    was cancelled, killed, or failed to close. The pendant already deleted those pages, so this is
+    their only copy. Skips a sink this process still writes and any file modified within min_age_s
+    (another process's live drain). Idempotent by sha: a sink left behind after its import committed
+    is removed, its installed copy being canonical."""
+    latest = db.latest_device_status()
+    storage_instance = latest[0].storage_instance if latest is not None else 0
+    open_now = open_sink_paths()
+    results: list[ImportResult] = []
+    for f in sorted(paths.captures.glob("*.bin")) if paths.captures.exists() else []:
+        if not SINK_NAME.match(f.name) or f in open_now:
+            continue
+        try:
+            st = f.stat()
+            if now_s() - st.st_mtime < min_age_s:
+                continue
+            known = db.capture_by_sha(hashlib.sha256(f.read_bytes()).hexdigest())
+            if known is not None:
+                if paths.root / db.capture_path(known) != f:
+                    f.unlink(missing_ok=True)
+                continue
+            imp, _ = import_and_decode(db, paths, f, complete=False,
+                                       capture_day=datetime.fromtimestamp(st.st_mtime).date(),
+                                       storage_instance=storage_instance)
+            if paths.root / imp.path != f:
+                f.unlink(missing_ok=True)
+            log.warning("imported orphan capture %s: %d new pages", f.name, imp.pages_new)
+            results.append(imp)
+        except Exception:
+            log.exception("orphan capture %s could not be imported; left in place", f.name)
+    return results
+
+
 def import_and_process(
     db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, src: Path,
     *, now_ms: int, capture_day: date, complete: bool = True,
@@ -148,7 +189,9 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
         device = {**asdict(snap), "pages_waiting": snap.pages_waiting, "source": source,
                   "charger_signal": charger_signal, "age_s": max(0, (now_ms - snap.read_at_ms) // 1000)}
     last_sync = db.last_sync_run()
-    unmute_pending = db.get_status("unmute_pending_since_ms")
+    def _ms(key: str):
+        v = db.get_status(key)
+        return int(v) if v else None
     return {
         "days_with_clips": [d.isoformat() for d in days],
         "pending_transcripts": pending,
@@ -163,5 +206,7 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
         "last_process": last_process,
         "device": device,
         "last_sync": asdict(last_sync) if last_sync is not None else None,
-        "unmute_pending_since_ms": int(unmute_pending) if unmute_pending else None,
+        "unmute_pending_since_ms": _ms("unmute_pending_since_ms"),
+        "muted_by_recorder_since_ms": _ms("muted_by_recorder_since_ms"),
+        "muted_by_owner_since_ms": _ms("muted_by_owner_since_ms"),
     }

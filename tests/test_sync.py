@@ -1,6 +1,7 @@
 import hashlib
 import logging
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -460,3 +461,162 @@ async def test_sink_close_failure_does_not_hide_the_drain_error(sync_env, db, st
     r = await sync_env(p)
     assert r.outcome == "error" and r.error == "capture close failed: close failed" and r.unmute == "pending"
     assert len(list((sync_env.root / "captures").iterdir())) == 1  # left on disk, never deleted
+
+
+# --- final review fixes: a recorder mute that outlived its process (C1) and its attribution (I2) ---
+
+MIN = 60 * 1000
+
+
+async def test_recorder_mute_left_by_a_dead_process_is_retried_on_the_next_poll(sync_env, db, storage_payloads, monkeypatch):
+    from lavalier.sync import _Run
+    async def died_before_restore(self):  # the process went between the mute and the restore
+        return None
+    monkeypatch.setattr(_Run, "restore", died_before_restore)
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    await sync_env(p)
+    assert p.state == "NOT_RECORDING" and "start" not in p.log
+    assert db.get_status("muted_by_recorder_since_ms") == "1000000" and db.get_status("unmute_pending_since_ms") is None
+    monkeypatch.undo()
+    sync_env.clock = 1_000_000 + 5 * MIN
+    p2 = FakePendant(state="NOT_RECORDING", pages=(0, 9))
+    r = await sync_env(p2)
+    assert p2.log.count("start") == 1 and r.unmute == "retried"
+    assert db.get_status("muted_by_recorder_since_ms") is None and db.get_status("unmute_pending_since_ms") is None
+
+
+async def test_seeded_recorder_marker_is_retried_once_when_young(sync_env, db):
+    db.set_status("muted_by_recorder_since_ms", str(sync_env.clock - 5 * MIN))
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 9))
+    r = await sync_env(p)
+    assert _commands(p)[4:6] == ["start", "status"] and p.log.count("start") == 1 and r.unmute == "retried"
+    assert db.get_status("muted_by_recorder_since_ms") is None and db.get_status("unmute_pending_since_ms") is None
+
+
+async def test_seeded_recorder_marker_older_than_30_minutes_is_left_and_shown(sync_env, db, root, cfg):
+    from lavalier.pipeline import status_summary
+    marker = sync_env.clock
+    db.set_status("muted_by_recorder_since_ms", str(marker))
+    sync_env.clock = marker + 31 * MIN
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 9))
+    r = await sync_env(p)
+    assert "start" not in p.log and "unmute pending since" in r.reason
+    assert db.get_status("muted_by_recorder_since_ms") == str(marker)
+    assert db.get_status("unmute_pending_since_ms") == str(marker)  # the window counts from the mute itself
+    s = status_summary(db, root, cfg, now_ms=sync_env.clock)
+    assert s["muted_by_recorder_since_ms"] == marker and s["unmute_pending_since_ms"] == marker
+
+
+async def test_recorder_marker_never_promoted_on_partial_status(sync_env, db):
+    db.set_status("muted_by_recorder_since_ms", str(sync_env.clock - 5 * MIN))
+    p = FakePendant(partial=True, pages=(0, 9))
+    await sync_env(p)
+    assert "start" not in p.log and db.get_status("unmute_pending_since_ms") is None
+
+
+# --- final review fixes: a cancelled drain strands acked pages (C2) ---
+
+class _SlowDrain(FakePendant):
+    async def drain(self, *, idle_s):
+        import asyncio
+        async for m in super().drain(idle_s=idle_s):
+            await asyncio.sleep(0.02)
+            yield m
+
+
+def _count(db, table):
+    return db._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+async def test_cancelled_drain_is_recorded_and_its_pages_are_swept_on_the_next_poll(sync_env, db):
+    import asyncio
+    msgs = [make_storage_buffer_msg(page_index=i, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39),
+                                    ingest_type=2, session=1, run=1) for i in range(10, 20)]
+    p = _SlowDrain(pages=(0, 1500), messages=msgs)
+    t = asyncio.create_task(sync_env(p))
+    await asyncio.sleep(0.1)
+    t.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await t
+    assert p.acked and "start" in p.log                       # pages are gone from the pendant; restored
+    run = db.last_sync_run()
+    assert (run.outcome, run.error) == ("error", "cancelled")
+    stranded = list((sync_env.root / "captures").iterdir())
+    assert len(stranded) == 1 and _count(db, "captures") == 0 and _count(db, "pages") == 0
+
+    r = await sync_env(FakePendant(in_range=False))           # the next poll, pendant out of range
+    assert r.outcome == "not-in-range" and r.orphans == 1
+    assert _count(db, "pages") >= len(p.acked) and _count(db, "captures") == 1
+    files = list((sync_env.root / "captures").iterdir())
+    assert len(files) == 1 and files[0] != stranded[0]          # only the installed canonical copy
+    assert db.capture_by_sha(hashlib.sha256(files[0].read_bytes()).hexdigest()) is not None
+
+
+async def test_cancel_after_an_earlier_error_keeps_both(sync_env, db, storage_payloads):
+    import asyncio
+    class Hang(FakePendant):
+        async def start_recording(self):
+            await asyncio.sleep(10)
+    p = Hang(pages=(0, 999), messages=storage_payloads, fail_on={"status#2": DeviceError("timeout")})
+    t = asyncio.create_task(sync_env(p))
+    await asyncio.sleep(0.05)
+    t.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await t
+    assert db.last_sync_run().error == "timeout; cancelled"
+
+
+def test_sweep_imports_an_orphan_and_removes_the_sink_copy(root, db, make_capture):
+    import os
+    from lavalier.pipeline import sweep_orphan_captures
+    src = make_capture([1, 2, 3])
+    orphan = root.captures / "20261024T055640Z.bin"
+    orphan.write_bytes(src.read_bytes())
+    os.utime(orphan, (orphan.stat().st_atime, orphan.stat().st_mtime - 120))
+    got = sweep_orphan_captures(db, root)
+    assert [g.pages_new for g in got] == [3] and not orphan.exists()
+    assert [p.name for p in root.captures.iterdir()] == [Path(got[0].path).name]
+    assert sweep_orphan_captures(db, root) == []                 # idempotent
+
+
+def test_sweep_skips_young_files_open_sinks_and_other_names(root, db, make_capture):
+    import os
+    from lavalier.capture import CaptureSink
+    from lavalier.pipeline import sweep_orphan_captures
+    data = make_capture([1, 2]).read_bytes()
+    young = root.captures / "20261024T055640Z.bin"
+    young.write_bytes(data)
+    other = root.captures / "mine.bin"
+    other.write_bytes(data)
+    os.utime(other, (0, 0))
+    assert sweep_orphan_captures(db, root) == [] and young.exists() and other.exists()
+    sink = CaptureSink(root, ble_identifier="x", fsync_every=100, started_ms=1_792_900_000_000)
+    sink.add(storage_payloads_one())
+    os.utime(sink.path, (0, 0))
+    try:
+        assert sweep_orphan_captures(db, root, min_age_s=0) and sink.path.exists()   # only `young`
+        assert db.capture_by_sha(hashlib.sha256(sink.path.read_bytes()).hexdigest()) is None
+    finally:
+        sink.close(complete=False)
+
+
+def test_sweep_removes_a_sink_left_after_its_import_committed(root, db, make_capture):
+    from lavalier.pipeline import import_and_decode, sweep_orphan_captures
+    from datetime import date
+    leftover = root.captures / "20261024T055640Z.bin"
+    leftover.write_bytes(make_capture([1, 2]).read_bytes())
+    imp, _ = import_and_decode(db, root, leftover, capture_day=date(2026, 10, 24))
+    assert sweep_orphan_captures(db, root, min_age_s=0) == []
+    assert not leftover.exists() and (root.root / imp.path).exists()
+
+
+def storage_payloads_one():
+    return make_storage_buffer_msg(page_index=1, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39),
+                                   ingest_type=2, session=1, run=1)
+
+
+async def test_swept_orphans_are_processed_after_the_sync(sync_env, db, root, cfg, make_capture):
+    (root.captures / "20261024T055640Z.bin").write_bytes(make_capture([1, 2]).read_bytes())
+    r = await sync_env(FakePendant(pages=(0, 9)))
+    assert r.outcome == "skipped" and r.orphans == 1 and r.capture is None
+    assert after_sync(db, root, cfg, r, FakeTranscriber({}, unavailable="test"), now_ms=0) is not None

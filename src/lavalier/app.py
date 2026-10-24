@@ -21,7 +21,7 @@ from lavalier.lock import SyncLock
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import ProcessReport, status_summary
 from lavalier.server import AppStopping, ControlServer
-from lavalier.sync import SyncReport, run_sync
+from lavalier.sync import SyncReport, brought_audio, run_sync
 from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
 
 ACTIONS = ("sync", "mute", "unmute", "status-live")
@@ -123,7 +123,7 @@ class App:
     async def _process_capture(self, report: SyncReport) -> Optional[ProcessReport]:
         """Process what came in, whatever the outcome. No device involved, so the device lock is
         free meanwhile; the process lock keeps two processing runs from overlapping."""
-        if report.capture is None:
+        if not brought_audio(report):
             return None
         processed = None
         async with self._process_lock:

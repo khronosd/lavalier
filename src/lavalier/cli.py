@@ -24,6 +24,7 @@ from lavalier.lock import LockHeld, SyncLock
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import (
     ProcessReport, import_and_decode, process, refresh_day, retry_failed, status_summary,
+    sweep_orphan_captures,
 )
 from lavalier.retention import sweep
 from lavalier.sync import run_sync
@@ -140,6 +141,8 @@ def _sync_line(r: dict, paths: Paths) -> str:
         line += "; " + ", ".join(extra)
     if r["error"]:
         line += f"; error: {r['error']}"
+    if r.get("orphans"):
+        line += f"; {r['orphans']} stranded capture(s) imported"
     return line
 
 
@@ -149,20 +152,33 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
+def _import_line(name: str, result) -> str:
+    return (f"{name}: {result.messages} messages, "
+            f"{result.pages_new} new pages, {result.pages_duplicate} duplicates")
+
+
 @main.command("import")
-@click.argument("capture", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("capture", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--incomplete", is_flag=True, help="Mark the capture as incomplete (the link dropped).")
+@click.option("--orphans", is_flag=True,
+              help="Import the captures a cancelled or killed drain left in captures/ (as incomplete).")
 @click.option("--process", "run_process", is_flag=True, help="Decode and process after importing.")
-def import_cmd(capture: Path, incomplete: bool, run_process: bool) -> None:
+def import_cmd(capture: Optional[Path], incomplete: bool, orphans: bool, run_process: bool) -> None:
     """Register a capture .bin and record its pages."""
+    if capture is None and not orphans:
+        raise click.UsageError("give a capture file, or --orphans")
     paths, cfg, db = _setup()
-    capture_day = datetime.fromtimestamp(capture.stat().st_mtime).date()
     with db:
-        result, _ = import_and_decode(db, paths, capture, complete=not incomplete, capture_day=capture_day)
-        click.echo(
-            f"Imported {capture.name}: {result.messages} messages, "
-            f"{result.pages_new} new pages, {result.pages_duplicate} duplicates"
-        )
+        if capture is not None:
+            capture_day = datetime.fromtimestamp(capture.stat().st_mtime).date()
+            result, _ = import_and_decode(db, paths, capture, complete=not incomplete, capture_day=capture_day)
+            click.echo(f"Imported {_import_line(capture.name, result)}")
+        if orphans:
+            found = sweep_orphan_captures(db, paths)
+            for result in found:
+                click.echo(f"Imported orphan {_import_line(Path(result.path).name.split('-', 1)[1], result)}")
+            if not found:
+                click.echo("No orphan captures")
         if run_process:
             _run_process(db, paths, cfg)
 
@@ -207,8 +223,13 @@ def _echo_summary(s: dict) -> None:
             f"Pendant: {state} as of {d['age_s'] // 60} min ago ({d['source']}); battery {d['soc']}%, "
             f"{d['pages_waiting']} pages waiting, charger: {d['charger_signal']}, firmware {d['firmware_ver']}")
     if s["unmute_pending_since_ms"] is not None:
-        click.echo(f"Unmute pending since {_local_time(s['unmute_pending_since_ms'])}: "
+        click.echo(f"Pendant muted by the recorder, unmute pending since {_local_time(s['unmute_pending_since_ms'])}: "
                    "run 'lavalier unmute' or hold the button")
+    elif s.get("muted_by_recorder_since_ms") is not None:
+        click.echo(f"Pendant muted by the recorder since {_local_time(s['muted_by_recorder_since_ms'])}")
+    if s.get("muted_by_owner_since_ms") is not None and d is not None and d["has_all_fields"] \
+            and d["recording_state"] == "NOT_RECORDING":
+        click.echo(f"Pendant muted by you since {_local_time(s['muted_by_owner_since_ms'])}")
     ls = s["last_sync"]
     if ls is not None:
         click.echo(f"Last sync: {_local_time(ls['ended_ms'] or ls['started_ms'])} {ls['outcome']} ({ls['reason']})")
