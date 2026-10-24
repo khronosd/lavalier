@@ -64,3 +64,18 @@ def test_measure_loudness_isolates_a_corrupt_clip(root, db, clip_record, opus_cl
     assert db.days_dirty() == [bad.day]
     assert db.clip(clip_record.clip_id).mean_db is not None
     assert measure_loudness(db, root) == 0  # the failed clip is not retried
+
+
+def test_measure_loudness_without_ffmpeg_aborts_the_stage(root, db, clip_record, monkeypatch):
+    f = root.root / clip_record.path
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    db.add_clip(clip_record)
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory", "ffmpeg")
+
+    monkeypatch.setattr("pendant_recorder.audio.subprocess.run", missing)
+    with pytest.raises(AudioToolError, match="ffmpeg not found"):
+        measure_loudness(db, root)
+    assert db.clip(clip_record.clip_id).classification is None

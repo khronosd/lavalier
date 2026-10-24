@@ -51,6 +51,9 @@ def measure_loudness(db: Database, paths: Paths) -> int:
             continue
         try:
             mean_db, peak_db = loudness(f)
+        except FileNotFoundError as e:
+            # the binary is missing: abort the stage, leave every clip pending
+            raise AudioToolError("ffmpeg not found") from e
         except AudioToolError:
             log.exception("loudness failed for %s; marking it failed", clip.clip_id)
             with db.transaction():

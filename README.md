@@ -34,11 +34,12 @@ once to fetch the speech model.
 ## Commands
 
 - `doctor [--download-model]`: check Python, ffmpeg, the state root and the cached model (exits 1 if a check fails); optionally fetch the model.
-- `status`: print days with clips, pending transcripts, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts and the last process report.
+- `status`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts and the last process report.
 - `import <bin> [--incomplete] [--process]`: import a capture file; `--incomplete` accepts a partial capture, `--process` runs the pipeline after.
-- `process`: decode, transcribe, group and write day files for anything pending.
+- `process`: measure loudness, transcribe, group and write day files for anything pending. Without ffmpeg or the cached model it skips those stages and leaves clips pending.
 - `day <YYYY-MM-DD> [--open] [--keep-noise]`: print that day's Markdown; `--open` writes the file and opens it; `--keep-noise` appends dropped noise clips (print mode only).
 - `pin <conversation-id>` / `unpin <conversation-id>`: keep that conversation's audio for good, or release it.
+- `retry-failed`: put failed clips back in the queue; the next `process` retries them.
 - `retention --now`: apply the retention policy immediately (`--now` is required).
 
 ## State root

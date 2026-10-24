@@ -345,6 +345,18 @@ class Database:
         with self._write_scope():
             self._conn.execute("UPDATE clips SET classification = ? WHERE clip_id = ?", (classification, clip_id))
 
+    def reset_failed_clips(self) -> int:
+        """Return failed clips to the loudness and transcription queues."""
+        with self._write_scope():
+            cur = self._conn.execute(
+                "UPDATE clips SET classification = NULL, transcribed_at = NULL, mean_db = NULL, peak_db = NULL "
+                "WHERE classification = 'failed'"
+            )
+        return cur.rowcount
+
+    def count_failed_clips(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) AS n FROM clips WHERE classification = 'failed'").fetchone()["n"]
+
     def clips_with_audio_older_than(self, cutoff_ms: int) -> list[ClipRecord]:
         return self._clips("path != '' AND transcribed_at IS NOT NULL AND transcribed_at <= ?", (cutoff_ms,))
 

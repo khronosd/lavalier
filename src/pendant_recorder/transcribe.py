@@ -9,6 +9,7 @@ from typing import Callable, Optional, Protocol
 # huggingface_hub reads this at import time, so set it before mlx_whisper pulls it in.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
+import huggingface_hub.constants as hf_constants  # noqa: E402
 import mlx_whisper  # noqa: E402
 
 from pendant_recorder.audio import to_wav16k
@@ -19,8 +20,17 @@ from pendant_recorder.paths import Paths
 log = logging.getLogger(__name__)
 
 
+def model_cache_dir(model: str) -> Path:
+    """Where huggingface_hub keeps the model (honours HF_HOME / HF_HUB_CACHE)."""
+    return Path(hf_constants.HF_HUB_CACHE) / ("models--" + model.replace("/", "--"))
+
+
 class Transcriber(Protocol):
     def transcribe(self, wav: Path) -> Transcript: ...
+
+    def unavailable_reason(self) -> Optional[str]:
+        """Why the stage cannot run in this environment, or None if it can."""
+        ...
 
 
 class MlxWhisperTranscriber:
@@ -28,6 +38,11 @@ class MlxWhisperTranscriber:
         self.model = model
         self.language = language
         os.environ["HF_HUB_OFFLINE"] = "1"
+
+    def unavailable_reason(self) -> Optional[str]:
+        if not model_cache_dir(self.model).exists():
+            return f"model {self.model} is not cached; run `pendant-recorder doctor --download-model`"
+        return None
 
     def transcribe(self, wav: Path) -> Transcript:
         r = mlx_whisper.transcribe(
@@ -51,9 +66,14 @@ class MlxWhisperTranscriber:
 
 
 class FakeTranscriber:
-    def __init__(self, by_name: dict[str, "Transcript | Exception"], default: Optional[Transcript] = None):
+    def __init__(self, by_name: dict[str, "Transcript | Exception"], default: Optional[Transcript] = None,
+                 unavailable: Optional[str] = None):
         self.by_name = by_name
         self.default = default
+        self.unavailable = unavailable
+
+    def unavailable_reason(self) -> Optional[str]:
+        return self.unavailable
 
     def transcribe(self, wav: Path) -> Transcript:
         if wav.stem in self.by_name:
@@ -81,6 +101,10 @@ def transcribe_pending(
                     db.set_transcript(clip.clip_id, t, classify(clip, t), int(time.time() * 1000))
                     db.mark_day_dirty(clip.day)
                 done += 1
+            except FileNotFoundError:
+                # a missing ffmpeg binary or model file: the environment, not this clip
+                log.error("transcription stage aborted at %s; clips stay pending", clip.clip_id)
+                raise
             except Exception:
                 log.exception("transcription failed for %s", clip.clip_id)
                 with db.transaction():

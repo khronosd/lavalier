@@ -1,7 +1,7 @@
 from datetime import date
 
 from conftest import T, speech_transcript, thank_you_transcript
-from pendant_recorder.pipeline import ProcessReport, process, status_summary
+from pendant_recorder.pipeline import ProcessReport, process, retry_failed, status_summary
 from pendant_recorder.transcribe import FakeTranscriber
 
 
@@ -72,3 +72,35 @@ def test_day_written_before_process_gains_its_conversation(root, db, make_captur
     r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(10, 5, 0))
     assert r.transcribed == 1 and r.days_written == [day]
     assert "## Conversations" in (root.days / "2026-10-23.md").read_text()
+
+
+def test_missing_ffmpeg_skips_audio_stages_and_leaves_clips_pending(
+        root, db, cfg, imported_and_decoded_three_clips, monkeypatch, caplog):
+    monkeypatch.setattr("pendant_recorder.pipeline.ffmpeg_available", lambda: False)
+    with caplog.at_level("WARNING"):
+        r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0))
+    assert (r.loudness_measured, r.transcribed, r.failed) == (0, 0, 0)
+    assert len(db.clips_needing_transcript()) == 3 and db.count_failed_clips() == 0
+    assert "ffmpeg not found" in caplog.text
+
+
+def test_missing_model_skips_transcription_and_leaves_clips_pending(
+        root, db, cfg, imported_and_decoded_three_clips, caplog):
+    tr = FakeTranscriber({}, default=speech_transcript(), unavailable="model x is not cached")
+    with caplog.at_level("WARNING"):
+        r = process(db, root, cfg, tr, now_ms=T(23, 30, 0))
+    assert (r.transcribed, r.failed) == (0, 0)
+    assert len(db.clips_needing_transcript()) == 3 and db.count_failed_clips() == 0
+    assert "model x is not cached" in caplog.text
+
+
+def test_retry_failed_requeues_failed_clips(root, db, cfg, imported_and_decoded_three_clips):
+    a, b, c = imported_and_decoded_three_clips
+    tr = FakeTranscriber({b.clip_id: RuntimeError("boom")}, default=speech_transcript())
+    process(db, root, cfg, tr, now_ms=T(23, 30, 0))
+    assert db.count_failed_clips() == 1 and status_summary(db, root, cfg, now_ms=0)["failed_clips"] == 1
+    assert retry_failed(db) == 1
+    again = db.clip(b.clip_id)
+    assert (again.classification, again.transcribed_at, again.mean_db) == (None, None, None)
+    r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 40, 0))
+    assert (r.loudness_measured, r.transcribed, r.failed) == (1, 1, 0) and db.count_failed_clips() == 0

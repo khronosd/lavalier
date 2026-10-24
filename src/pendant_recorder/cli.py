@@ -15,9 +15,11 @@ from pendant_recorder.config import Config, load_config
 from pendant_recorder.dayfile import render_day, write_day
 from pendant_recorder.db import Database, now_ms
 from pendant_recorder.paths import Paths, default_root
-from pendant_recorder.pipeline import ProcessReport, import_and_decode, process, refresh_day, status_summary
+from pendant_recorder.pipeline import (
+    ProcessReport, import_and_decode, process, refresh_day, retry_failed, status_summary,
+)
 from pendant_recorder.retention import sweep
-from pendant_recorder.transcribe import MlxWhisperTranscriber
+from pendant_recorder.transcribe import MlxWhisperTranscriber, model_cache_dir
 
 
 def _setup() -> tuple[Paths, Config, Database]:
@@ -95,6 +97,7 @@ def status_cmd() -> None:
         s = status_summary(db, paths, cfg, now_ms=now_ms())
     click.echo(f"Days with clips: {len(s['days_with_clips'])}")
     click.echo(f"Pending transcripts: {s['pending_transcripts']}")
+    click.echo(f"Failed clips: {s['failed_clips']}" + (" (retry-failed requeues them)" if s["failed_clips"] else ""))
     click.echo(f"Audio on disk: {_human_bytes(s['audio_bytes'])}")
     click.echo(f"Captures on disk: {_human_bytes(s['capture_bytes'])}")
     click.echo(f"Next deletion: {s['next_deletion'] or 'none'}")
@@ -107,10 +110,6 @@ def status_cmd() -> None:
         click.echo(f"Transcribed {r['transcribed']} ({r['failed']} failed)")
         click.echo(f"Day files written: {', '.join(r['days_written']) or 'none'}")
         click.echo(f"Retention: {r['clips_deleted']} clips, {r['captures_deleted']} captures deleted")
-
-
-def _model_cache_dir(model: str) -> Path:
-    return Path.home() / ".cache" / "huggingface" / "hub" / ("models--" + model.replace("/", "--"))
 
 
 @main.command("doctor")
@@ -147,9 +146,18 @@ def doctor_cmd(download_model: bool) -> None:
     except OSError:
         writable = False
     check("state root writable", writable, str(paths.root))
-    check("whisper model cached", _model_cache_dir(cfg.whisper_model).exists(), cfg.whisper_model)
+    check("whisper model cached", model_cache_dir(cfg.whisper_model).exists(), cfg.whisper_model)
     if not ok:
         raise SystemExit(1)
+
+
+@main.command("retry-failed")
+def retry_failed_cmd() -> None:
+    """Requeue failed clips so the next process retries them."""
+    paths, cfg, db = _setup()
+    with db:
+        n = retry_failed(db)
+    click.echo(f"Requeued {n} failed clips; run process to retry them")
 
 
 @main.command("day")

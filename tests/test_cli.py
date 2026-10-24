@@ -42,7 +42,7 @@ def test_pin_unknown_conversation_fails(root, monkeypatch):
 
 def test_doctor_reports_checks_and_exits_1_when_one_fails(root, monkeypatch):
     monkeypatch.setenv("PENDANT_ROOT", str(root.root))
-    monkeypatch.setenv("HOME", str(root.root.parent))  # empty HF cache
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(root.root.parent / "hf-empty"))
     res = CliRunner().invoke(main, ["doctor"])
     assert "python >= 3.12" in res.output and "ffmpeg" in res.output
     assert "FAIL whisper model cached" in res.output and res.exit_code == 1
@@ -74,3 +74,25 @@ def test_day_open_with_keep_noise_is_a_usage_error(root, monkeypatch):
     monkeypatch.setenv("PENDANT_ROOT", str(root.root))
     r = CliRunner().invoke(main, ["day", "2026-10-23", "--open", "--keep-noise"])
     assert r.exit_code == 2 and "--keep-noise only applies when printing" in r.output
+
+
+def test_doctor_looks_for_the_model_in_the_hf_hub_cache(root, monkeypatch):
+    monkeypatch.setenv("PENDANT_ROOT", str(root.root))
+    cache = root.root.parent / "hf"
+    (cache / ("models--" + Config().whisper_model.replace("/", "--"))).mkdir(parents=True)
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(cache))
+    assert "ok   whisper model cached" in CliRunner().invoke(main, ["doctor"]).output
+
+
+def test_retry_failed_and_status_failed_count(root, monkeypatch, clip_record):
+    monkeypatch.setenv("PENDANT_ROOT", str(root.root))
+    root.ensure()
+    with db_for(root) as db:
+        db.migrate()
+        db.add_clip(clip_record)
+        db.set_classification(clip_record.clip_id, "failed")
+    r = CliRunner()
+    assert "Failed clips: 1 (retry-failed requeues them)" in r.invoke(main, ["status"]).output
+    out = r.invoke(main, ["retry-failed"])
+    assert out.exit_code == 0 and "Requeued 1 failed clips" in out.output
+    assert "Failed clips: 0\n" in r.invoke(main, ["status"]).output

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pendant_recorder import noise
-from pendant_recorder.audio import measure_loudness
+from pendant_recorder.audio import ffmpeg_available, measure_loudness
 from pendant_recorder.clips import decode_new_pages
 from pendant_recorder.config import Config
 from pendant_recorder.dayfile import write_day
@@ -39,16 +39,25 @@ class ProcessReport:
 def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *, now_ms: int) -> ProcessReport:
     report = ProcessReport()
 
-    try:
-        report.loudness_measured = measure_loudness(db, paths)
-    except Exception:
-        log.exception("stage loudness failed")
+    # Environment problems skip a stage and leave clips pending; they never mark clips failed.
+    has_ffmpeg = ffmpeg_available()
+    if not has_ffmpeg:
+        log.warning("ffmpeg not found; skipping loudness and transcription, clips stay pending")
+    else:
+        try:
+            report.loudness_measured = measure_loudness(db, paths)
+        except Exception:
+            log.exception("stage loudness failed")
 
-    try:
-        report.transcribed, report.failed = transcribe_pending(
-            db, paths, transcriber, lambda c, t: noise.classify(c, t, cfg))
-    except Exception:
-        log.exception("stage transcription failed")
+    reason = transcriber.unavailable_reason()
+    if reason is not None:
+        log.warning("skipping transcription, clips stay pending: %s", reason)
+    elif has_ffmpeg:
+        try:
+            report.transcribed, report.failed = transcribe_pending(
+                db, paths, transcriber, lambda c, t: noise.classify(c, t, cfg))
+        except Exception:
+            log.exception("stage transcription failed")
 
     try:
         dirty = db.days_dirty()
@@ -69,6 +78,12 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
     except Exception:
         log.exception("stage retention failed")
     return report
+
+
+def retry_failed(db: Database) -> int:
+    """Put every failed clip back in the queue; the next process retries it."""
+    with db.transaction():
+        return db.reset_failed_clips()
 
 
 def import_and_decode(
@@ -124,6 +139,7 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
     return {
         "days_with_clips": [d.isoformat() for d in days],
         "pending_transcripts": pending,
+        "failed_clips": db.count_failed_clips(),
         "audio_bytes": _tree_bytes(paths.audio),
         "capture_bytes": _tree_bytes(paths.captures),
         "next_deletion": next_deletion,

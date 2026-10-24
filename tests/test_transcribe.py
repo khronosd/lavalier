@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from pendant_recorder.models import Segment, Transcript, Word
 from pendant_recorder.transcribe import FakeTranscriber, MlxWhisperTranscriber, transcribe_pending
 
@@ -31,3 +33,18 @@ def test_fake_default_and_unknown(tmp_path):
         pass
     else:
         raise AssertionError("expected KeyError")
+
+
+def test_missing_tool_aborts_transcription_and_leaves_clips_pending(root, db, two_clips_with_audio):
+    tr = FakeTranscriber({c.clip_id: FileNotFoundError("ffmpeg") for c in two_clips_with_audio})
+    with pytest.raises(FileNotFoundError):
+        transcribe_pending(db, root, tr, classify=lambda c, t: "speech")
+    assert len(db.clips_needing_transcript()) == 2
+
+
+def test_mlx_unavailable_until_the_model_is_in_the_hf_hub_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(tmp_path))
+    tr = MlxWhisperTranscriber("org/model", "en")
+    assert "org/model is not cached" in tr.unavailable_reason()
+    (tmp_path / "models--org--model").mkdir()
+    assert tr.unavailable_reason() is None
