@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 # huggingface_hub reads this at import time, so set it before mlx_whisper pulls it in.
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
+# Assign, not setdefault: an exported HF_HUB_OFFLINE=0 must not turn the network back on.
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 import huggingface_hub.constants as hf_constants  # noqa: E402
 import mlx_whisper  # noqa: E402

@@ -21,5 +21,5 @@ def test_pipeline_runs_with_sockets_blocked(root, db, cfg, capture_file, monkeyp
                                   capture_file, now_ms=0, capture_day=date(2026, 10, 24))
     assert rep.days_written
     # the fake transcriber never loads the model; this only guards against removing the
-    # os.environ.setdefault("HF_HUB_OFFLINE", "1") in transcribe.py
+    # os.environ["HF_HUB_OFFLINE"] = "1" in transcribe.py
     assert os.environ.get("HF_HUB_OFFLINE") == "1"
