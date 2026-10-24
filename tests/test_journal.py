@@ -80,3 +80,19 @@ def test_to_json_serialises_dates_and_nested_dataclasses(db_with_fixture_day, cf
     assert j["day"] == "2026-10-23" and j["conversations"][0]["lines"][0]["clip_id"].startswith("clip_")
     json.dumps(j)
     json.dumps(to_json(days_index(db_with_fixture_day, cfg, now_ms=NOW)))
+
+
+def test_days_index_is_count_only_and_agrees_with_the_day_views(db_two_days, cfg, monkeypatch):
+    from lavalier import journal
+    from lavalier.group import rebuild_day
+    rebuild_day(db_two_days, date(2026, 10, 24), cfg)
+    expected = []
+    for day in (date(2026, 10, 24), DAY):
+        v = day_view(db_two_days, day, cfg, now_ms=NOW)
+        expected.append(journal.DaySummary(day, v.speech_ms, len(v.conversations), len(v.stars), v.noise_clips))
+
+    def no_views(*a, **kw):
+        raise AssertionError("days_index built a day view")
+    monkeypatch.setattr(journal, "day_view", no_views)
+    assert days_index(db_two_days, cfg, now_ms=NOW) == expected
+    assert expected[1] == journal.DaySummary(DAY, 16000, 1, 2, 2)

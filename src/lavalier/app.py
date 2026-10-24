@@ -7,13 +7,17 @@ in its own threads and hands everything to this process's loop.
 
 import argparse
 import asyncio
+import importlib.metadata
 import logging
+import os
 import signal
 import sys
+from datetime import date
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Callable, Optional
 
-from lavalier import actions, client
+from lavalier import actions, client, journal, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, now_ms as _now_ms
@@ -21,7 +25,7 @@ from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import ProcessReport, status_summary
-from lavalier.server import AppStopping, ControlServer
+from lavalier.server import AppStopping, ControlServer, NotFound
 from lavalier.sync import SyncReport, brought_audio, run_sync
 from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
 
@@ -29,6 +33,13 @@ ACTIONS = ("sync", "mute", "unmute", "status-live")
 SERVER_FILE = ".server.json"
 
 _log = logging.getLogger("lavalier.app")
+
+
+def _package_version() -> str:
+    try:
+        return importlib.metadata.version("lavalier")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.0.0"
 
 
 def _cdc_from_ioreg() -> bool:
@@ -66,6 +77,9 @@ class App:
         self._stopping = False
         self._sleep_task: Optional[asyncio.Task] = None
         self.token_path = paths.root / SERVER_FILE
+        self.started_ms = now_ms()             # reset when run() starts the loop's work
+        self.config_error: Optional[str] = None  # why the last reload failed, if it did
+        self._audio_locks: dict[str, list] = {}  # clip id -> [asyncio.Lock, users]: one transcode per clip
 
     # state
 
@@ -93,7 +107,57 @@ class App:
 
     def snapshot(self) -> dict:
         return {**status_summary(self.db, self.paths, self.cfg, now_ms=self._now_ms()),
-                "busy": self.busy, "next_poll_ms": self.next_poll_ms}
+                "busy": self.busy, "next_poll_ms": self.next_poll_ms,
+                "app": {"version": _package_version(), "pid": os.getpid(), "started_ms": self.started_ms}}
+
+    # the window's data; called on the loop, the only thread that uses self.db
+
+    def view_days(self) -> list:
+        return journal.to_json(journal.days_index(self.db, self.cfg, now_ms=self._now_ms()))
+
+    def view_day(self, day: date) -> dict:
+        return journal.to_json(journal.day_view(self.db, day, self.cfg, now_ms=self._now_ms()))
+
+    def view_starred(self) -> list:
+        return [{"day": d.isoformat(), "star": journal.to_json(s)} for d, s in journal.all_stars(self.db, self.cfg)]
+
+    def view_search(self, text: str, limit: int) -> list:
+        return [journal.to_json(h) for h in search.search(self.db, text, limit=limit)]
+
+    def set_pinned(self, conversation_id: str, pinned: bool) -> dict:
+        conv = self.db.conversation(conversation_id)
+        if conv is None:
+            raise NotFound(conversation_id)
+        with self.db.transaction():
+            (self.db.pin if pinned else self.db.unpin)(conversation_id)
+            self.db.mark_day_dirty(conv.day)  # the next write refreshes the day file
+        return {"pinned": pinned}
+
+    def get_settings(self) -> dict:
+        return settings.read_settings(self.cfg, self.paths)
+
+    def update_settings(self, patch: dict) -> dict:
+        """Validate and save; then reload, so the next tick and action use the new values."""
+        settings.apply(self.cfg, patch, self.paths.config)
+        if not self.reload_config():
+            raise RuntimeError(f"saved but reload failed: {self.config_error}")
+        return self.get_settings()
+
+    async def audio_file(self, clip_id: str) -> Path:
+        """The clip's AAC file, transcoded once on first use. The row is read here on the loop; only
+        ffmpeg runs in a worker thread, under the clip's own lock, so one clip is never transcoded twice."""
+        entry = self._audio_locks.setdefault(clip_id, [asyncio.Lock(), 0])
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                src, dst = playback.locate(self.db, self.paths, clip_id)
+                if not dst.exists():
+                    await asyncio.to_thread(playback.transcode, src, dst)
+                return dst
+        finally:
+            entry[1] -= 1
+            if not entry[1]:
+                del self._audio_locks[clip_id]
 
     # device work, always under self._device_lock
 
@@ -104,7 +168,9 @@ class App:
             self.cfg = load_config(self.paths.config)
         except ConfigError as e:
             _log.error("config reload failed, keeping the previous settings: %s", e)
+            self.config_error = str(e)
             return False
+        self.config_error = None
         return True
 
     def _make_pendant(self, cfg: Config):
@@ -243,6 +309,7 @@ class App:
 
     async def run(self) -> None:
         self._stopping = False
+        self.started_ms = self._now_ms()
         self.db  # open it on this loop's thread
         self._startup_housekeeping()
         server = ControlServer(self, token_path=self.token_path)

@@ -450,26 +450,34 @@ _DEFAULT = object()
 class Reply:
     """A fully read HTTP response: the connection is closed before the test sees it."""
 
-    def __init__(self, status: int, body: bytes):
+    def __init__(self, status: int, body: bytes, headers: Optional[dict] = None):
         self.status = status
         self._body = body
+        self._headers = {k.lower(): v for k, v in (headers or {}).items()}
 
     def read(self) -> bytes:
         return self._body
 
+    def getheader(self, name: str, default=None):
+        return self._headers.get(name.lower(), default)
 
-def _request(server, method: str, route: str, token, origin) -> Reply:
+
+def _request(server, method: str, route: str, token, origin, body: Optional[bytes] = None) -> Reply:
     headers = {}
     token = server.token if token is _DEFAULT else token
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
     if origin is not None:
         headers["Origin"] = origin
-    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
+    if body is None and method in ("POST", "PUT"):
+        body = b""
+    if body:
+        headers["Content-Type"] = "application/json"
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=30)
     try:
-        conn.request(method, route, body=b"" if method == "POST" else None, headers=headers)
+        conn.request(method, route, body=body, headers=headers)
         resp = conn.getresponse()
-        return Reply(resp.status, resp.read())
+        return Reply(resp.status, resp.read(), dict(resp.getheaders()))
     finally:
         conn.close()
 
@@ -480,6 +488,12 @@ def get(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
 
 def post(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
     return _request(server, "POST", route, token, origin)
+
+
+def put(server, route: str, body, *, token=_DEFAULT, origin=None) -> Reply:
+    """PUT a JSON body (bytes are sent as they are)."""
+    data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    return _request(server, "PUT", route, token, origin, data)
 
 
 class FakeAppLike:
@@ -620,3 +634,57 @@ def _restore_fork_log_level():
     yield
     for lg, level in zip(loggers, levels):
         lg.setLevel(level)
+
+
+# --- a real App behind a real ControlServer, for the window's routes ---
+
+CLIP = "clip_20261024T055609.085Z"   # the speech clip of seeded_2026_10_23_subset; also in two_clips_with_audio
+CONV = "c-20261023-225609"           # its conversation in seeded_2026_10_23_subset
+
+
+class AppView:
+    """The test's handle on the served App. The App's own connection belongs to its loop thread
+    (sqlite3 refuses it anywhere else), so `db` here is the test's connection to the same file;
+    everything else is the real App."""
+
+    def __init__(self, app, db):
+        self._app = app
+        self.db = db
+
+    def __getattr__(self, name):
+        return getattr(self._app, name)
+
+
+def _serve_real_app(app, db):
+    import asyncio
+    import threading
+    from lavalier.server import ControlServer
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    srv = ControlServer(app, token_path=app.paths.root / ".server.json", loop=loop)
+    srv.start()
+    srv.app = AppView(app, db)
+    try:
+        yield srv
+    finally:
+        srv.stop()
+
+        async def close():
+            app.close()
+        asyncio.run_coroutine_threadsafe(close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(10)
+        loop.close()
+
+
+@pytest.fixture
+def server_with_fixture(app_env, db, seeded_2026_10_23_subset):
+    from fake_pendant import FakePendant
+    yield from _serve_real_app(app_env(FakePendant()), db)
+
+
+@pytest.fixture
+def server_with_audio(app_env, db, two_clips_with_audio):
+    from fake_pendant import FakePendant
+    yield from _serve_real_app(app_env(FakePendant()), db)

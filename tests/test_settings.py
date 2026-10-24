@@ -35,8 +35,9 @@ def test_apply_validates_and_saves(cfg, tmp_path):
     ({"require_firmware": 3}, "require_firmware"),
 ])
 def test_apply_rejects_bad_patches_naming_the_field(cfg, tmp_path, patch, field):
-    with pytest.raises(SettingsError, match=field):
+    with pytest.raises(SettingsError, match=field) as e:
         apply(cfg, patch, tmp_path / "c.toml")
+    assert e.value.field == field
     assert not (tmp_path / "c.toml").exists()
 
 

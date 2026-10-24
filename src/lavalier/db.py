@@ -611,6 +611,33 @@ class Database:
             )
         return out
 
+    def conversation(self, conversation_id: str) -> Optional[Conversation]:
+        row = self._conn.execute("SELECT day FROM conversations WHERE conversation_id = ?",
+                                 (conversation_id,)).fetchone()
+        if row is None:
+            return None
+        day = date.fromisoformat(row["day"])
+        return next((c for c in self.conversations_for_day(day) if c.conversation_id == conversation_id), None)
+
+    def days_summary(self) -> list[sqlite3.Row]:
+        """One row per day with clips, newest first: (day, speech_ms, conversations, stars, noise_clips).
+        Speech is the speech clips' length (20 ms per chunk, as grouping counts it); stars are the day's
+        short presses, attached or not."""
+        return self._conn.execute(
+            """
+            SELECT d.day AS day,
+                   (SELECT COALESCE(SUM(chunk_count * 20), 0) FROM clips
+                     WHERE day = d.day AND classification = 'speech') AS speech_ms,
+                   (SELECT COUNT(*) FROM conversations WHERE day = d.day) AS conversations,
+                   (SELECT COUNT(*) FROM events
+                     WHERE day = d.day AND type = 'button'
+                       AND json_extract(payload, '$.button_event') = 'BUTTON_SHORT_PRESS') AS stars,
+                   (SELECT COUNT(*) FROM clips WHERE day = d.day AND classification = 'noise') AS noise_clips
+            FROM (SELECT DISTINCT day FROM clips) d
+            ORDER BY d.day DESC
+            """
+        ).fetchall()
+
     def pin(self, conversation_id: str) -> None:
         with self._write_scope():
             self._conn.execute("INSERT OR IGNORE INTO pins (conversation_id) VALUES (?)", (conversation_id,))

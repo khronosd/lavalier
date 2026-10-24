@@ -134,12 +134,9 @@ def day_view(db: Database, day: date, cfg: Config, *, now_ms: int) -> DayView:
 
 
 def days_index(db: Database, cfg: Config, *, now_ms: int) -> list[DaySummary]:
-    """One summary per day with clips, newest first."""
-    out = []
-    for day in sorted(db.days_with_clips(), reverse=True):
-        v = day_view(db, day, cfg, now_ms=now_ms)
-        out.append(DaySummary(day, v.speech_ms, len(v.conversations), len(v.stars), v.noise_clips))
-    return out
+    """One summary per day with clips, newest first; counts only, from one query (no day views)."""
+    return [DaySummary(date.fromisoformat(r["day"]), r["speech_ms"], r["conversations"], r["stars"], r["noise_clips"])
+            for r in db.days_summary()]
 
 
 def all_stars(db: Database, cfg: Config) -> list[tuple[date, StarView]]:

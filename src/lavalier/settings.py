@@ -18,7 +18,11 @@ _WINDOW_SIZE = re.compile(r"^\d{3,4}x\d{3,4}$")
 
 
 class SettingsError(ValueError):
-    """A settings patch was refused; the message names the field."""
+    """A settings patch was refused; the message names the field, and so does `field`."""
+
+    def __init__(self, message: str, field: str):
+        super().__init__(message)
+        self.field = field
 
 
 def read_settings(cfg: Config, paths: Paths) -> dict:
@@ -29,13 +33,13 @@ def read_settings(cfg: Config, paths: Paths) -> dict:
 
 def _check_value(name: str, value) -> None:
     if name == "appearance" and value not in APPEARANCES:
-        raise SettingsError(f"appearance must be one of {', '.join(sorted(APPEARANCES))}")
+        raise SettingsError(f"appearance must be one of {', '.join(sorted(APPEARANCES))}", name)
     if name == "retention_days" and value < 0:
-        raise SettingsError("retention_days must be 0 or more")
+        raise SettingsError("retention_days must be 0 or more", name)
     if name == "poll_interval_s" and value < 60:
-        raise SettingsError("poll_interval_s must be at least 60")
+        raise SettingsError("poll_interval_s must be at least 60", name)
     if name == "window_size" and not _WINDOW_SIZE.match(value):
-        raise SettingsError("window_size must look like 1120x720")
+        raise SettingsError("window_size must look like 1120x720", name)
 
 
 def apply(cfg: Config, patch: dict, path: Path) -> Config:
@@ -43,9 +47,11 @@ def apply(cfg: Config, patch: dict, path: Path) -> Config:
     known = {f.name for f in fields(Config)}
     for name, value in patch.items():
         if name not in EDITABLE:
-            raise SettingsError(f"{name} is not an editable setting" if name in known else f"unknown setting {name}")
+            raise SettingsError(f"{name} is not an editable setting" if name in known else f"unknown setting {name}",
+                                name)
         if not _type_ok(value, getattr(defaults, name)):
-            raise SettingsError(f"{name} must be {type(getattr(defaults, name)).__name__}, got {type(value).__name__}")
+            raise SettingsError(f"{name} must be {type(getattr(defaults, name)).__name__}, got {type(value).__name__}",
+                                name)
         _check_value(name, value)
     new_cfg = replace(cfg, **patch)
     save_config(new_cfg, path)

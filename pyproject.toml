@@ -25,6 +25,9 @@ lavalier = "lavalier.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+lavalier = ["web/dist/*", "web/dist/assets/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

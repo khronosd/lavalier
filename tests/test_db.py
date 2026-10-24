@@ -364,3 +364,16 @@ def test_page_seen_keeps_two_known_instances_apart(db):
     db.add_page(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5), cid, 100, 1, 1792821367981)
     assert db.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))
     assert not db.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=6))
+
+
+def test_conversation_lookup_by_id(db, seeded_2026_10_23_subset):
+    from conftest import CONV
+    c = db.conversation(CONV)
+    assert c is not None and c.conversation_id == CONV and c.day.isoformat() == "2026-10-23" and not c.pinned
+    db.pin(CONV)
+    assert db.conversation(CONV).pinned and db.conversation("c-nope") is None
+
+
+def test_days_summary_counts_one_row_per_day_newest_first(db, seeded_2026_10_23_subset):
+    rows = db.days_summary()
+    assert [tuple(r) for r in rows] == [("2026-10-23", 16000, 1, 2, 2)]

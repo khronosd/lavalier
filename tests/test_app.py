@@ -3,7 +3,7 @@ import json
 import os
 import socket
 
-from conftest import get
+from conftest import APP_CLOCK_MS, get
 from fake_pendant import FakePendant
 from lavalier.server import ControlServer
 
@@ -401,3 +401,39 @@ async def test_running_sync_rows_are_closed_at_start(app_env, db):
     app = app_env(FakePendant())
     app._startup_housekeeping()            # the method run() calls before its first tick
     assert db.last_sync_run().outcome == "error" and db.last_sync_run().error == "interrupted"
+
+
+# --- Plan 3 Task 5: the window's facts and settings ---
+
+def test_app_reloads_config_after_settings_put(server_with_fixture):
+    import json
+    from conftest import put
+    r = put(server_with_fixture, "/api/settings", {"retention_days": 21})
+    assert r.status == 200 and json.loads(r.read())["retention_days"] == 21
+    assert server_with_fixture.app.cfg.retention_days == 21
+
+
+async def test_snapshot_names_the_app(app_env):
+    import os
+    from importlib.metadata import version
+    app = app_env(FakePendant())
+    s = app.snapshot()
+    assert s["app"] == {"version": version("lavalier"), "pid": os.getpid(), "started_ms": APP_CLOCK_MS}
+
+
+def test_app_version_falls_back_when_the_package_is_unknown(monkeypatch):
+    import importlib.metadata
+    from lavalier import app as app_mod
+
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    assert app_mod._package_version() == "0.0.0"
+
+
+async def test_a_failed_reload_keeps_its_reason(app_env):
+    app = app_env(FakePendant())
+    app.paths.config.write_text("not [valid")
+    assert app.reload_config() is False and "config.toml" in app.config_error
+    app.paths.config.write_text("")
+    assert app.reload_config() is True and app.config_error is None

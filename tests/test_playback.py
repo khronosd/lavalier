@@ -37,6 +37,7 @@ def test_falls_back_to_builtin_encoder(root, db, two_clips_with_audio, monkeypat
     calls = []
 
     def fake_run(cmd, **kw):
+        assert cmd[cmd.index("-movflags") + 1] == "+faststart" and cmd[-3:-1] == ["-f", "ipod"]
         calls.append(cmd[cmd.index("-c:a") + 1])
         if cmd[cmd.index("-c:a") + 1] == "aac_at":
             return subprocess.CompletedProcess(cmd, 1, "", "no aac_at")
