@@ -38,10 +38,19 @@ export function buttonsDisabled(status: Status | null, inflight: boolean): boole
   return status === null || status.busy || inflight;
 }
 
-/** The 60-second live read: only while the window is seen, nothing else is using the pendant, and
+export interface RefreshGate {
+  /** The page is not hidden (minimised, another Space). */
+  visible: boolean;
+  /** The window is in front: WKWebView stays "visible" behind other windows. */
+  focused: boolean;
+  /** The app or this card is already using the pendant. */
+  busy: boolean;
+}
+
+/** The 60-second live read: only while the window is in front, nothing else is using the pendant, and
  * the last sync found it in range (an absent pendant is left alone until something changes). */
-export function shouldRefresh(status: Status | null, visible: boolean, busy: boolean): boolean {
-  if (!visible || busy) return false;
+export function shouldRefresh(status: Status | null, { visible, focused, busy }: RefreshGate): boolean {
+  if (!visible || !focused || busy) return false;
   return status?.last_sync?.outcome !== "not-in-range";
 }
 

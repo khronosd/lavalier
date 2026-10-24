@@ -1,6 +1,7 @@
 // The pendant card's data and its two timers. GET /api/status (cheap, no device) every 15 s picks up
 // the app's own ticks; POST /api/status-live (a real read over Bluetooth) every 60 s, only while
-// shouldRefresh allows it, and once after every action. Unmounting clears both timers.
+// shouldRefresh allows it (the window in front), once when the window comes to the front, and once
+// after every action. Unmounting clears both timers.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
@@ -30,6 +31,7 @@ export interface PendantStatus {
 }
 
 const isVisible = () => document.visibilityState === "visible";
+const isFocused = () => document.hasFocus();
 
 export function usePendantStatus(): PendantStatus {
   const [status, setStatus] = useState<Status | null>(null);
@@ -95,7 +97,9 @@ export function usePendantStatus(): PendantStatus {
   }
 
   function liveAllowed(s: Status | null): boolean {
-    return absentSince.current === undefined && shouldRefresh(s, isVisible(), (s?.busy ?? false) || inflightRef.current);
+    return absentSince.current === undefined && shouldRefresh(s, {
+      visible: isVisible(), focused: isFocused(), busy: (s?.busy ?? false) || inflightRef.current,
+    });
   }
 
   async function run(action: PendantAction): Promise<void> {
@@ -140,16 +144,19 @@ export function usePendantStatus(): PendantStatus {
     const liveTimer = setInterval(() => {
       if (liveAllowed(statusRef.current)) void readLive();
     }, LIVE_EVERY_MS);
-    // a window brought back to the front reads the pendant at once instead of waiting for the timer
-    const onVisible = () => {
-      if (isVisible() && liveAllowed(statusRef.current)) void readLive();
+    // a window brought back to the front reads the pendant at once instead of waiting for the timer;
+    // going behind needs no handler: the 60 s timer asks liveAllowed, which then says no
+    const onFront = () => {
+      if (liveAllowed(statusRef.current)) void readLive();
     };
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", onFront);
+    window.addEventListener("focus", onFront);
     return () => {
       mounted.current = false;
       clearInterval(statusTimer);
       clearInterval(liveTimer);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", onFront);
+      window.removeEventListener("focus", onFront);
     };
   }, []);
 

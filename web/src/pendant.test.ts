@@ -36,13 +36,15 @@ test("the buttons are disabled while the app is busy or a request is in flight",
   expect(buttonsDisabled(status(), true)).toBe(true);
 });
 
-test("the live read runs only when visible, not busy, and the pendant was last in range", () => {
-  expect(shouldRefresh(status(), false, false)).toBe(false);
-  expect(shouldRefresh(status(), true, true)).toBe(false);
-  expect(shouldRefresh(status({ last_sync: run("not-in-range") }), true, false)).toBe(false);
-  expect(shouldRefresh(status({ last_sync: run("drained") }), true, false)).toBe(true);
-  expect(shouldRefresh(status(), true, false)).toBe(true);
-  expect(shouldRefresh(null, true, false)).toBe(true);
+test("the live read runs only when the window is in front, not busy, and the pendant was last in range", () => {
+  const seen = { visible: true, focused: true, busy: false };
+  expect(shouldRefresh(status(), { ...seen, visible: false })).toBe(false); // hidden
+  expect(shouldRefresh(status(), { ...seen, focused: false })).toBe(false); // visible behind another window
+  expect(shouldRefresh(status(), { ...seen, busy: true })).toBe(false);
+  expect(shouldRefresh(status({ last_sync: run("not-in-range") }), seen)).toBe(false);
+  expect(shouldRefresh(status({ last_sync: run("drained") }), seen)).toBe(true);
+  expect(shouldRefresh(status(), seen)).toBe(true);
+  expect(shouldRefresh(null, seen)).toBe(true);
 });
 
 test("pages waiting in words, at 1.5 s of speech a page", () => {

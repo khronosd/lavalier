@@ -31,15 +31,19 @@ function server(routes: Record<string, Response | (() => Response)>): { calls: s
 const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
 let visibility: DocumentVisibilityState = "visible";
+let focused = true;
 beforeEach(() => {
   vi.useFakeTimers();
   visibility = "visible";
+  focused = true;
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  vi.spyOn(document, "hasFocus").mockImplementation(() => focused);
 });
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 test("with no reading yet, the lamp is a grey outline and only Sync now is offered", async () => {
@@ -271,4 +275,29 @@ test("a failed fetch of the status also counts as the app out of reach", async (
   render(<PendantCard />);
   await flush();
   expect(screen.getByText("Cannot reach the app")).toBeTruthy();
+});
+
+test("a window visible but behind others makes no live reads; coming to the front reads at once", async () => {
+  const s = status();
+  const { calls } = server({
+    "GET /api/status": () => json(s),
+    "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
+  });
+  render(<PendantCard />);
+  await flush();
+  expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(1);
+  calls.length = 0;
+
+  focused = false;
+  window.dispatchEvent(new Event("blur"));
+  await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
+  expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(0);
+  expect(calls.filter((c) => c === "GET /api/status")).toHaveLength(12); // the cheap poll keeps running
+
+  focused = true;
+  window.dispatchEvent(new Event("focus"));
+  await flush();
+  expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(2);
 });
