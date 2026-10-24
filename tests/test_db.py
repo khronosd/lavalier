@@ -377,3 +377,46 @@ def test_conversation_lookup_by_id(db, seeded_2026_10_23_subset):
 def test_days_summary_counts_one_row_per_day_newest_first(db, seeded_2026_10_23_subset):
     rows = db.days_summary()
     assert [tuple(r) for r in rows] == [("2026-10-23", 16000, 1, 2, 2)]
+
+
+def test_migration_6_adds_insights_and_round_trips(db):
+    from lavalier.insights.schema import FollowUp, Insight
+    d = date(2026, 10, 23)
+    ins = Insight("s", [FollowUp("Call", 5, None)], ["Remy"], ["t"])
+    db.set_insight(d, provider="ollama", model="m", prompt_version=1, generated_ms=5, input_chars=10, insight=ins)
+    r = db.insight(d)
+    assert r.state == "done" and r.insight == ins and r.error is None and r.input_chars == 10
+    assert db.insight(date(2026, 10, 22)) is None and [x.day for x in db.insights_all()] == [d]
+    assert db_module.MIGRATIONS[-1].__name__ == "_migrate_6"
+
+
+def test_set_insight_error_replaces_a_done_row(db):
+    from lavalier.insights.schema import Insight
+    d = date(2026, 10, 23)
+    kw = dict(provider="p", model="m", prompt_version=1, generated_ms=1, input_chars=2)
+    db.set_insight(d, insight=Insight("s", [], [], []), **kw)
+    db.set_insight_error(d, error="boom", **kw)
+    r = db.insight(d)
+    assert r.state == "error" and r.error == "boom" and r.insight is None and db.insights_all() == []
+    db.set_insight(d, insight=Insight("s2", [], [], []), **kw)
+    assert db.insight(d).insight.summary == "s2"
+
+
+def test_insights_all_is_newest_day_first(db):
+    from lavalier.insights.schema import Insight
+    for d in (date(2026, 10, 21), date(2026, 10, 23), date(2026, 10, 22)):
+        db.set_insight(d, provider="p", model="m", prompt_version=1, generated_ms=1, input_chars=2, insight=Insight("s", [], [], []))
+    assert [r.day.day for r in db.insights_all()] == [23, 22, 21]
+
+
+def test_days_with_speech_skips_noise_only_days(db, clip):
+    from conftest import T
+    from datetime import timedelta
+    day = lambda n: clip(T(10, 0, 0) + n * 86_400_000, T(10, 1, 0) + n * 86_400_000)
+    assert db.days_with_speech() == []
+    later, noise, earlier = day(1), day(0), day(-1)
+    later.classification = "speech"; earlier.classification = "speech"; noise.classification = "noise"
+    for c in (later, noise, earlier):
+        db.add_clip(c)
+    db.add_clip(clip(T(11, 0, 0) - 86_400_000, T(11, 1, 0) - 86_400_000))  # second speech clip, same day
+    assert db.days_with_speech() == [earlier.day, later.day]

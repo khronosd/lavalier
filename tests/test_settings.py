@@ -108,3 +108,25 @@ def test_apply_refuses_to_overwrite_an_unreadable_file(tmp_path):
 ])
 def test_apply_accepts_values_on_the_bounds(cfg, tmp_path, patch):
     assert apply(cfg, patch, tmp_path / "c.toml")
+
+
+def test_settings_accepts_a_provider_and_refuses_an_unknown_one(tmp_path):
+    assert apply(Config(), {"insights_provider": "ollama"}, tmp_path / "c.toml").insights_provider == "ollama"
+    with pytest.raises(SettingsError) as e:
+        apply(Config(), {"insights_provider": "bing"}, tmp_path / "c.toml")
+    assert e.value.field == "insights_provider"
+
+
+def test_settings_base_url_needs_a_scheme_or_nothing(tmp_path):
+    with pytest.raises(SettingsError) as e:
+        apply(Config(), {"insights_base_url": "localhost:8080"}, tmp_path / "c.toml")
+    assert e.value.field == "insights_base_url"
+    for ok in ("", "http://localhost:8080/v1", "https://x.example"):
+        assert apply(Config(), {"insights_base_url": ok}, tmp_path / "c.toml").insights_base_url == ok
+
+
+def test_settings_insights_model_and_auto(tmp_path):
+    c = apply(Config(), {"insights_model": "llama3", "insights_auto": False}, tmp_path / "c.toml")
+    assert (c.insights_model, c.insights_auto) == ("llama3", False)
+    with pytest.raises(SettingsError):
+        apply(Config(), {"insights_auto": "no"}, tmp_path / "c.toml")
