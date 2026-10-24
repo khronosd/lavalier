@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from pendant_recorder.models import Transcript
 from pendant_recorder.retention import deadline_ms, sweep
 
 
@@ -49,3 +50,19 @@ def test_sweep_resolves_a_relative_capture_path_under_the_root(root, db, cfg):
     f.write_bytes(b"x")
     db.mark_capture_decoded(db.add_capture("captures/rel.bin", "sha-rel", 1, True))
     assert sweep(db, root, cfg, now_ms=10**15) == (0, 1) and not f.exists()
+
+
+def test_sweep_never_deletes_outside_the_state_root(root, db, cfg, clip_record, tmp_path, caplog):
+    root.ensure()
+    outside_clip = tmp_path / "outside.opus"
+    outside_clip.write_bytes(b"keep me")
+    outside_capture = tmp_path / "outside.bin"
+    outside_capture.write_bytes(b"keep me too")
+    db.add_clip(replace(clip_record, path="../outside.opus", capture_id=99))
+    db.set_transcript(clip_record.clip_id, Transcript("", "en", "m", []), "noise", 1)
+    db.mark_capture_decoded(db.add_capture(str(outside_capture), "sha-out", 1, True))
+    with caplog.at_level("WARNING"):
+        assert sweep(db, root, cfg, now_ms=10**15) == (0, 0)
+    assert outside_clip.exists() and outside_capture.exists()
+    assert db.clip(clip_record.clip_id).path == "../outside.opus"
+    assert caplog.text.count("outside the state root") == 2

@@ -1,5 +1,7 @@
 """Audio retention rules."""
 
+import logging
+from pathlib import Path
 from typing import Optional
 
 from pendant_recorder.config import Config
@@ -7,7 +9,17 @@ from pendant_recorder.db import Database
 from pendant_recorder.models import ClipRecord
 from pendant_recorder.paths import Paths
 
+log = logging.getLogger(__name__)
+
 _DAY_MS = 86_400_000
+
+
+def _inside_root(paths: Paths, file: Path) -> bool:
+    """Retention only ever deletes under the state root, whatever a row says."""
+    if file.resolve().is_relative_to(paths.root.resolve()):
+        return True
+    log.warning("refusing to delete %s: outside the state root %s", file, paths.root)
+    return False
 
 
 def deadline_ms(clip: ClipRecord, cfg: Config, *, protected: bool) -> Optional[int]:
@@ -37,7 +49,10 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
         deadline = deadline_ms(clip, cfg, protected=protected)
         if deadline is None or deadline > now_ms:
             continue
-        (paths.root / clip.path).unlink(missing_ok=True)
+        file = paths.root / clip.path
+        if not _inside_root(paths, file):
+            continue
+        file.unlink(missing_ok=True)
         with db.transaction():
             db.clear_clip_path(clip.clip_id)
             db.mark_day_dirty(clip.day)
@@ -48,7 +63,7 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
         if db.clips_with_audio_for_capture(capture_id) > 0:
             continue
         file = paths.root / path  # relative to the state root; an older absolute row joins as is
-        if not file.exists():
+        if not file.exists() or not _inside_root(paths, file):
             continue
         file.unlink(missing_ok=True)
         captures_deleted += 1
