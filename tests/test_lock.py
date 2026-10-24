@@ -131,3 +131,23 @@ def test_exclusive_create_loses_the_race_to_a_live_foreign_lock(tmp_path, monkey
         _lk(tmp_path, alive=lambda p: p == 424242).acquire()
     assert (tmp_path / ".lock").read_text() == "424242\n1900\n"
     assert [p.name for p in tmp_path.iterdir()] == [".lock"]
+
+
+# --- final review fixes: a running vendor desktop app is another device user (I4) ---
+
+def test_a_running_vendor_app_is_another_device_user(tmp_path):
+    from lavalier.vendor import KNOWN_PENDANT_AGENT_LABELS
+    label = KNOWN_PENDANT_AGENT_LABELS[0]
+    line = f"/Applications/{label}.app/Contents/MacOS/{label}"
+    procs = [(7, line), (8, f"/Applications/{label}Notes.app/Contents/MacOS/x"), (9, f"vim {label}.md")]
+    assert other_device_processes(lambda: procs) == [line]
+    with pytest.raises(LockHeld, match=f"process: {line}"):
+        SyncLock(tmp_path / ".lock", list_processes=lambda: [(7, line)]).acquire()
+
+
+def test_the_vendor_label_lives_in_one_module():
+    from pathlib import Path
+    from lavalier.vendor import KNOWN_PENDANT_AGENT_LABELS
+    src = Path(__file__).resolve().parents[1] / "src" / "lavalier"
+    holders = sorted(p.name for p in src.rglob("*.py") if any(l in p.read_text() for l in KNOWN_PENDANT_AGENT_LABELS))
+    assert holders == ["vendor.py"]

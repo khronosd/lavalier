@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from lavalier.db import now_ms
+from lavalier.vendor import is_vendor_app_command
 
 STALE_AFTER_MS = 30 * 60 * 1000
 OTHER_DEVICE_PROCESS = re.compile(r"(^|/)pendant(\s|$)|pendant_client|smpmgr|smp_probe")
@@ -47,7 +48,8 @@ def other_device_processes(
     return [
         cmd
         for pid, cmd in list_processes()
-        if pid != own_pid and "lavalier" not in cmd and OTHER_DEVICE_PROCESS.search(cmd)
+        if pid != own_pid and "lavalier" not in cmd
+        and (OTHER_DEVICE_PROCESS.search(cmd) or is_vendor_app_command(cmd))
     ]
 
 
@@ -94,6 +96,11 @@ class SyncLock:
     def _is_live(self, held: tuple[int, int] | None) -> bool:
         return held is not None and self._pid_alive(held[0]) and self._now_ms() - held[1] < STALE_AFTER_MS
 
+    # Known race (ruling R18): two processes judge the same lock stale, A renames it aside and
+    # creates its own, then B renames A's fresh file aside believing it is the stale one and creates
+    # its own; both now think they hold the lock. It needs two breakers of one dead or 30-minute-old
+    # lock in the same instant. The overlap is bounded by `heartbeat`, which checks that the PID in
+    # the file is still ours and raises LockHeld (ending A's drain) at its next heartbeat.
     def _break(self) -> None:
         """Move the stale file aside under a unique name, so only one breaker wins the rename."""
         aside = self.path.with_name(f"{self.path.name}.{os.getpid()}.stale")

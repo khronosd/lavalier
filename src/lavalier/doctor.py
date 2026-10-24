@@ -14,9 +14,8 @@ from lavalier.paths import Paths
 from lavalier.probe import read_status
 from lavalier.db import now_ms
 from lavalier.transcribe import model_cache_dir
+from lavalier.vendor import KNOWN_PENDANT_AGENT_LABELS
 
-# Labels of other launch agents known to sync this pendant; only ever echoed from a plist found on disk.
-KNOWN_PENDANT_AGENT_LABELS = ("Limitless",)
 LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
 
 
