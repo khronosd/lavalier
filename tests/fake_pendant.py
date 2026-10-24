@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from lavalier.device import DeviceError, PendantNotInRange
+from lavalier.device import LinkDropped, PendantNotInRange
 from lavalier.models import DeviceSnapshot
 
 
@@ -43,7 +43,7 @@ class FakePendant:
 
     def _check(self) -> None:
         if self._down:
-            raise DeviceError("link dropped")
+            raise LinkDropped("link dropped")
 
     async def set_time(self, unix_ms: int) -> None:
         self._check()
@@ -89,7 +89,7 @@ class FakePendant:
         for n, msg in enumerate(self.messages):
             if self.disconnect_after is not None and n >= self.disconnect_after:
                 self._down = True
-                raise DeviceError("link dropped")
+                raise LinkDropped("link dropped")
             yield msg
             try:
                 page = storage_page_of(msg)

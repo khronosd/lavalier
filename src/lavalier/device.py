@@ -9,7 +9,7 @@ from typing import Protocol
 
 from bleak import BleakScanner
 from bleak.exc import BleakError
-from pendant_client.ble import is_disconnect_exception
+from pendant_client.ble import PendantNotPairedError, is_disconnect_exception
 from pendant_client.proto import shared_pb2
 from pendant_client.session import PendantSession
 
@@ -23,6 +23,10 @@ class PendantNotInRange(Exception):
 
 class DeviceError(Exception):
     """Any other failure talking to the pendant."""
+
+
+class LinkDropped(DeviceError):
+    """The BLE link went away mid-command or mid-stream; what was already delivered is kept."""
 
 
 class Pendant(Protocol):
@@ -62,10 +66,18 @@ def snapshot_from_status(ds, *, read_at_ms: int, firmware_ver: str = "", storage
     )
 
 
+_FORK_ERRORS = (BleakError, OSError, EOFError, RuntimeError)
+
+
 def _map_error(exc: BaseException) -> DeviceError:
     if is_disconnect_exception(exc):
-        return DeviceError("link dropped")
-    return DeviceError(f"{type(exc).__name__}: {exc}")
+        return LinkDropped("link dropped")
+    if isinstance(exc, PendantNotPairedError):
+        return DeviceError(f"not paired: {exc}" if str(exc) else "not paired")
+    if isinstance(exc, TimeoutError):
+        return DeviceError("timeout")
+    detail = str(exc)
+    return DeviceError(f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__)
 
 
 class BlePendant:
@@ -78,14 +90,14 @@ class BlePendant:
     async def __aenter__(self) -> "BlePendant":
         try:
             found = await BleakScanner.find_device_by_address(self._address, timeout=self._scan_timeout_s)
-        except (BleakError, OSError) as exc:
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
         if found is None:
             raise PendantNotInRange(self._address)
         session = PendantSession(self._address)
         try:
             self._session = await session.__aenter__()
-        except (BleakError, OSError) as exc:
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
         return self
 
@@ -100,46 +112,46 @@ class BlePendant:
         return self._session
 
     async def set_time(self, unix_ms: int) -> None:
-        self._require()
+        _session = self._require()
         try:
-            await self._session.set_current_time_ms(unix_ms)
-        except (BleakError, OSError) as exc:
+            await _session.set_current_time_ms(unix_ms)
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
 
     async def info(self) -> tuple[str, int]:
-        self._require()
+        _session = self._require()
         try:
-            di = await self._session.get_device_info()
-        except (BleakError, OSError) as exc:
+            di = await _session.get_device_info()
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
         return di.firmware_ver, int(di.raw.storage_instance)
 
     async def status(self) -> DeviceSnapshot:
-        self._require()
+        _session = self._require()
         try:
-            ds = await self._session.get_device_status()
-        except (BleakError, OSError) as exc:
+            ds = await _session.get_device_status()
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
         return snapshot_from_status(ds, read_at_ms=self._clock())
 
     async def stop_recording(self) -> None:
-        self._require()
+        _session = self._require()
         try:
-            await self._session.stop_recording()
-        except (BleakError, OSError) as exc:
+            await _session.stop_recording()
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
 
     async def start_recording(self) -> None:
-        self._require()
+        _session = self._require()
         try:
-            await self._session.start_recording()
-        except (BleakError, OSError) as exc:
+            await _session.start_recording()
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc
 
     async def drain(self, *, idle_s: float) -> AsyncIterator[bytes]:
-        self._require()
+        _session = self._require()
         try:
-            async for payload in self._session.download_raw_pendant_messages(idle_timeout=idle_s):
+            async for payload in _session.download_raw_pendant_messages(idle_timeout=idle_s):
                 yield payload
-        except (BleakError, OSError) as exc:
+        except _FORK_ERRORS as exc:
             raise _map_error(exc) from exc

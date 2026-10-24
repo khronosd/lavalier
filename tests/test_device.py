@@ -37,3 +37,103 @@ async def test_fake_pendant_drops_the_link():
     async with p:
         with pytest.raises(DeviceError):
             [m async for m in p.drain(idle_s=5)]
+
+
+# --- BlePendant adapter, with the scanner and the fork session replaced ---
+
+class _Scanner:
+    found = object()
+
+    @staticmethod
+    async def find_device_by_address(address, timeout):
+        return _Scanner.found
+
+
+def _patch(monkeypatch, session_cls, found=True):
+    from lavalier import device
+    _Scanner.found = object() if found else None
+    monkeypatch.setattr(device, "BleakScanner", _Scanner)
+    monkeypatch.setattr(device, "PendantSession", session_cls)
+    return device
+
+
+class _Session:
+    entered = 0
+
+    def __init__(self, address):
+        pass
+
+    async def __aenter__(self):
+        type(self).entered += 1
+        return self
+
+    async def __aexit__(self, *exc):
+        return None
+
+
+async def test_ble_not_in_range_never_enters_the_session(monkeypatch):
+    class S(_Session):
+        entered = 0
+    device = _patch(monkeypatch, S, found=False)
+    with pytest.raises(device.PendantNotInRange):
+        async with device.BlePendant("addr", scan_timeout_s=1):
+            pass
+    assert S.entered == 0
+
+
+async def test_ble_not_paired_is_a_distinct_device_error(monkeypatch):
+    from pendant_client.ble import PendantNotPairedError
+
+    class S(_Session):
+        async def stop_recording(self):
+            raise PendantNotPairedError("x")
+    device = _patch(monkeypatch, S)
+    async with device.BlePendant("addr", scan_timeout_s=1) as p:
+        with pytest.raises(DeviceError) as e:
+            await p.stop_recording()
+    assert str(e.value).startswith("not paired")
+
+
+async def test_ble_timeout_maps_to_device_error_timeout(monkeypatch):
+    class S(_Session):
+        async def get_device_status(self):
+            raise TimeoutError()
+    device = _patch(monkeypatch, S)
+    async with device.BlePendant("addr", scan_timeout_s=1) as p:
+        with pytest.raises(DeviceError) as e:
+            await p.status()
+    assert str(e.value) == "timeout" and not isinstance(e.value, device.LinkDropped)
+
+
+async def test_ble_drain_drop_is_link_dropped_after_delivering_earlier_messages(monkeypatch):
+    from bleak.exc import BleakError
+
+    class S(_Session):
+        async def download_raw_pendant_messages(self, idle_timeout):
+            yield b"a"
+            yield b"b"
+            raise BleakError("Not connected")
+    device = _patch(monkeypatch, S)
+    got = []
+    async with device.BlePendant("addr", scan_timeout_s=1) as p:
+        with pytest.raises(device.LinkDropped):
+            async for m in p.drain(idle_s=1):
+                got.append(m)
+    assert got == [b"a", b"b"]
+
+
+async def test_ble_command_before_enter_is_not_connected(monkeypatch):
+    device = _patch(monkeypatch, _Session)
+    p = device.BlePendant("addr", scan_timeout_s=1)
+    with pytest.raises(DeviceError, match="not connected"):
+        await p.status()
+
+
+async def test_fake_pendant_drop_raises_link_dropped_and_stays_down():
+    from lavalier.device import LinkDropped
+    p = FakePendant(messages=[b"a", b"b"], disconnect_after=1)
+    async with p:
+        with pytest.raises(LinkDropped):
+            [m async for m in p.drain(idle_s=5)]
+        with pytest.raises(LinkDropped):
+            await p.status()
