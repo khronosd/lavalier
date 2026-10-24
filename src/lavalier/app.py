@@ -17,7 +17,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, Optional
 
-from lavalier import actions, client, journal, playback, search, settings
+from lavalier import actions, client, journal, pipeline, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, now_ms as _now_ms
@@ -31,6 +31,7 @@ from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
 
 ACTIONS = ("sync", "mute", "unmute", "status-live")
 SERVER_FILE = ".server.json"
+RETENTION_EVERY_MS = 86_400_000  # retention also runs at the end of every process
 
 _log = logging.getLogger("lavalier.app")
 
@@ -74,6 +75,7 @@ class App:
         self.pendant = None                  # the pendant of the latest session
         self.last_process: Optional[ProcessReport] = None
         self.next_poll_ms = now_ms()
+        self.next_retention_ms = now_ms()      # due at once: run() sweeps at start-up
         self._stopping = False
         self._sleep_task: Optional[asyncio.Task] = None
         self.token_path = paths.root / SERVER_FILE
@@ -231,6 +233,48 @@ class App:
         elif worker.result() is not None:
             self.last_process = worker.result()
 
+    def _retention(self) -> ProcessReport:
+        """Runs in a worker thread, like _process, on its own connection."""
+        db = Database(self.paths.db)
+        try:
+            return pipeline.retention_tick(db, self.paths, self.cfg, now_ms=self._now_ms())
+        finally:
+            db.close()
+
+    async def retention_if_due(self) -> bool:
+        """Retention once a day, so audio expires even when no drain brings any (a process sweeps
+        too). It takes the process lock and never waits for it: a run in progress sweeps itself, and
+        a due tick that finds it held is tried again on the next loop turn. Like a process, the lock
+        is released when the worker thread ends. True when it ran (or failed, logged: either way the
+        next is a day later)."""
+        now = self._now_ms()
+        if now < self.next_retention_ms or self._process_lock.locked():
+            return False
+        await self._process_lock.acquire()  # free: returns without yielding
+        try:
+            worker = asyncio.ensure_future(asyncio.to_thread(self._retention))
+        except BaseException:
+            self._process_lock.release()
+            raise
+        worker.add_done_callback(self._retention_finished)
+        self.next_retention_ms = now + RETENTION_EVERY_MS
+        try:
+            await asyncio.shield(worker)
+        except Exception:
+            pass  # logged by _retention_finished
+        return True
+
+    def _retention_finished(self, worker: asyncio.Future) -> None:
+        self._process_lock.release()
+        if worker.cancelled():
+            return
+        if worker.exception() is not None:
+            _log.error("retention failed", exc_info=worker.exception())
+        else:
+            r = worker.result()
+            _log.info("retention: %d clip(s) and %d capture(s) deleted, %d day file(s) rewritten",
+                      r.clips_deleted, r.captures_deleted, len(r.days_written))
+
     def _schedule_process(self, report: SyncReport) -> Optional[str]:
         """Processing after an action runs as its own task: an action cancelled or timed out
         afterwards can never interrupt it."""
@@ -315,12 +359,17 @@ class App:
     async def run(self) -> None:
         self._stopping = False
         self.started_ms = self._now_ms()
+        self.next_retention_ms = self.started_ms
         self.db  # open it on this loop's thread
         self._startup_housekeeping()
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
             while not self._stopping:
+                try:
+                    await self.retention_if_due()
+                except Exception:
+                    _log.exception("retention failed")
                 try:
                     await self.tick()
                 except Exception:

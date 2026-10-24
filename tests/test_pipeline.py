@@ -184,3 +184,21 @@ def test_sweep_marks_a_capture_decoded_when_every_page_is_already_held(root, db,
     from lavalier.pipeline import sweep_orphan_captures
     sweep_orphan_captures(db, root, min_age_s=0)
     assert db.capture_decoded(seeded_fully_duplicated_undecoded_capture) and not list(p for p in root.captures.iterdir() if SINK_NAME.match(p.name))
+
+
+def test_retention_tick_sweeps_then_rewrites_the_days_it_touched(root, db, cfg, seeded_retention_day):
+    from lavalier.pipeline import retention_tick
+    old = seeded_retention_day[0]
+    db.mark_day_clean(old.day)
+    r = retention_tick(db, root, cfg, now_ms=old.transcribed_at + 14 * 86_400_000)
+    assert (r.clips_deleted, r.transcribed, r.days_written) == (1, 0, [old.day])
+    assert db.clip(old.clip_id).path == "" and not (root.root / old.path).exists()
+    assert db.days_dirty() == [] and (root.days / f"{old.day.isoformat()}.md").exists()
+
+
+def test_retention_tick_with_nothing_due_writes_nothing(root, db, cfg, seeded_retention_day):
+    from lavalier.pipeline import retention_tick
+    old = seeded_retention_day[0]
+    db.mark_day_clean(old.day)
+    r = retention_tick(db, root, cfg, now_ms=old.transcribed_at)
+    assert (r.clips_deleted, r.days_written) == (0, []) and not (root.days / f"{old.day.isoformat()}.md").exists()

@@ -62,11 +62,22 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
         except Exception:
             log.exception("stage transcription failed")
 
+    report.days_written = _write_dirty_days(db, paths, cfg, now_ms=now_ms)
+
+    try:
+        report.clips_deleted, report.captures_deleted = sweep(db, paths, cfg, now_ms=now_ms)
+    except Exception:
+        log.exception("stage retention failed")
+    return report
+
+
+def _write_dirty_days(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> list[date]:
     try:
         dirty = db.days_dirty()
     except Exception:
         log.exception("stage day files failed: cannot list dirty days")
-        dirty = []
+        return []
+    written = []
     for day in dirty:
         try:
             rebuild_day(db, day, cfg)
@@ -74,15 +85,21 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
                 db.mark_day_clean(day)  # only status events: nothing worth a file
                 continue
             write_day(db, paths, day, cfg, now_ms=now_ms)
-            report.days_written.append(day)
+            written.append(day)
         except Exception:
             log.exception("stage day files failed for %s", day)
-    report.days_written.sort()
+    return sorted(written)
 
+
+def retention_tick(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> ProcessReport:
+    """Retention on its own, for the days no drain brings audio: sweep (which also clears stale cached
+    AAC), then rewrite the day files whose audio changed, as process does."""
+    report = ProcessReport()
     try:
         report.clips_deleted, report.captures_deleted = sweep(db, paths, cfg, now_ms=now_ms)
     except Exception:
         log.exception("stage retention failed")
+    report.days_written = _write_dirty_days(db, paths, cfg, now_ms=now_ms)
     return report
 
 

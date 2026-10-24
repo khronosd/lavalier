@@ -452,3 +452,58 @@ async def test_a_failed_reload_keeps_its_reason(app_env):
     assert app.reload_config() is False and "config.toml" in app.config_error
     app.paths.config.write_text("")
     assert app.reload_config() is True and app.config_error is None
+
+
+# --- retention runs on its own: at start-up, then once a day ---
+
+DAY_MS = 86_400_000
+
+
+async def test_the_loop_runs_retention_at_start_and_then_once_a_day(app_env):
+    app = app_env(FakePendant(), poll_interval_s=6 * 3600)
+    clock = [APP_CLOCK_MS]
+    app._now_ms = lambda: clock[0]
+    ran, turns = [], [0]
+    app._retention = lambda: ran.append(clock[0])
+
+    async def fake_sleep(s):
+        clock[0] += s * 1000
+        turns[0] += 1
+        if turns[0] == 9:  # nine turns: 0h .. 48h
+            app.stop()
+    app._sleep = fake_sleep
+    await app.run()
+    assert ran == [APP_CLOCK_MS, APP_CLOCK_MS + DAY_MS, APP_CLOCK_MS + 2 * DAY_MS]
+
+
+async def test_retention_never_runs_beside_a_processing_run(app_env):
+    app = app_env(FakePendant())
+    ran = []
+    app._retention = lambda: ran.append(app._process_lock.locked())
+    await app._process_lock.acquire()                # a process is running
+    assert await app.retention_if_due() is False and ran == []
+    app._process_lock.release()
+    assert await app.retention_if_due() is True and ran == [True]  # ran under the lock
+    assert not app._process_lock.locked()
+    assert await app.retention_if_due() is False and ran == [True]  # not due again for a day
+
+
+async def test_a_failed_retention_is_logged_and_waits_a_day(app_env, caplog):
+    app = app_env(FakePendant())
+
+    def boom():
+        raise OSError("disk gone")
+    app._retention = boom
+    with caplog.at_level("ERROR"):
+        assert await app.retention_if_due() is True
+    assert "disk gone" in caplog.text and not app._process_lock.locked()
+    assert app.next_retention_ms == APP_CLOCK_MS + DAY_MS
+
+
+async def test_the_retention_worker_deletes_expired_audio_and_rewrites_the_day(app_env, db, seeded_retention_day):
+    old = seeded_retention_day[0]
+    app = app_env(FakePendant())
+    app._now_ms = lambda: old.transcribed_at + 14 * DAY_MS
+    db.mark_day_clean(old.day)
+    assert await app.retention_if_due() is True
+    assert db.clip(old.clip_id).path == "" and (app.paths.days / f"{old.day.isoformat()}.md").exists()
