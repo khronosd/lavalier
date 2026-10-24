@@ -72,14 +72,14 @@ def _conversation(conv: ConversationView) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _audio_status(clips: list[ClipRecord], protected: bool, audio_until: date | None) -> str:
-    if protected:
+def _audio_status(clips: list[ClipRecord], view: DayView) -> str:
+    if view.audio_kept_for_good:
         return "Audio kept"
     if not any(c.path for c in clips):
         return "Audio deleted"
-    if audio_until is None:
+    if view.audio_until is None:
         return "Audio kept"
-    return f"Audio kept until {audio_until.isoformat()}"
+    return f"Audio kept until {view.audio_until.isoformat()}"
 
 
 def _noise_section(clips: list[ClipRecord]) -> str:
@@ -113,11 +113,9 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
         parts.append("## Conversations\n")
         parts += [_conversation(c) for c in view.conversations]
 
-    speech_ids = {c.clip_id for c in clips if c.classification == "speech"}
-    protected = any(speech_ids & set(c.clip_ids) for c in view.conversations if c.star_ms or c.pinned)
     model = models[0] if models else cfg.whisper_model
     # A day that never had clips (stars only) says nothing about audio.
-    audio = f" {_audio_status(clips, protected, view.audio_until)}." if clips else ""
+    audio = f" {_audio_status(clips, view)}." if clips else ""
     parts.append(f"_Transcribed with {model}.{audio}_\n")
     if keep_noise:
         parts.append(_noise_section(clips))

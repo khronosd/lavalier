@@ -52,6 +52,7 @@ class DayView:
     stars: list[StarView]
     noise_clips: int
     audio_until: Optional[date]
+    audio_kept_for_good: bool
     pending_pages: Optional[int]
 
 
@@ -83,12 +84,15 @@ def _quote(star_ms: int, lines: list[Line]) -> Optional[str]:
     return None
 
 
-def _audio_until(clips: list[ClipRecord], cfg: Config) -> Optional[date]:
-    # Protection decides whether the audio is ever deleted, not when it would be;
-    # the date is the latest deadline among speech clips that still have a file.
-    deadlines = [d for c in clips if c.classification == "speech" and c.path
+def _audio_until(clips: list[ClipRecord], protected_ids: set[str], cfg: Config) -> Optional[date]:
+    """Latest deletion date among unprotected clips (speech and noise) that still have audio."""
+    deadlines = [d for c in clips if c.path and c.clip_id not in protected_ids
                  if (d := deadline_ms(c, cfg, protected=False)) is not None]
     return datetime.fromtimestamp(max(deadlines) / 1000).date() if deadlines else None
+
+
+def _kept_for_good(clips: list[ClipRecord], protected_ids: set[str]) -> bool:
+    return any(c.path and (c.clip_id in protected_ids or c.classification == "failed") for c in clips)
 
 
 def _pending_pages(db: Database, now_ms: int) -> Optional[int]:
@@ -103,6 +107,7 @@ def day_view(db: Database, day: date, cfg: Config, *, now_ms: int) -> DayView:
     by_id = {c.clip_id: c for c in clips}
     convs = db.conversations_for_day(day)
 
+    protected_ids = {i for c in convs if c.star_ms or c.pinned for i in c.clip_ids}
     views, stars = [], []
     for conv in convs:
         members = [by_id[i] for i in conv.clip_ids if i in by_id]
@@ -119,7 +124,8 @@ def day_view(db: Database, day: date, cfg: Config, *, now_ms: int) -> DayView:
     return DayView(
         day=day, speech_ms=sum(c.speech_ms for c in convs), conversations=views, stars=stars,
         noise_clips=sum(1 for c in clips if c.classification == "noise"),
-        audio_until=_audio_until(clips, cfg), pending_pages=_pending_pages(db, now_ms))
+        audio_until=_audio_until(clips, protected_ids, cfg),
+        audio_kept_for_good=_kept_for_good(clips, protected_ids), pending_pages=_pending_pages(db, now_ms))
 
 
 def days_index(db: Database, cfg: Config, *, now_ms: int) -> list[DaySummary]:

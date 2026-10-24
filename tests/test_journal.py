@@ -57,10 +57,13 @@ def test_all_stars_newest_first(db_two_days, cfg):
 def test_audio_availability_follows_the_files(db_with_fixture_day, cfg):
     v = day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW)
     assert v.conversations[0].audio_available and v.audio_until is not None
-    for cid in v.conversations[0].clip_ids:
-        db_with_fixture_day.clear_clip_path(cid)
+    assert v.audio_kept_for_good  # the starred conversation's clip is protected
+    for c in db_with_fixture_day.clips_for_day(DAY):
+        db_with_fixture_day.clear_clip_path(c.clip_id)
     v2 = day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW)
-    assert not v2.conversations[0].audio_available and v2.audio_until is None
+    assert not v2.conversations[0].audio_available
+    assert v2.audio_until is None and not v2.audio_kept_for_good
+    assert to_json(v2)["audio_kept_for_good"] is False
 
 
 def test_pending_pages_only_when_the_status_is_fresh(db_with_fixture_day, cfg):
