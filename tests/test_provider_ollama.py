@@ -1,3 +1,4 @@
+import http.client
 import io
 import json
 import socket
@@ -37,6 +38,7 @@ def test_summarize_posts_the_schema_and_returns_the_object(fake):
     assert req["messages"] == [{"role": "system", "content": SYSTEM_PROMPT}, *summarize_messages(dt())]
     assert req["options"] == {"num_ctx": 8192, "temperature": 0.2}
     assert out["summary"] == "A day."
+    assert fake.headers[0]["Content-Type"] == "application/json"
 
 
 def test_ask_posts_without_a_format_and_returns_the_text():
@@ -122,3 +124,44 @@ def test_recommended_model_follows_memory():
 
 def test_memory_defaults_to_the_machine():
     assert Ollama("m").memory_gb > 0
+
+
+def test_a_half_dead_server_is_a_provider_error_and_check_does_not_raise():
+    def broken(req, timeout=None):
+        raise http.client.IncompleteRead(b"")
+    p = Ollama("m", opener=broken)
+    with pytest.raises(ProviderError, match="broken reply"):
+        p.summarize(dt())
+    c = p.check()
+    assert not c.ok and c.detail == "Ollama sent a broken reply" and c.models == []
+
+
+def test_check_catches_anything_unexpected():
+    def odd(req, timeout=None):
+        raise RuntimeError("secret detail")
+    c = Ollama("m", opener=odd).check()
+    assert c == ProviderCheck(False, "Could not reach Ollama: RuntimeError", [])
+
+
+def test_other_connection_failures_are_not_reported_as_not_running():
+    def dns(req, timeout=None):
+        raise urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided"))
+    with pytest.raises(ProviderError, match="Could not reach Ollama: .*nodename"):
+        Ollama("m", opener=dns).ask(dt(), "q")
+
+
+def test_a_json_reply_without_a_message_is_a_safe_error():
+    def opener(req, timeout=None):
+        return io.BytesIO(b'{"done": true}')
+    with pytest.raises(ProviderError, match="could not be read"):
+        Ollama("m", opener=opener).summarize(dt())
+
+
+def test_check_uses_a_short_timeout():
+    seen = []
+
+    def opener(req, timeout=None):
+        seen.append(timeout)
+        return io.BytesIO(b'{"models": []}')
+    Ollama("m", opener=opener, timeout_s=300).check()
+    assert seen == [10]

@@ -1,5 +1,6 @@
 """Ollama on this Mac, over its local HTTP API with urllib only."""
 
+import http.client
 import json
 import os
 import socket
@@ -21,13 +22,14 @@ SIZE_CLASSES = ((16, "qwen3:8b"), (32, "qwen3:14b"), (None, "qwen3:30b"))
 
 _CTX_SIZES = (8192, 16384, 32768)
 _REPLY_ROOM = 2048
+CHECK_TIMEOUT_S = 10
 
 
 def recommended_model(memory_gb: float) -> str:
     for limit, model in SIZE_CLASSES:
         if limit is None or memory_gb <= limit:
             return model
-    return SIZE_CLASSES[-1][1]  # unreachable: the last class has no limit
+    raise ValueError("SIZE_CLASSES must end with an unbounded class")
 
 
 def num_ctx(chars: int) -> int:
@@ -55,24 +57,31 @@ class Ollama:
         self.memory_gb = _machine_memory_gb() if memory_gb is None else memory_gb
         self._open = opener or urllib.request.urlopen
 
-    def _call(self, path: str, body: Optional[dict] = None) -> dict:
+    def _call(self, path: str, body: Optional[dict] = None, timeout_s: Optional[float] = None) -> dict:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.url + path, data=data, headers={"Content-Type": "application/json"},
                                      method="GET" if body is None else "POST")
         try:
-            with self._open(req, timeout=self.timeout_s) as resp:
-                return json.loads(resp.read())
+            with self._open(req, timeout=self.timeout_s if timeout_s is None else timeout_s) as resp:
+                return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             try:
                 excerpt = e.read().decode("utf-8", "replace")[:200]
             except Exception:
                 excerpt = ""
+            finally:
+                e.close()
             raise ProviderError(f"Ollama answered {e.code}: {excerpt}") from None
         except (urllib.error.URLError, OSError) as e:
+            reason = e.reason if isinstance(e, urllib.error.URLError) else e
             if _is_timeout(e):
                 raise ProviderError("Ollama took too long to answer") from None
-            raise ProviderError(NOT_RUNNING) from None
-        except ValueError:
+            if isinstance(reason, ConnectionRefusedError):
+                raise ProviderError(NOT_RUNNING) from None
+            raise ProviderError(f"Could not reach Ollama: {reason}") from None
+        except http.client.HTTPException:
+            raise ProviderError("Ollama sent a broken reply") from None
+        except ValueError:  # includes UnicodeDecodeError and bad JSON
             raise ProviderError("Ollama sent a reply that could not be read") from None
 
     def _chat(self, messages: list[dict], dt: DayText, schema: Optional[dict]) -> str:
@@ -101,11 +110,11 @@ class Ollama:
 
     def check(self) -> ProviderCheck:
         try:
-            names = [m["name"] for m in self._call("/api/tags")["models"]]
+            names = [m["name"] for m in self._call("/api/tags", timeout_s=CHECK_TIMEOUT_S)["models"]]
         except ProviderError as e:
             return ProviderCheck(False, str(e), [])
-        except (KeyError, TypeError):
-            return ProviderCheck(False, "Ollama sent a reply that could not be read", [])
+        except Exception as e:  # check never raises
+            return ProviderCheck(False, f"Could not reach Ollama: {type(e).__name__}", [])
         rec = recommended_model(self.memory_gb)
         models = [ModelInfo(n, n, n == rec, FREE) for n in names]
         if self.model not in names:

@@ -10,6 +10,7 @@ class FakeOllama:
         self.models = list(models)
         self.chat_content = chat_content
         self.fail_status = fail_status
+        self.headers: list[dict] = []
         self.requests: list[tuple[str, str, object]] = []
         outer = self
 
@@ -28,6 +29,7 @@ class FakeOllama:
             def _handle(self, method):
                 n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n)) if n else None
+                outer.headers.append(dict(self.headers))
                 outer.requests.append((method, self.path, body))
                 if outer.fail_status:
                     return self._send(outer.fail_status, b"boom " + b"x" * 500)
