@@ -66,3 +66,17 @@ def test_sweep_never_deletes_outside_the_state_root(root, db, cfg, clip_record, 
     assert outside_clip.exists() and outside_capture.exists()
     assert db.clip(clip_record.clip_id).path == "../outside.opus"
     assert caplog.text.count("outside the state root") == 2
+
+
+def test_sweep_evicts_the_aac_cache(root, db, cfg, seeded_retention_day):
+    import shutil
+    if not shutil.which("ffmpeg"):
+        import pytest
+        pytest.skip("ffmpeg missing")
+    from lavalier.playback import aac_path
+    old = seeded_retention_day[0]
+    aac_path(db, root, old.clip_id)
+    cached = root.cache / "aac" / f"{old.clip_id}.m4a"
+    assert cached.exists()
+    sweep(db, root, cfg, now_ms=old.transcribed_at + 15 * 86_400_000)
+    assert not cached.exists()

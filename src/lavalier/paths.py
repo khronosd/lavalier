@@ -35,9 +35,13 @@ class Paths:
         return self.root / "days"
 
     @property
+    def cache(self) -> Path:
+        return self.root / "cache"
+
+    @property
     def logs(self) -> Path:
         return self.root / "logs"
 
     def ensure(self) -> None:
-        for d in (self.root, self.captures, self.audio, self.days, self.logs):
+        for d in (self.root, self.captures, self.audio, self.days, self.logs, self.cache):
             d.mkdir(parents=True, exist_ok=True)

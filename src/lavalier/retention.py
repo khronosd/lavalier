@@ -8,6 +8,7 @@ from lavalier.config import Config
 from lavalier.db import Database
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
+from lavalier.playback import evict
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
         if not _inside_root(paths, file):
             continue
         file.unlink(missing_ok=True)
+        evict(paths, clip.clip_id)
         with db.transaction():
             db.clear_clip_path(clip.clip_id)
             db.mark_day_dirty(clip.day)
