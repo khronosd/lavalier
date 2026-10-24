@@ -184,3 +184,33 @@ def clip_at(clip_record):
         return dataclasses.replace(clip_record, **overrides)
 
     return _make
+
+
+from datetime import datetime, timezone
+
+
+def T(h, m, s, ms=0) -> int:
+    """Local 2026-10-23 timestamp in ms."""
+    return int(datetime(2026, 10, 23, h, m, s, ms * 1000).timestamp() * 1000)
+
+
+@pytest.fixture
+def clip(clip_record):
+    def _make(first_ms, last_ms, classification="speech"):
+        stamp = datetime.fromtimestamp(first_ms / 1000, tz=timezone.utc)
+        clip_id = f"clip_{stamp:%Y%m%dT%H%M%S}.{first_ms % 1000:03d}Z"
+        return dataclasses.replace(
+            clip_record, clip_id=clip_id, path=f"audio/x/{clip_id}.opus",
+            day=datetime.fromtimestamp(first_ms / 1000).date(),
+            first_ms=first_ms, last_ms=last_ms,
+            chunk_count=(last_ms - first_ms) // 20, classification=classification)
+
+    return _make
+
+
+@pytest.fixture
+def clip_rows_spanning_midnight(db, clip):
+    c = clip(T(23, 58, 0), T(23, 58, 0) + 7 * 60 * 1000)
+    c.day = date(2026, 10, 23)
+    db.add_clip(c)
+    return c
