@@ -41,3 +41,11 @@ def test_sweep_deletes_capture_file_once_clips_are_gone(root, db, cfg, clip_reco
     db.clear_clip_path(clip_record.clip_id)
     assert sweep(db, root, cfg, now_ms=far) == (0, 1) and not f.exists()
     assert sweep(db, root, cfg, now_ms=far) == (0, 0)  # already gone: not counted
+
+
+def test_sweep_resolves_a_relative_capture_path_under_the_root(root, db, cfg):
+    root.ensure()
+    f = root.captures / "rel.bin"
+    f.write_bytes(b"x")
+    db.mark_capture_decoded(db.add_capture("captures/rel.bin", "sha-rel", 1, True))
+    assert sweep(db, root, cfg, now_ms=10**15) == (0, 1) and not f.exists()

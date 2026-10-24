@@ -204,6 +204,7 @@ class Database:
     # captures
 
     def add_capture(self, path: str, sha256: str, message_count: int, complete: bool) -> int:
+        """path is relative to the state root, like clip paths."""
         with self._write_scope():
             cur = self._conn.execute(
                 "INSERT INTO captures (path, sha256, message_count, complete, imported_at_ms) "

@@ -47,7 +47,7 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
     for capture_id, path in db.captures_decoded_before(now_ms - cfg.retention_days * _DAY_MS):
         if db.clips_with_audio_for_capture(capture_id) > 0:
             continue
-        file = paths.root / path  # captures are stored by absolute path; joining keeps it as is
+        file = paths.root / path  # relative to the state root; an older absolute row joins as is
         if not file.exists():
             continue
         file.unlink(missing_ok=True)

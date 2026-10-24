@@ -80,3 +80,10 @@ def test_truncated_existing_copy_is_replaced(root, db, capture_file):
     r = import_capture(db, root, capture_file)
     assert dest.read_bytes() == capture_file.read_bytes()
     assert r.pages_new == 3
+
+
+def test_capture_path_is_stored_relative_to_the_state_root(root, db, capture_file):
+    r = import_capture(db, root, capture_file)
+    db.mark_capture_decoded(r.capture_id)
+    sha = hashlib.sha256(capture_file.read_bytes()).hexdigest()
+    assert db.captures_decoded_before(2**62) == [(r.capture_id, f"captures/{sha[:12]}-{capture_file.name}")]

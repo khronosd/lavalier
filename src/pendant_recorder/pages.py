@@ -82,7 +82,7 @@ def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = Tr
         capture_id = db.capture_by_sha(sha)
         already_imported = capture_id is not None
         if capture_id is None:
-            capture_id = db.add_capture(str(dest), sha, len(messages), complete)
+            capture_id = db.add_capture(str(dest.relative_to(paths.root)), sha, len(messages), complete)
         for payload in messages:
             sp = storage_page_of(payload)
             if sp is None:
