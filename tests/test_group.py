@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from conftest import T
 from pendant_recorder.group import group_clips, orphan_stars, rebuild_day
@@ -55,3 +55,10 @@ def test_rebuild_day_stars_from_events(db, cfg, clip, caplog):
         convs = rebuild_day(db, date(2026,10,23), cfg)
     assert convs[0].star_ms == [T(22,56,7), T(22,56,20)]
     assert "no timestamp" in caplog.text
+
+
+def test_clock_suspect_conversation_id_takes_its_date_from_the_day(cfg, clip):
+    import dataclasses
+    c = dataclasses.replace(clip(0, 16_000), day=date(2026, 10, 24), clock_suspect=True)
+    start = datetime.fromtimestamp(0)
+    assert group_clips([c], [], cfg)[0].conversation_id == f"c-20261024-{start:%H%M%S}"

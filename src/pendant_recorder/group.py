@@ -22,9 +22,11 @@ def group_clips(clips: list[ClipRecord], stars_ms: list[int], cfg: Config) -> li
 
     convs = []
     for g in groups:
+        # The date comes from the day the clips are filed under (the capture date when the
+        # clock was unset), the time from the first clip, so ids stay unique per day.
         start = datetime.fromtimestamp(g[0].first_ms / 1000)
         convs.append(Conversation(
-            conversation_id=f"c-{start:%Y%m%d-%H%M%S}",
+            conversation_id=f"c-{g[0].day:%Y%m%d}-{start:%H%M%S}",
             day=g[0].day,
             start_ms=g[0].first_ms,
             end_ms=g[-1].last_ms,
