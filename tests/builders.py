@@ -21,8 +21,10 @@ def make_storage_buffer_msg(*, page_index: int, flash_page: bytes,
 
 def make_audio_flash_page(opus_bytes: bytes,
                           did_start_recording: bool = False,
-                          did_stop_recording: bool = False) -> bytes:
+                          did_stop_recording: bool = False,
+                          absolute_timestamp_ms: int = 0) -> bytes:
     page = flash_page_pb2.FlashPage()
+    page.absolute_timestamp_ms = absolute_timestamp_ms
     c = page.chunks.add()
     c.audio_data.codec_beamforming_data = opus_bytes
     c.audio_data.did_start_recording = did_start_recording
@@ -37,8 +39,9 @@ def make_storage_session_stop_page() -> bytes:
     return page.SerializeToString()
 
 
-def make_button_page(ts_ms: int) -> bytes:
+def make_button_page(ts_ms: int, absolute_timestamp_ms: int = 0) -> bytes:
     page = flash_page_pb2.FlashPage()
+    page.absolute_timestamp_ms = absolute_timestamp_ms
     c = page.chunks.add()
     c.button_status.button_event = 1
     c.button_status.button_event_absolute_timestamp_ms = ts_ms
