@@ -134,12 +134,35 @@ def imported_capture_with_zero_timestamps(root, db, make_capture):
 from pendant_client.decode import OggOpusWriter
 
 
-@pytest.fixture
-def opus_clip(tmp_path):
+def _write_opus(path: Path) -> Path:
     packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
-    path = tmp_path / "clip.opus"
+    path.parent.mkdir(parents=True, exist_ok=True)
     w = OggOpusWriter(path)
     for _ in range(50):
         w.add_packet(packet)
     w.close()
     return path
+
+
+@pytest.fixture
+def opus_clip(tmp_path):
+    return _write_opus(tmp_path / "clip.opus")
+
+
+@pytest.fixture
+def two_clips_with_audio(root, db):
+    specs = [("clip_20261024T055514.111Z", 1792821314111, 277),
+             ("clip_20261024T055609.085Z", 1792821369085, 800)]
+    clips = []
+    for clip_id, first_ms, chunks in specs:
+        rel = f"audio/2026-10-23/{clip_id}.opus"
+        _write_opus(root.audio / "2026-10-23" / f"{clip_id}.opus")
+        c = ClipRecord(
+            clip_id=clip_id, path=rel, day=date(2026, 10, 23), first_ms=first_ms,
+            last_ms=first_ms + 15000, chunk_count=chunks, first_page=1, last_page=2,
+            run=1, capture_id=1, opened_with_start_marker=True,
+            closed_with_stop_marker=True, clock_suspect=False,
+        )
+        db.add_clip(c)
+        clips.append(c)
+    return clips
