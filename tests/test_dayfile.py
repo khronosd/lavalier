@@ -84,3 +84,10 @@ def test_keep_noise_section(root, db, cfg, seeded_2026_10_23_subset):
 def test_keep_noise_unknown_loudness(root, db, cfg, clip_record):
     db.add_clip(dataclasses.replace(clip_record, classification="noise", mean_db=None))
     assert "· 16.0 s · n/a" in render_day(db, DAY, cfg, now_ms=0, keep_noise=True)
+
+
+def test_day_without_audio_says_nothing_about_audio(root, db, cfg):
+    db.add_event(_press(1, T(9, 0, 0)))
+    out = render_day(db, DAY, cfg, now_ms=0)
+    assert "★ (no speech recorded nearby)" in out
+    assert out.endswith(f"_Transcribed with {cfg.whisper_model}._\n") and "Audio" not in out

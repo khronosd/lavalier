@@ -152,7 +152,9 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
 
     protected = {i for c in convs if c.star_ms or c.pinned for i in c.clip_ids}
     model = models[0] if models else cfg.whisper_model
-    parts.append(f"_Transcribed with {model}. {_audio_status(clips, protected, cfg)}._\n")
+    # A day that never had clips (stars only) says nothing about audio.
+    audio = f" {_audio_status(clips, protected, cfg)}." if clips else ""
+    parts.append(f"_Transcribed with {model}.{audio}_\n")
     if keep_noise:
         parts.append(_noise_section(clips))
     return "\n".join(parts)
