@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from lavalier import client, settings
-from lavalier.config import Config, load_config
+from lavalier.config import Config, ConfigError, load_config
 from lavalier.paths import Paths, default_root
 
 NOT_RUNNING = "The background app is not running. Start it with 'lavalier app' or install it with 'lavalier install-agent'."
@@ -68,7 +68,7 @@ def main(argv=None, *, webview=None, token_path: Optional[Path] = None, cfg: Opt
             return
         try:
             settings.apply(cfg, {"window_size": "%dx%d" % last["size"]}, config_path)
-        except (settings.SettingsError, OSError) as e:
+        except (settings.SettingsError, ConfigError, OSError) as e:
             print(f"could not save the window size: {e}", file=sys.stderr)
 
     window.events.resized += on_resized

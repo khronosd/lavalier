@@ -4,7 +4,7 @@ import re
 from dataclasses import fields, replace
 from pathlib import Path
 
-from lavalier.config import Config, _type_ok, save_config
+from lavalier.config import Config, _type_ok, load_config, save_config
 from lavalier.paths import Paths
 
 EDITABLE = ("pendant_address", "retention_days", "poll_interval_s", "drain_pages_threshold", "drain_after_hours",
@@ -43,6 +43,11 @@ def _check_value(name: str, value) -> None:
 
 
 def apply(cfg: Config, patch: dict, path: Path) -> Config:
+    """Validate `patch`, apply only its keys to the file at `path` as it is now, save, return the result.
+
+    Two writers (the app's Settings page, the window saving its size) each keep a Config from an earlier
+    read; patching the file rather than that copy keeps one from reverting what the other saved. `cfg`
+    is the base only while no file exists yet. An unreadable file raises ConfigError and is left alone."""
     defaults = Config()
     known = {f.name for f in fields(Config)}
     for name, value in patch.items():
@@ -53,6 +58,7 @@ def apply(cfg: Config, patch: dict, path: Path) -> Config:
             raise SettingsError(f"{name} must be {type(getattr(defaults, name)).__name__}, got {type(value).__name__}",
                                 name)
         _check_value(name, value)
-    new_cfg = replace(cfg, **patch)
+    base = load_config(path) if path.exists() else cfg
+    new_cfg = replace(base, **patch)
     save_config(new_cfg, path)
     return new_cfg

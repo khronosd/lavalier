@@ -74,3 +74,22 @@ def test_reload_config_survives_a_corrupt_file(app_env, caplog):
         assert app.reload_config() is False
     assert app.cfg is before
     assert "retention_days" in caplog.text
+
+
+def test_apply_patches_the_file_on_disk_not_the_callers_copy(tmp_path):
+    path = tmp_path / "c.toml"
+    save_config(Config(retention_days=21, appearance="dark"), path)
+    stale = Config()  # loaded before the other writer saved
+    new = apply(stale, {"window_size": "1280x800"}, path)
+    saved = load_config(path)
+    assert (saved.retention_days, saved.appearance, saved.window_size) == (21, "dark", "1280x800")
+    assert new == saved
+
+
+def test_apply_refuses_to_overwrite_an_unreadable_file(tmp_path):
+    from lavalier.config import ConfigError
+    path = tmp_path / "c.toml"
+    path.write_text('retention_days = "x"\n')
+    with pytest.raises(ConfigError):
+        apply(Config(), {"window_size": "1280x800"}, path)
+    assert path.read_text() == 'retention_days = "x"\n'

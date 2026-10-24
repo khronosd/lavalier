@@ -27,8 +27,9 @@ class FakeWindow:
 class FakeWebview:
     """Records create_window/start; start() 'closes' the window, optionally at a final size."""
 
-    def __init__(self, final_size=None):
+    def __init__(self, final_size=None, while_open=None):
         self.final_size = final_size
+        self.while_open = while_open  # called while the window is open: another writer, say
         self.created = []
         self.started = False
         self.window = None
@@ -40,6 +41,8 @@ class FakeWebview:
 
     def start(self, *a, **kw):
         self.started = True
+        if self.while_open:
+            self.while_open()
         if self.final_size:
             for h in self.window.events.resized.handlers:
                 h(*self.final_size)
@@ -151,3 +154,22 @@ def test_an_injected_cfg_without_a_config_path_is_never_saved(window_server, tmp
     assert main(webview=fake, token_path=window_server.token_path, cfg=Config(window_size="1000x700")) == 0
     assert not (default_root() / "config.toml").exists()
     assert "no config path" in capsys.readouterr().err
+
+
+def test_closing_keeps_settings_another_writer_saved_while_open(window_server, config_file):
+    from lavalier import settings
+    cfg = load_config(config_file)
+    second = lambda: settings.apply(load_config(config_file), {"retention_days": 21, "appearance": "dark"},
+                                    config_file)
+    fake = FakeWebview(final_size=(1280, 800), while_open=second)
+    assert main(webview=fake, token_path=window_server.token_path, cfg=cfg, config_path=config_file) == 0
+    saved = load_config(config_file)
+    assert (saved.retention_days, saved.appearance, saved.window_size) == (21, "dark", "1280x800")
+
+
+def test_an_unreadable_config_on_close_is_logged_and_left_alone(window_server, config_file, capsys):
+    fake = FakeWebview(final_size=(1280, 800), while_open=lambda: config_file.write_text("not = [toml\n"))
+    assert main(webview=fake, token_path=window_server.token_path, cfg=load_config(config_file),
+                config_path=config_file) == 0
+    assert "could not save the window size" in capsys.readouterr().err
+    assert config_file.read_text() == "not = [toml\n"

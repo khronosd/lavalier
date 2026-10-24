@@ -280,12 +280,12 @@ def test_a_settings_body_that_is_not_an_object_is_400(server_with_fixture, body)
     assert r.status == 400 and "error" in json.loads(r.read())
 
 
-def test_a_settings_save_whose_reload_fails_is_500(server_with_fixture, monkeypatch):
-    app = server_with_fixture.app._app
-    monkeypatch.setattr(app, "reload_config", lambda: False)
-    app.config_error = "config.toml: invalid TOML"
+def test_a_settings_save_over_an_unreadable_file_is_500_and_leaves_it(server_with_fixture):
+    app = server_with_fixture.app
+    app.paths.config.write_text('retention_days = "x"\n')
     r = put(server_with_fixture, "/api/settings", {"retention_days": 21})
-    assert r.status == 500 and json.loads(r.read())["error"].startswith("saved but reload failed: ")
+    assert r.status == 500 and json.loads(r.read())["error"].startswith("not saved: ")
+    assert app.paths.config.read_text() == 'retention_days = "x"\n' and app.config_error
 
 
 def test_status_carries_the_app_facts(server_with_fixture):

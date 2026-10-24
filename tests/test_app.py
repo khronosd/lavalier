@@ -413,6 +413,21 @@ def test_app_reloads_config_after_settings_put(server_with_fixture):
     assert server_with_fixture.app.cfg.retention_days == 21
 
 
+def test_a_settings_put_keeps_what_the_window_saved_meanwhile(server_with_fixture):
+    import json
+    from conftest import put
+    from lavalier import settings
+    from lavalier.config import load_config
+    app = server_with_fixture.app
+    path = app.paths.config
+    settings.apply(load_config(path), {"window_size": "1280x800"}, path)  # the window, closing
+    r = put(server_with_fixture, "/api/settings", {"retention_days": 21})
+    assert r.status == 200
+    saved = load_config(path)
+    assert (saved.retention_days, saved.window_size, saved.pendant_address) == (21, "1280x800", "FAKE")
+    assert (app.cfg.retention_days, app.cfg.window_size) == (21, "1280x800")
+
+
 async def test_snapshot_names_the_app(app_env):
     import os
     from importlib.metadata import version

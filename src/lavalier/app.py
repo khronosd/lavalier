@@ -137,10 +137,15 @@ class App:
         return settings.read_settings(self.cfg, self.paths)
 
     def update_settings(self, patch: dict) -> dict:
-        """Validate and save; then reload, so the next tick and action use the new values."""
-        settings.apply(self.cfg, patch, self.paths.config)
-        if not self.reload_config():
-            raise RuntimeError(f"saved but reload failed: {self.config_error}")
+        """Patch config.toml as it is on disk (another writer, the window, may have saved since this
+        process read it), then use the result, so the next tick and action see the new values. A
+        drain already running keeps the Config it started with."""
+        try:
+            self.cfg = settings.apply(self.cfg, patch, self.paths.config)
+        except ConfigError as e:
+            self.config_error = str(e)
+            raise RuntimeError(f"not saved: {e}") from e
+        self.config_error = None
         return self.get_settings()
 
     async def audio_file(self, clip_id: str) -> Path:
