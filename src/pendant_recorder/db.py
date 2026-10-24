@@ -1,11 +1,12 @@
 """SQLite state store: dedup pages, captures, clips, transcripts, events, conversations."""
 
 import json
+from contextlib import contextmanager, nullcontext
 import sqlite3
 import time
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from pendant_recorder.models import (
     ClipRecord,
@@ -160,6 +161,23 @@ class Database:
     def __init__(self, path: Path):
         self._conn = sqlite3.connect(str(path))
         self._conn.row_factory = sqlite3.Row
+        self._in_transaction = False
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Run several writes as one unit: commit on success, roll back on error.
+
+        add_capture and add_page defer their own commit while inside it.
+        """
+        with self._conn:
+            self._in_transaction = True
+            try:
+                yield self._conn
+            finally:
+                self._in_transaction = False
+
+    def _write_scope(self):
+        return nullcontext() if self._in_transaction else self._conn
 
     def __enter__(self) -> "Database":
         return self
@@ -186,7 +204,7 @@ class Database:
     # captures
 
     def add_capture(self, path: str, sha256: str, message_count: int, complete: bool) -> int:
-        with self._conn:
+        with self._write_scope():
             cur = self._conn.execute(
                 "INSERT INTO captures (path, sha256, message_count, complete, imported_at_ms) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -219,7 +237,7 @@ class Database:
         return r is not None
 
     def add_page(self, key: PageKey, capture_id: int, session: int, ingest_type: int, absolute_ms: int) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 'INSERT INTO pages (run, "index", sha256, capture_id, session, ingest_type, absolute_ms) '
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",

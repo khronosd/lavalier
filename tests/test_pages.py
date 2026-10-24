@@ -1,3 +1,4 @@
+import pytest
 import hashlib
 
 from pendant_client.decode import StoragePage
@@ -28,3 +29,46 @@ def test_same_index_different_bytes_is_new(root, db, make_capture):
     import_capture(db, root, make_capture(pages=[9], opus=b"A"*40))
     r = import_capture(db, root, make_capture(pages=[9], opus=b"B"*40))
     assert r.pages_new == 1
+
+
+def test_crash_mid_import_leaves_nothing_and_retry_is_complete(root, db, tmp_path, monkeypatch):
+    from pendant_client.decode import write_batch_ingest_request
+    from builders import make_audio_flash_page, make_button_page, make_storage_buffer_msg
+    from pendant_recorder.db import Database
+
+    button = make_storage_buffer_msg(page_index=0, flash_page=make_button_page(1000), session=1, run=1)
+    msgs = [button] + [
+        make_storage_buffer_msg(page_index=i, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39), session=1, run=1)
+        for i in (1, 2)
+    ]
+    path = tmp_path / "mixed.bin"
+    write_batch_ingest_request(messages=msgs, ble_identifier="t", path=path)
+
+    real = Database.add_page
+    calls = {"n": 0}
+
+    def flaky(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("boom")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Database, "add_page", flaky)
+    with pytest.raises(RuntimeError):
+        import_capture(db, root, path)
+    monkeypatch.setattr(Database, "add_page", real)
+
+    r = import_capture(db, root, path)
+    assert (r.pages_new, r.pages_duplicate) == (3, 0)
+    assert r.new_payloads == msgs
+
+
+def test_truncated_existing_copy_is_replaced(root, db, capture_file):
+    root.ensure()
+    sha = hashlib.sha256(capture_file.read_bytes()).hexdigest()
+    root.captures.mkdir(parents=True, exist_ok=True)
+    dest = root.captures / f"{sha[:12]}-{capture_file.name}"
+    dest.write_bytes(capture_file.read_bytes()[:10])
+    r = import_capture(db, root, capture_file)
+    assert dest.read_bytes() == capture_file.read_bytes()
+    assert r.pages_new == 3

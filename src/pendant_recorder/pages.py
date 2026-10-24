@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,37 +38,46 @@ def _absolute_ms(sp: StoragePage) -> int:
         return 0
 
 
+def _install_copy(src: Path, dest: Path, sha: str) -> None:
+    """Copy src to dest atomically; replace a dest whose content does not match sha."""
+    if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest() == sha:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_suffix(dest.suffix + ".part")
+    shutil.copyfile(src, part)
+    os.replace(part, dest)
+
+
 def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = True) -> ImportResult:
     src = Path(src)
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
     dest = paths.captures / f"{sha[:12]}-{src.name}"
-    if not dest.exists():
-        paths.captures.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dest)
-
-    capture_id = db.capture_by_sha(sha)
-    already_imported = capture_id is not None
+    _install_copy(src, dest, sha)
     messages = list(iter_messages_from_bin(dest))
-    if capture_id is None:
-        capture_id = db.add_capture(str(dest), sha, len(messages), complete)
 
     pages_new = 0
     pages_duplicate = 0
     new_payloads: list[bytes] = []
     seen_here: set[PageKey] = set()
-    for payload in messages:
-        sp = storage_page_of(payload)
-        if sp is None:
-            if not already_imported:
-                new_payloads.append(payload)
-            continue
-        key = page_key(sp)
-        if key in seen_here or db.page_seen(key):
-            pages_duplicate += 1
-            continue
-        seen_here.add(key)
-        pages_new += 1
-        new_payloads.append(payload)
-        db.add_page(key, capture_id, sp.session, sp.ingest_type, _absolute_ms(sp))
+    # One transaction: a crash leaves no capture row, so the next import starts clean.
+    with db.transaction():
+        capture_id = db.capture_by_sha(sha)
+        already_imported = capture_id is not None
+        if capture_id is None:
+            capture_id = db.add_capture(str(dest), sha, len(messages), complete)
+        for payload in messages:
+            sp = storage_page_of(payload)
+            if sp is None:
+                if not already_imported:
+                    new_payloads.append(payload)
+                continue
+            key = page_key(sp)
+            if key in seen_here or db.page_seen(key):
+                pages_duplicate += 1
+                continue
+            seen_here.add(key)
+            pages_new += 1
+            new_payloads.append(payload)
+            db.add_page(key, capture_id, sp.session, sp.ingest_type, _absolute_ms(sp))
 
     return ImportResult(capture_id, len(messages), pages_new, pages_duplicate, new_payloads)
