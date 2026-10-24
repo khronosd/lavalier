@@ -31,6 +31,8 @@ class Config:
     fsync_every_pages: int = 100
     require_firmware: str = ""
     app_bundle: str = ""
+    appearance: str = "system"
+    window_size: str = "1120x720"
 
 
 def _type_ok(value: object, default: object) -> bool:

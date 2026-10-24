@@ -36,3 +36,12 @@ def test_device_defaults_and_toml_round_trip(tmp_path):
     save_config(replace(cfg, require_firmware="1.1.3", poll_interval_s=300), tmp_path / "c.toml")
     loaded = load_config(tmp_path / "c.toml")
     assert (loaded.require_firmware, loaded.poll_interval_s) == ("1.1.3", 300)
+
+
+def test_appearance_and_window_size_defaults_and_type_check(tmp_path):
+    assert load_config(tmp_path / "none.toml").appearance == "system"
+    assert load_config(tmp_path / "none.toml").window_size == "1120x720"
+    p = tmp_path / "config.toml"
+    p.write_text("appearance = 3\n")
+    with pytest.raises(ConfigError, match="appearance"):
+        load_config(p)

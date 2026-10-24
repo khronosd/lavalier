@@ -97,6 +97,10 @@ class App:
 
     # device work, always under self._device_lock
 
+    def reload_config(self) -> None:
+        """Re-read config.toml; the next tick and action use the new values."""
+        self.cfg = load_config(self.paths.config)
+
     def _make_pendant(self, cfg: Config):
         self.pendant = self._pendant_factory(cfg)
         return self.pendant
