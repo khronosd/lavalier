@@ -243,3 +243,49 @@ async def test_a_stopping_app_refuses_actions(app_env):
     else:
         raise AssertionError("action ran on a stopping app")
     assert app.pendant is None                                       # no session was opened
+
+
+async def test_a_tick_waiting_for_the_device_does_not_sync_once_stopping(app_env, storage_payloads):
+    holder = []
+    pendant = _SlowDrainPendant(holder, pages=(0, 999), messages=storage_payloads * 3)
+    app = app_env(pendant)
+    holder.append(app)
+    pendant.on_ack = lambda index: app.stop() if index == 11 else None
+    action = asyncio.create_task(app.action("sync"))
+    await asyncio.sleep(0)                       # the action holds the device
+    tick = asyncio.create_task(app.tick())       # the poll interval ran out: the tick waits for the device
+    await asyncio.wait({action, tick}, timeout=5)
+    assert action.cancelled()
+    report = tick.result()
+    assert (report.outcome, report.reason) == ("skipped", "stopping")
+    log = pendant.log
+    assert log.count("enter") == 1 and log.count("exit") == 1          # no second session after the stop
+    assert log.count("stop") == 1 and log.count("drain") == 1 and "start" in log
+
+
+class _SecondStopPendant(_SlowDrainPendant):
+    """A second stop arrives while the restore is running."""
+
+    async def start_recording(self):
+        self.app_holder[0].stop()
+        await asyncio.sleep(0.01)
+        await super().start_recording()
+
+
+async def test_a_second_stop_does_not_cancel_a_running_restore(app_env, storage_payloads):
+    from lavalier.db import Database
+    holder = []
+    pendant = _SecondStopPendant(holder, pages=(0, 999), messages=storage_payloads * 3)
+    app = app_env(pendant)
+    holder.append(app)
+    pendant.on_ack = lambda index: app.stop() if index == 11 else None
+    action = asyncio.create_task(app.action("sync"))
+    await asyncio.wait({action}, timeout=5)
+    assert action.cancelled()                                        # cancelled once, nothing raised
+    log = pendant.log
+    assert "start" in log and log.index("start") > log.index("stop") and log[-1] == "exit"
+    db = Database(app.paths.db)
+    try:
+        assert db.last_sync_run().unmute == "confirmed"
+    finally:
+        db.close()

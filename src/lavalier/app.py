@@ -136,12 +136,15 @@ class App:
         return processed
 
     async def tick(self) -> SyncReport:
-        async with self._device_lock:
-            self._ticking = True
-            try:
+        # marked before the wait, so a signal cancels a tick queued behind an action as well
+        self._ticking = True
+        try:
+            async with self._device_lock:
+                if self._stopping:  # stop() came while this waited: no new session during shutdown
+                    return SyncReport(outcome="skipped", reason="stopping")
                 report = await self._sync_device()
-            finally:
-                self._ticking = False
+        finally:
+            self._ticking = False
         _log.info("sync: %s (%s)", report.outcome, report.reason)
         await self._process_capture(report)
         return report
@@ -175,9 +178,17 @@ class App:
 
     # the scheduler
 
+    @property
+    def stopping(self) -> bool:
+        return self._stopping
+
     def stop(self) -> None:
         """Refuse new actions, end an interval sleep at once, and cancel the actions in flight: each
-        session's own cleanup (restore, lock release, disconnect) runs as it unwinds."""
+        session's own cleanup (restore, lock release, disconnect) runs as it unwinds. Only the first
+        call acts: a later one must not cancel a restore that is already running."""
+        if self._stopping:
+            _log.info("already stopping")
+            return
         self._stopping = True
         if self._sleep_task is not None:
             self._sleep_task.cancel()
@@ -230,6 +241,9 @@ async def _serve(app: App) -> None:
     task = asyncio.current_task()
 
     def on_signal(signame: str) -> None:
+        if app.stopping:  # a second Ctrl-C or TERM must not cancel a restore in progress
+            _log.info("%s: already stopping", signame)
+            return
         _log.info("%s: stopping", signame)
         app.stop()  # cancels the actions in flight
         if app._ticking:  # the scheduled sync runs in this task; its cleanup runs as it unwinds
