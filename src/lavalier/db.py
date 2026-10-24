@@ -498,26 +498,44 @@ class Database:
             "WHERE segments_fts MATCH ? AND c.classification = 'speech' ORDER BY rank LIMIT ?",
             (match, limit)).fetchall()
 
+    def segments_starting_between(self, clip_ids: list[str], day: date, from_ms: int,
+                                  to_ms: int) -> list[sqlite3.Row]:
+        """Segments of the day's transcribed clips among clip_ids whose wall-clock start is roughly within
+        [from_ms, to_ms] (a millisecond of slack each side; the caller applies the exact bound). Rows
+        carry clip_id, seq, start_s, text and the clip's first_ms; words are never read."""
+        if not clip_ids:
+            return []
+        marks = ", ".join("?" * len(clip_ids))
+        return self._conn.execute(
+            "SELECT s.clip_id, s.seq, s.start_s, s.text, c.first_ms FROM segments s "
+            "JOIN clips c ON c.clip_id = s.clip_id "
+            f"WHERE s.clip_id IN ({marks}) AND c.day = ? AND c.transcript_text IS NOT NULL "
+            "AND c.first_ms + s.start_s * 1000 BETWEEN ? AND ?",
+            (*clip_ids, day.isoformat(), from_ms - 1, to_ms + 1)).fetchall()
+
     def segment_start_s(self, clip_id: str, seq: int) -> Optional[float]:
         r = self._conn.execute(
             "SELECT start_s FROM segments WHERE clip_id = ? AND seq = ?", (clip_id, seq)).fetchone()
         return None if r is None else r["start_s"]
 
-    def transcript(self, clip_id: str) -> Optional[Transcript]:
+    def transcript(self, clip_id: str, *, words: bool = True) -> Optional[Transcript]:
+        """The clip's transcript; with words=False every segment's word list is empty and the words
+        table is never read (the window and the day file need only segments)."""
         r = self._conn.execute(
             "SELECT transcript_text, language, model FROM clips WHERE clip_id = ?", (clip_id,)
         ).fetchone()
         if r is None or r["transcript_text"] is None:
             return None
-        words: dict[int, list[Word]] = {}
+        by_segment: dict[int, list[Word]] = {}
         for w in self._conn.execute(
             "SELECT * FROM words WHERE clip_id = ? ORDER BY segment_seq, seq", (clip_id,)
-        ):
-            words.setdefault(w["segment_seq"], []).append(
+        ) if words else ():
+            by_segment.setdefault(w["segment_seq"], []).append(
                 Word(w["start_s"], w["end_s"], w["word"], w["probability"])
             )
         segments = [
-            Segment(s["start_s"], s["end_s"], s["text"], s["avg_logprob"], s["no_speech_prob"], words.get(s["seq"], []))
+            Segment(s["start_s"], s["end_s"], s["text"], s["avg_logprob"], s["no_speech_prob"],
+                    by_segment.get(s["seq"], []))
             for s in self._conn.execute("SELECT * FROM segments WHERE clip_id = ? ORDER BY seq", (clip_id,))
         ]
         return Transcript(r["transcript_text"], r["language"], r["model"], segments)

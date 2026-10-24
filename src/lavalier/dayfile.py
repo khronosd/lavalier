@@ -100,7 +100,7 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
     models = []
     for conv in view.conversations:
         for cid in conv.clip_ids:
-            t = db.transcript(cid)
+            t = db.transcript(cid, words=False)
             if t is not None:
                 models.append(t.model)
 

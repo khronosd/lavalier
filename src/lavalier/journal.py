@@ -73,7 +73,7 @@ def segment_at_ms(first_ms: int, start_s: float) -> int:
 def _lines(db: Database, clips: list[ClipRecord]) -> list[Line]:
     lines = []
     for c in clips:
-        t = db.transcript(c.clip_id)
+        t = db.transcript(c.clip_id, words=False)
         if t is None:
             continue
         # a segment with no words (whitespace only) makes no line; seq stays the segment's index
@@ -147,11 +147,30 @@ def days_index(db: Database, cfg: Config, *, now_ms: int) -> list[DaySummary]:
             for r in db.days_summary()]
 
 
+def _star_quote(db: Database, day: date, conv, star_ms: int) -> Optional[str]:
+    """The quote day_view gives a star (_quote over the conversation's lines), from one segment lookup:
+    the first non-empty segment starting within QUOTE_WINDOW_MS after the star, in line order."""
+    order = {cid: i for i, cid in enumerate(conv.clip_ids)}
+    found = []
+    for r in db.segments_starting_between(list(conv.clip_ids), day, star_ms, star_ms + QUOTE_WINDOW_MS):
+        at = segment_at_ms(r["first_ms"], r["start_s"])
+        text = r["text"].strip()
+        if text and star_ms <= at <= star_ms + QUOTE_WINDOW_MS:
+            found.append((at, order[r["clip_id"]], r["seq"], text))
+    return min(found)[3] if found else None
+
+
 def all_stars(db: Database, cfg: Config) -> list[tuple[date, StarView]]:
-    """Every star of every day, newest first."""
+    """Every star of every day, newest first. The same stars and quotes as each day_view, without
+    building the views: presses, conversation ranges and one segment lookup per star."""
     out = []
     for day in sorted(db.days_with_clips(), reverse=True):
-        out += [(day, s) for s in reversed(day_view(db, day, cfg, now_ms=0).stars)]
+        convs = db.conversations_for_day(day)
+        stars = [StarView(ms, conv.conversation_id, _star_quote(db, day, conv, ms))
+                 for conv in convs for ms in conv.star_ms]
+        stars += [StarView(ms, None, None) for ms in orphan_stars(press_times(db, day), convs)]
+        stars.sort(key=lambda s: s.at_ms)
+        out += [(day, s) for s in reversed(stars)]
     return out
 
 

@@ -119,3 +119,43 @@ def test_a_conversation_past_its_retention_deadline_has_no_audio(db, cfg, seeded
     by_clip = {c.clip_ids[0]: c.audio_available for c in v.conversations}
     assert by_clip == {old.clip_id: False, starred.clip_id: True, fresh.clip_id: True}  # failed: no conversation
     assert all(c.audio_available for c in day_view(db, DAY, cfg, now_ms=now - 1).conversations)
+
+
+def _queries(db):
+    seen = []
+    db._conn.set_trace_callback(seen.append)
+    return seen
+
+
+def _stars_from_day_views(db, cfg):
+    """The old definition of all_stars: every day view's stars, newest first."""
+    return [(d, s) for d in sorted(db.days_with_clips(), reverse=True)
+            for s in reversed(day_view(db, d, cfg, now_ms=0).stars)]
+
+
+@pytest.mark.parametrize("seed", ["seeded_2026_10_23_subset", "seeded_orphan_star", "seeded_retention_day"])
+def test_all_stars_never_reads_words_and_matches_the_day_views(request, db, cfg, seed):
+    request.getfixturevalue(seed)
+    assert db._conn.execute("SELECT COUNT(*) FROM words").fetchone()[0] > 0
+    expected = _stars_from_day_views(db, cfg)
+    assert expected  # each seed has a star
+    seen = _queries(db)
+    assert all_stars(db, cfg) == expected
+    db._conn.set_trace_callback(None)
+    assert not [q for q in seen if "words" in q]
+
+
+def test_all_stars_over_two_days_matches_the_day_views(db_two_days, cfg):
+    from conftest import _press
+    from lavalier.group import rebuild_day
+    db_two_days.add_event(_press(9000, int(T(12, 0, 1) + 86_400_000)))
+    rebuild_day(db_two_days, date(2026, 10, 24), cfg)
+    assert all_stars(db_two_days, cfg) == _stars_from_day_views(db_two_days, cfg)
+    assert [d for d, _ in all_stars(db_two_days, cfg)][0] == date(2026, 10, 24)
+
+
+def test_day_view_never_reads_words(db_with_fixture_day, cfg):
+    seen = _queries(db_with_fixture_day)
+    day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW)
+    db_with_fixture_day._conn.set_trace_callback(None)
+    assert seen and not [q for q in seen if "words" in q]
