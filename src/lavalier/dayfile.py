@@ -5,12 +5,9 @@ from pathlib import Path
 
 from lavalier.config import Config
 from lavalier.db import Database
-from lavalier.group import orphan_stars, press_times
-from lavalier.models import ClipRecord, Conversation, Transcript
+from lavalier.journal import ConversationView, DayView, StarView, day_view
+from lavalier.models import ClipRecord
 from lavalier.paths import Paths
-from lavalier.retention import deadline_ms
-
-QUOTE_WINDOW_MS = 10_000
 
 
 def _local(ms: int) -> datetime:
@@ -38,53 +35,28 @@ def _duration(ms: int) -> str:
     return f"{s // 3600}h {s % 3600 // 60}m"
 
 
-class _Segment:
-    def __init__(self, at_ms: int, text: str):
-        self.at_ms = at_ms
-        self.text = text.strip()
+def _frontmatter(view: DayView) -> str:
+    n = len(view.conversations)
+    speech = f"{_duration(view.speech_ms)} across {_plural(n, 'conversation', 'conversations')}"
+    return (f"---\ndate: {view.day.isoformat()}\n"
+            f"speech: {speech}; {_plural(view.noise_clips, 'noise clip', 'noise clips')} dropped\n"
+            f"stars: {len(view.stars)}\n---\n")
 
 
-def _segments(db: Database, clips: list[ClipRecord]) -> tuple[list[_Segment], list[Transcript]]:
-    segs, transcripts = [], []
-    for c in clips:
-        t = db.transcript(c.clip_id)
-        if t is None:
-            continue
-        transcripts.append(t)
-        segs += [_Segment(c.first_ms + round(s.start_s * 1000), s.text) for s in t.segments]
-    segs.sort(key=lambda s: s.at_ms)
-    return segs, transcripts
-
-
-def _quote(star_ms: int, segs: list[_Segment]) -> str | None:
-    for s in segs:
-        if star_ms <= s.at_ms <= star_ms + QUOTE_WINDOW_MS:
-            return s.text
-    return None
-
-
-def _frontmatter(day: date, convs: list[Conversation], n_noise: int, n_stars: int) -> str:
-    speech_ms = sum(c.speech_ms for c in convs)
-    speech = f"{_duration(speech_ms)} across {_plural(len(convs), 'conversation', 'conversations')}"
-    return (f"---\ndate: {day.isoformat()}\n"
-            f"speech: {speech}; {_plural(n_noise, 'noise clip', 'noise clips')} dropped\n"
-            f"stars: {n_stars}\n---\n")
-
-
-def _starred(entries: list[tuple[int, Conversation | None, str | None]]) -> str:
+def _starred(stars: list[StarView], convs: dict[str, ConversationView]) -> str:
     lines = ["## Starred"]
-    for ms, conv, quote in sorted(entries, key=lambda e: e[0]):
-        if conv is None:
-            lines.append(f"- {_hms(ms)} ★ (no speech recorded nearby)")
+    for s in stars:  # already in time order
+        if s.conversation_id is None:
+            lines.append(f"- {_hms(s.at_ms)} ★ (no speech recorded nearby)")
             continue
-        line = f"- {_hms(ms)} ★ in [{_hm(conv.start_ms)} conversation](#{conv.conversation_id})"
-        if quote:
-            line += f' — "{quote}"'
+        line = f"- {_hms(s.at_ms)} ★ in [{_hm(convs[s.conversation_id].start_ms)} conversation](#{s.conversation_id})"
+        if s.quote:
+            line += f' — "{s.quote}"'
         lines.append(line)
     return "\n".join(lines) + "\n"
 
 
-def _conversation(conv: Conversation, segs: list[_Segment]) -> str:
+def _conversation(conv: ConversationView) -> str:
     stars = "★" * len(conv.star_ms)
     head = f"### {_hm(conv.start_ms)}–{_hm(conv.end_ms)} · {_duration(conv.speech_ms)} speech"
     if stars:
@@ -92,7 +64,7 @@ def _conversation(conv: Conversation, segs: list[_Segment]) -> str:
     if conv.pinned:
         head += " (pinned)"
     lines = [f"{head} {{#{conv.conversation_id}}}"]
-    events = [(s.at_ms, 1, f"[{_hms(s.at_ms)}] {s.text}") for s in segs]
+    events = [(ln.at_ms, 1, f"[{_hms(ln.at_ms)}] {ln.text}") for ln in conv.lines]
     # A star pressed shortly before the conversation began has no place in the
     # transcript; it still counts in the heading and the Starred section.
     events += [(ms, 0, f"[{_hms(ms)}] ★") for ms in conv.star_ms if conv.start_ms <= ms <= conv.end_ms]
@@ -100,18 +72,14 @@ def _conversation(conv: Conversation, segs: list[_Segment]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _audio_status(clips: list[ClipRecord], protected_ids: set[str], cfg: Config) -> str:
-    speech = [c for c in clips if c.classification == "speech"]
-    if any(c.clip_id in protected_ids for c in speech):
+def _audio_status(clips: list[ClipRecord], protected: bool, audio_until: date | None) -> str:
+    if protected:
         return "Audio kept"
-    with_file = [c for c in clips if c.path]
-    if not with_file:
+    if not any(c.path for c in clips):
         return "Audio deleted"
-    deadlines = [d for c in with_file
-                 if (d := deadline_ms(c, cfg, protected=False)) is not None]
-    if not deadlines:
+    if audio_until is None:
         return "Audio kept"
-    return f"Audio kept until {_local(max(deadlines)).date().isoformat()}"
+    return f"Audio kept until {audio_until.isoformat()}"
 
 
 def _noise_section(clips: list[ClipRecord]) -> str:
@@ -125,35 +93,31 @@ def _noise_section(clips: list[ClipRecord]) -> str:
 
 
 def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise: bool = False) -> str:
+    view = day_view(db, day, cfg, now_ms=now_ms)
     clips = db.clips_for_day(day)
-    by_id = {c.clip_id: c for c in clips}
-    convs = db.conversations_for_day(day)
-    n_noise = sum(1 for c in clips if c.classification == "noise")
+    convs = {c.conversation_id: c for c in view.conversations}
 
-    conv_segs, models = {}, []
-    for conv in convs:
-        segs, transcripts = _segments(db, [by_id[i] for i in conv.clip_ids if i in by_id])
-        conv_segs[conv.conversation_id] = segs
-        models += [t.model for t in transcripts]
+    models = []
+    for conv in view.conversations:
+        for cid in conv.clip_ids:
+            t = db.transcript(cid)
+            if t is not None:
+                models.append(t.model)
 
-    entries = [(ms, conv, _quote(ms, conv_segs[conv.conversation_id]))
-               for conv in convs for ms in conv.star_ms]
-    entries += [(ms, None, None) for ms in orphan_stars(press_times(db, day), convs)]
-
-    parts = [_frontmatter(day, convs, n_noise, len(entries)),
-             f"# {day:%A} {day.isoformat()}\n"]
+    parts = [_frontmatter(view), f"# {day:%A} {day.isoformat()}\n"]
     if any(c.clock_suspect for c in clips):
         parts.append("> Clock was unset on the pendant; times in this file are approximate.\n")
-    if entries:
-        parts.append(_starred(entries))
-    if convs:
+    if view.stars:
+        parts.append(_starred(view.stars, convs))
+    if view.conversations:
         parts.append("## Conversations\n")
-        parts += [_conversation(c, conv_segs[c.conversation_id]) for c in convs]
+        parts += [_conversation(c) for c in view.conversations]
 
-    protected = {i for c in convs if c.star_ms or c.pinned for i in c.clip_ids}
+    speech_ids = {c.clip_id for c in clips if c.classification == "speech"}
+    protected = any(speech_ids & set(c.clip_ids) for c in view.conversations if c.star_ms or c.pinned)
     model = models[0] if models else cfg.whisper_model
     # A day that never had clips (stars only) says nothing about audio.
-    audio = f" {_audio_status(clips, protected, cfg)}." if clips else ""
+    audio = f" {_audio_status(clips, protected, view.audio_until)}." if clips else ""
     parts.append(f"_Transcribed with {model}.{audio}_\n")
     if keep_noise:
         parts.append(_noise_section(clips))
