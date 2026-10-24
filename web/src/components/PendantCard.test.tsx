@@ -2,7 +2,13 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Status } from "../api";
 import { device, status } from "../pendant.fixtures";
+import { usePendantStatus } from "../usePendantStatus";
 import { PendantCard } from "./PendantCard";
+
+/** The card as the shell mounts it: with the status hook's state. */
+function Card() {
+  return <PendantCard pendant={usePendantStatus()} />;
+}
 
 const json = (body: unknown, code = 200) =>
   new Response(JSON.stringify(body), { status: code, headers: { "Content-Type": "application/json" } });
@@ -49,7 +55,7 @@ afterEach(() => {
 test("with no reading yet, the lamp is a grey outline and only Sync now is offered", async () => {
   const s = status({ device: null });
   server({ "GET /api/status": json(s), "POST /api/status-live": json({ ok: false, error: "Pendant not in range", summary: summaryOf(s) }) });
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   expect(screen.getByText("No reading yet")).toBeTruthy();
   expect(container.querySelector(".lamp")!.classList.contains("lamp-unknown")).toBe(true);
@@ -62,7 +68,7 @@ test("with no reading yet, the lamp is a grey outline and only Sync now is offer
 test("listening: the lit lamp, age, battery, pages waiting and Mute", async () => {
   const s = status({ device: device({ charger_signal: "current", age_s: 125 }) });
   server({ "GET /api/status": json(s), "POST /api/status-live": json({ ok: true, error: null, summary: summaryOf(s) }) });
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   expect(container.querySelector(".pendant")!.getAttribute("aria-label")).toBe("Pendant status");
   expect(screen.getByText("Listening")).toBeTruthy();
@@ -77,7 +83,7 @@ test("listening: the lit lamp, age, battery, pages waiting and Mute", async () =
 test("recording lights the lamp with a ring", async () => {
   const s = status({ device: device({ recording_state: "RECORDING" }) });
   server({ "GET /api/status": json(s), "POST /api/status-live": json({ ok: true, error: null, summary: summaryOf(s) }) });
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   expect(screen.getByText("Recording")).toBeTruthy();
   expect(container.querySelector(".lamp")!.classList.contains("lamp-recording")).toBe(true);
@@ -93,7 +99,7 @@ test("muted: a dark lamp, Unmute, the pending unmute, and Unmute's result with a
     "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(current) }),
     "POST /api/unmute": () => { current = listening; return json({ ok: true, state: "LISTENING", error: null }); },
   });
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   expect(screen.getByText("Muted")).toBeTruthy();
   expect(container.querySelector(".lamp")!.classList.contains("lamp-muted")).toBe(true);
@@ -121,7 +127,7 @@ test("the buttons wait while a live read is in flight", async () => {
     }
     return handler(init?.method ?? "GET", url);
   }));
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   expect((screen.getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(true);
   answer();
@@ -132,7 +138,7 @@ test("the buttons wait while a live read is in flight", async () => {
 test("while the app is busy every button is disabled and no live read is made", async () => {
   const s = status({ busy: true });
   const { calls } = server({ "GET /api/status": json(s) });
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   for (const name of ["Sync now", "Mute"]) {
     expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
@@ -147,7 +153,7 @@ test("with no pendant address the card says where to set it and offers no button
     "GET /api/status": json(s),
     "POST /api/status-live": json({ ok: false, error: "set pendant_address in config.toml", summary: summaryOf(s) }),
   });
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   expect(screen.getByText("No pendant address set. Add it in Settings › Pendant.")).toBeTruthy();
   expect(screen.queryAllByRole("button")).toEqual([]);
@@ -166,7 +172,7 @@ test("a sync shows what it drained; a busy app and a stopping app say so", async
     "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
     "POST /api/sync": () => answers.shift()!,
   });
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   const result = () => container.querySelector(".pendant-result")!.textContent;
   fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
@@ -186,7 +192,7 @@ test("the timers: status every 15 s, a live read every 60 s while visible; none 
     "GET /api/status": () => json(s),
     "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
   });
-  const { unmount } = render(<PendantCard />);
+  const { unmount } = render(<Card />);
   await flush();
   expect(calls).toEqual(["GET /api/status", "POST /api/status-live", "GET /api/status"]);
   calls.length = 0;
@@ -220,7 +226,7 @@ test("after a sync that found no pendant, the live read waits", async () => {
   const s = status({ last_sync: { id: 3, started_ms: 0, ended_ms: 1, outcome: "not-in-range", reason: "not advertising",
     pages: 0, messages: 0, capture_id: null, muted_by: null, unmute: "n/a", error: null } });
   const { calls } = server({ "GET /api/status": () => json(s) });
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
   expect(calls.filter((c) => c.startsWith("POST"))).toEqual([]);
@@ -239,7 +245,7 @@ test("a poll that saw the card's own live read as busy does not outlive the read
     }
     return handler(init?.method ?? "GET", url);
   }));
-  const { container } = render(<PendantCard />);
+  const { container } = render(<Card />);
   await flush();
   polledBusy = true; // the 15 s poll lands while the live read holds the pendant
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
@@ -257,7 +263,7 @@ test("when the app cannot be reached the card says so, and stops saying so once 
     "GET /api/status": () => (down ? json({ error: "nope" }, 500) : json(s)),
     "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
   });
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   expect(screen.getByText("as of 2 min ago")).toBeTruthy();
   down = true;
@@ -272,7 +278,7 @@ test("when the app cannot be reached the card says so, and stops saying so once 
 
 test("a failed fetch of the status also counts as the app out of reach", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   expect(screen.getByText("Cannot reach the app")).toBeTruthy();
 });
@@ -283,7 +289,7 @@ test("a window visible but behind others makes no live reads; coming to the fron
     "GET /api/status": () => json(s),
     "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
   });
-  render(<PendantCard />);
+  render(<Card />);
   await flush();
   expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(1);
   calls.length = 0;

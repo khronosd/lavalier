@@ -187,7 +187,7 @@ test("a failed load says what happened in a warning notice", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "unauthorized" }, 401)));
   render(<Journal route={parseHash("#/day/2026-10-23")} today="2026-10-24" days={days} />);
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toBe("This window could not sign in to the lavalier app. Reopen the window from the app.");
+  expect(alert.textContent).toBe("The window was opened without its key. Close it and run lavalier window again.");
   expect(alert.classList.contains("warn")).toBe(true);
 });
 

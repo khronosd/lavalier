@@ -1,11 +1,12 @@
 import { age } from "../format";
 import { batteryLine, buttonsDisabled, lampState, pagesSentence, pendingUnmuteLine, stateText } from "../pendant";
-import { usePendantStatus } from "../usePendantStatus";
+import type { PendantStatus } from "../usePendantStatus";
 import { Lamp } from "./Lamp";
 
-/** The one dark element: the pendant's state from its latest read, and Sync now, Mute or Unmute. */
-export function PendantCard() {
-  const { status, inflight, result, liveError, noAddress, unreachable, run } = usePendantStatus();
+/** The one dark element: the pendant's state from its latest read, and Sync now, Mute or Unmute. The
+ * shell owns the status (usePendantStatus), since its polls also tell the pages when to refetch. */
+export function PendantCard({ pendant }: { pendant: PendantStatus }) {
+  const { status, inflight, result, liveError, noAddress, unreachable, run } = pendant;
   const lamp = lampState(status);
   const device = lamp === "unknown" ? null : status?.device ?? null;
   const disabled = buttonsDisabled(status, inflight);

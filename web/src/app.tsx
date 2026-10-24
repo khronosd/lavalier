@@ -8,7 +8,9 @@ import { Insights } from "./pages/Insights";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { StarredPage } from "./pages/Starred";
+import { DataVersion, dataVersion, useOnVersionChange } from "./refresh";
 import { type Route, useRoute } from "./router";
+import { usePendantStatus } from "./usePendantStatus";
 
 function Page({ route, today, days }: { route: Route; today: string; days: DaySummary[] | null }) {
   switch (route.name) {
@@ -41,20 +43,32 @@ function useToday(): string {
 export function App() {
   const route = useRoute();
   const today = useToday();
+  const pendant = usePendantStatus();
+  const version = dataVersion(pendant.status);
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api<DaySummary[]>("GET", "/api/days").then(setDays, (e) => {
+  /** The first load shows its failure; a refetch after new data keeps the list it has if it fails. */
+  function loadDays(quiet: boolean) {
+    api<DaySummary[]>("GET", "/api/days").then((list) => {
+      setDays(list);
+      setError(null);
+    }, (e) => {
+      if (quiet) return;
       setDays([]);
       setError(explainError(e, "The days"));
     });
-  }, []);
+  }
+
+  useEffect(() => loadDays(false), []);
+  useOnVersionChange(version, () => loadDays(true));
 
   return (
-    <Shell route={route} days={days} today={today} pendant={<PendantCard />}>
-      {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
-      <Page route={route} today={today} days={days} />
-    </Shell>
+    <DataVersion.Provider value={version}>
+      <Shell route={route} days={days} today={today} pendant={<PendantCard pendant={pendant} />}>
+        {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
+        <Page route={route} today={today} days={days} />
+      </Shell>
+    </DataVersion.Provider>
   );
 }

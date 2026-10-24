@@ -59,5 +59,5 @@ test("a failed search says what happened", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "stopping" }, 503)));
   render(<Search q="x" />);
   expect((await screen.findByRole("alert")).textContent)
-    .toBe("Search results could not be loaded (stopping). Check that the lavalier app is running, then reload.");
+    .toBe("Search results could not be loaded (stopping). Check that the lavalier app is running.");
 });

@@ -56,5 +56,5 @@ test("Starred says what went wrong when the list cannot be loaded", async () => 
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "stopping" }, 503)));
   render(<StarredPage />);
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toBe("The starred moments could not be loaded (stopping). Check that the lavalier app is running, then reload.");
+  expect(alert.textContent).toBe("The starred moments could not be loaded (stopping). Check that the lavalier app is running.");
 });

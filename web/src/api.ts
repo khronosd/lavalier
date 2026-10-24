@@ -57,13 +57,14 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   return (text ? JSON.parse(text) : undefined) as T; // an empty 2xx body is undefined
 }
 
+export const UNAUTHORISED = "The window was opened without its key. Close it and run lavalier window again.";
+
 /** What a failed request means to the person reading the window, and what to do about it. */
 export function explainError(e: unknown, what: string): string {
-  if (e instanceof ApiError && e.status === 401) {
-    return "This window could not sign in to the lavalier app. Reopen the window from the app.";
-  }
+  // the key lives in memory only: reloading the page would drop it, so never suggest that
+  if (e instanceof ApiError && e.status === 401) return UNAUTHORISED;
   const why = e instanceof Error ? e.message : String(e);
-  return `${what} could not be loaded (${why}). Check that the lavalier app is running, then reload.`;
+  return `${what} could not be loaded (${why}). Check that the lavalier app is running.`;
 }
 
 /** The clip's audio as an object URL; the caller revokes it with URL.revokeObjectURL. */

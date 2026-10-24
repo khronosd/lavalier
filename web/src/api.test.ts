@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { api, ApiError, fetchAudioBlobUrl, initToken } from "./api";
+import { api, ApiError, explainError, fetchAudioBlobUrl, initToken } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -95,4 +95,14 @@ test("api returns undefined for an empty 2xx body", async () => {
 
 test("the createObjectURL stub does not outlive its test", () => {
   expect(vi.isMockFunction(URL.createObjectURL)).toBe(false);
+});
+
+test("a 401 says how to get a window with its key, and no explanation says reload", () => {
+  expect(explainError(new ApiError(401, "unauthorised"), "The days"))
+    .toBe("The window was opened without its key. Close it and run lavalier window again.");
+  for (const e of [new ApiError(500, "boom"), new TypeError("Failed to fetch")]) {
+    const text = explainError(e, "The days");
+    expect(text).toMatch(/^The days could not be loaded \(/);
+    expect(text.toLowerCase()).not.toContain("reload");
+  }
 });

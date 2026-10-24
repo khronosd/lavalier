@@ -9,6 +9,7 @@ import { Empty } from "../components/Empty";
 import { Starred } from "../components/Starred";
 import { Tabs, tabOf } from "../components/Tabs";
 import { pendingSentence, summarySentence } from "../day";
+import { useOnDataChange } from "../refresh";
 import { navigate, type Route } from "../router";
 import { useJumpTo } from "../useJumpTo";
 
@@ -57,17 +58,25 @@ export function Day({ date, isToday, route, nav }: Props) {
     return () => { live = false; };
   }, [date]);
 
+  /** Fetch the day again in place: the page stays as it is (no loading state, same scroll) until the new
+   * view arrives, and stays as it is if the fetch fails. */
+  function refreshQuietly() {
+    api<DayView>("GET", `/api/day/${date}`).then(
+      (view) => setLoad((cur) => (cur.date === date ? { date, view, error: null } : cur)),
+      () => undefined,
+    );
+  }
+
+  // a sync or a processing run may have added lines to this day
+  useOnDataChange(refreshQuietly);
+
   async function pin(id: string, pinned: boolean) {
     await api<unknown>("POST", `/api/${pinned ? "pin" : "unpin"}/${encodeURIComponent(id)}`);
     setLoad((cur) => cur.view && cur.date === date
       ? { ...cur, view: { ...cur.view, conversations: cur.view.conversations.map((c) =>
           c.conversation_id === id ? { ...c, pinned } : c) } }
       : cur);
-    // a pin can change how long the day's audio is kept; refresh the summary quietly
-    api<DayView>("GET", `/api/day/${date}`).then(
-      (view) => setLoad((cur) => (cur.date === date ? { date, view, error: null } : cur)),
-      () => undefined,
-    );
+    refreshQuietly(); // a pin can change how long the day's audio is kept
   }
 
   const view = load.date === date ? load.view : null;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, type Appearance, type Settings as SettingsData, type SettingsPatch, type Status } from "../api";
+import { api, ApiError, explainError, type Appearance, type Settings as SettingsData, type SettingsPatch, type Status } from "../api";
 import { Empty } from "../components/Empty";
 import { Field } from "../components/Field";
 import { MODEL_PRIVACY } from "../components/InsightsTab";
@@ -41,7 +41,7 @@ function useSettings() {
     let live = true;
     api<SettingsData>("GET", "/api/settings").then(
       (s) => live && setSettings(s),
-      (e) => live && setLoadError(`The settings could not be loaded (${e instanceof Error ? e.message : e}). Check that the lavalier app is running, then reload.`),
+      (e) => live && setLoadError(explainError(e, "The settings")),
     );
     api<Status>("GET", "/api/status").then((s) => live && setStatus(s), () => undefined);
     return () => { live = false; window.clearTimeout(toastTimer.current); };
