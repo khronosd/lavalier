@@ -92,7 +92,7 @@ def _conversation(conv: Conversation, segs: list[_Segment]) -> str:
     if conv.pinned:
         head += " (pinned)"
     lines = [f"{head} {{#{conv.conversation_id}}}"]
-    events = [(s.at_ms, 1, f"[{_hms(s.at_ms)}] {s.text} (speaker: )") for s in segs]
+    events = [(s.at_ms, 1, f"[{_hms(s.at_ms)}] {s.text}") for s in segs]
     # A star pressed shortly before the conversation began has no place in the
     # transcript; it still counts in the heading and the Starred section.
     events += [(ms, 0, f"[{_hms(ms)}] ★") for ms in conv.star_ms if conv.start_ms <= ms <= conv.end_ms]
