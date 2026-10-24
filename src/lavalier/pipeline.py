@@ -213,8 +213,8 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
             double_presses += kind == "BUTTON_DOUBLE_PRESS"
     deadlines = [
         d for day in days for c in db.clips_for_day(day) if c.path
-        for d in [deadline_ms(c, cfg, protected=c.clip_id in protected)] if d is not None
-    ]
+        for d in [deadline_ms(c, cfg, protected=c.clip_id in protected)] if d is not None and d > now_ms
+    ]  # a deadline already past is due at the next sweep, not a date to name
     next_deletion = datetime.fromtimestamp(min(deadlines) / 1000).date().isoformat() if deadlines else None
     last_process = db.get_status("last_process")
     latest = db.latest_device_status()

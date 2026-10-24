@@ -159,3 +159,14 @@ def test_day_view_never_reads_words(db_with_fixture_day, cfg):
     day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW)
     db_with_fixture_day._conn.set_trace_callback(None)
     assert seen and not [q for q in seen if "words" in q]
+
+
+def test_audio_until_never_names_a_past_date(db, cfg, seeded_retention_day):
+    from datetime import datetime
+    old, starred, fresh, failed = seeded_retention_day
+    fresh_deadline = fresh.transcribed_at + 14 * 86_400_000
+    v = day_view(db, DAY, cfg, now_ms=fresh_deadline - 1)
+    assert v.audio_until == datetime.fromtimestamp(fresh_deadline / 1000).date()
+    after = day_view(db, DAY, cfg, now_ms=fresh_deadline)  # every unprotected file still on disk, all expired
+    assert after.audio_until is None and after.audio_kept_for_good  # the starred one is kept
+    assert not any(c.audio_available for c in after.conversations if c.clip_ids[0] in (old.clip_id, fresh.clip_id))

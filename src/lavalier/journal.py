@@ -90,10 +90,11 @@ def _quote(star_ms: int, lines: list[Line]) -> Optional[str]:
     return None
 
 
-def _audio_until(clips: list[ClipRecord], protected_ids: set[str], cfg: Config) -> Optional[date]:
-    """Latest deletion date among unprotected clips (speech and noise) that still have audio."""
+def _audio_until(clips: list[ClipRecord], protected_ids: set[str], cfg: Config, now_ms: int) -> Optional[date]:
+    """Latest deletion date among unprotected clips (speech and noise) that still have audio. A deadline
+    already past is left out: that audio is expired even while the sweep has not deleted the file."""
     deadlines = [d for c in clips if c.path and c.clip_id not in protected_ids
-                 if (d := deadline_ms(c, cfg, protected=False)) is not None]
+                 if (d := deadline_ms(c, cfg, protected=False)) is not None and d > now_ms]
     return datetime.fromtimestamp(max(deadlines) / 1000).date() if deadlines else None
 
 
@@ -137,7 +138,7 @@ def day_view(db: Database, day: date, cfg: Config, *, now_ms: int) -> DayView:
     return DayView(
         day=day, speech_ms=sum(c.speech_ms for c in convs), conversations=views, stars=stars,
         noise_clips=sum(1 for c in clips if c.classification == "noise"),
-        audio_until=_audio_until(clips, protected_ids, cfg),
+        audio_until=_audio_until(clips, protected_ids, cfg, now_ms),
         audio_kept_for_good=_kept_for_good(clips, protected_ids), pending_pages=_pending_pages(db, now_ms))
 
 

@@ -202,3 +202,15 @@ def test_retention_tick_with_nothing_due_writes_nothing(root, db, cfg, seeded_re
     db.mark_day_clean(old.day)
     r = retention_tick(db, root, cfg, now_ms=old.transcribed_at)
     assert (r.clips_deleted, r.days_written) == (0, []) and not (root.days / f"{old.day.isoformat()}.md").exists()
+
+
+def test_next_deletion_skips_deadlines_already_past(root, db, cfg, seeded_retention_day):
+    from datetime import datetime
+    from lavalier.pipeline import status_summary
+    old, starred, fresh, failed = seeded_retention_day
+    day = lambda ms: datetime.fromtimestamp(ms / 1000).date().isoformat()
+    old_deadline = old.transcribed_at + 14 * 86_400_000
+    fresh_deadline = fresh.transcribed_at + 14 * 86_400_000
+    assert status_summary(db, root, cfg, now_ms=old_deadline - 1)["next_deletion"] == day(old_deadline)
+    assert status_summary(db, root, cfg, now_ms=old_deadline)["next_deletion"] == day(fresh_deadline)
+    assert status_summary(db, root, cfg, now_ms=fresh_deadline)["next_deletion"] is None
