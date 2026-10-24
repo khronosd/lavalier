@@ -15,6 +15,7 @@ dependencies = [
     "click>=8",
     "tomli_w>=1.0",
     "pywebview>=6.2",
+    "anthropic>=2.3",
 ]
 
 [project.optional-dependencies]
