@@ -106,3 +106,12 @@ def test_newer_schema_is_a_clean_cli_error(root, monkeypatch):
         db.set_status("schema_version", "999")
     res = CliRunner().invoke(main, ["status"])
     assert res.exit_code == 1 and "schema version 999 is newer" in res.output
+
+
+def test_doctor_reports_an_unwritable_root_as_fail(tmp_path, monkeypatch):
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a directory")
+    monkeypatch.setenv("PENDANT_ROOT", str(blocker / "Pendant"))
+    res = CliRunner().invoke(main, ["doctor"])
+    assert "FAIL state root writable" in res.output
+    assert res.exit_code == 1 and isinstance(res.exception, SystemExit)

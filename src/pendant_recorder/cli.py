@@ -121,7 +121,15 @@ def status_cmd() -> None:
 def doctor_cmd(download_model: bool) -> None:
     """Check the environment."""
     paths = Paths(default_root())
-    paths.ensure()
+    # Check the state root first: an unwritable root is a FAIL line, not a traceback.
+    probe = paths.root / ".write-test"
+    try:
+        paths.ensure()
+        probe.write_text("x")
+        probe.unlink()
+        writable = True
+    except OSError:
+        writable = False
     cfg = load_config(paths.config)
     if download_model:
         # huggingface_hub reads HF_HUB_OFFLINE at import, and this process already imported it
@@ -142,13 +150,6 @@ def doctor_cmd(download_model: bool) -> None:
     v = sys.version_info
     check("python >= 3.12", v >= (3, 12), f"{v.major}.{v.minor}.{v.micro}")
     check("ffmpeg", ffmpeg_available())
-    probe = paths.root / ".write-test"
-    try:
-        probe.write_text("x")
-        probe.unlink()
-        writable = True
-    except OSError:
-        writable = False
     check("state root writable", writable, str(paths.root))
     check("whisper model cached", model_cache_dir(cfg.whisper_model).exists(), cfg.whisper_model)
     if not ok:
