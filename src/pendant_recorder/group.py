@@ -1,10 +1,13 @@
 """Merge a day's speech clips into conversations and attach starred moments."""
 
+import logging
 from datetime import date, datetime
 
 from pendant_recorder.config import Config
 from pendant_recorder.db import Database
 from pendant_recorder.models import ClipRecord, Conversation
+
+log = logging.getLogger(__name__)
 
 
 def group_clips(clips: list[ClipRecord], stars_ms: list[int], cfg: Config) -> list[Conversation]:
@@ -49,11 +52,15 @@ def orphan_stars(stars_ms: list[int], convs: list[Conversation]) -> list[int]:
 def rebuild_day(db: Database, day: date, cfg: Config) -> list[Conversation]:
     """Regroup one day's speech clips and store the result."""
     clips = [c for c in db.clips_for_day(day) if c.classification == "speech"]
-    stars = [
-        e.payload["button_event_absolute_timestamp_ms"]
-        for e in db.events_for_day(day, types=["button"])
-        if e.payload.get("button_event") == "BUTTON_SHORT_PRESS"
-    ]
+    stars = []
+    for e in db.events_for_day(day, types=["button"]):
+        if e.payload.get("button_event") != "BUTTON_SHORT_PRESS":
+            continue
+        ts = e.payload.get("button_event_absolute_timestamp_ms")
+        if not ts:
+            log.warning("short press on page %s has no timestamp; using event time", e.page_index)
+            ts = e.absolute_ms
+        stars.append(ts)
     convs = group_clips(clips, stars, cfg)
     db.replace_conversations(day, convs)
     return convs
