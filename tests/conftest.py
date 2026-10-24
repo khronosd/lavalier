@@ -349,3 +349,16 @@ def thank_you_transcript() -> Transcript:
 @pytest.fixture
 def snap():
     return DeviceSnapshot(1000, True, "LISTENING", 0, 786, 94, -10, "USB_DISCONNECTED", "1.1.3", 7)
+
+
+@pytest.fixture
+def two_storage_payloads():
+    from pendant_client.decode import storage_page_of
+    payloads = [
+        make_storage_buffer_msg(
+            page_index=i, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39),
+            ingest_type=2, session=1, run=1)
+        for i in (10, 11)
+    ]
+    assert [storage_page_of(p).index for p in payloads] == [10, 11]
+    return payloads
