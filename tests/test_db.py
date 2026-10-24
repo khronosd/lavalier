@@ -337,3 +337,13 @@ def test_u64_storage_instance_round_trips_on_both_tables(db, instance):
     assert not db.page_seen(PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=0))
     keys = db.pages_for_capture(cid)
     assert keys == [key] and keys[0].storage_instance == instance
+
+
+def test_connections_wait_for_a_busy_database(root):
+    from lavalier.db import Database
+    root.ensure()
+    d = Database(root.db)
+    try:
+        assert d._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
+    finally:
+        d.close()

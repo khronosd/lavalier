@@ -557,11 +557,15 @@ def app_env(root):
     save_config(Config(pendant_address="FAKE"), root.config)
     apps = []
 
-    def make(pendant, poll_interval_s: int = 600):
+    def make(pendant, poll_interval_s: int = 600, transcriber_factory=None):
+        from lavalier.lock import SyncLock
         cfg = Config(pendant_address="FAKE", poll_interval_s=poll_interval_s)
         app = App(root, cfg, pendant_factory=lambda cfg: pendant,
-                  transcriber_factory=lambda cfg: FakeTranscriber({}, default=speech_transcript()),
-                  now_ms=lambda: APP_CLOCK_MS, cdc_present=lambda: False, settle_s=0)
+                  transcriber_factory=transcriber_factory or (
+                      lambda cfg: FakeTranscriber({}, default=speech_transcript())),
+                  now_ms=lambda: APP_CLOCK_MS, cdc_present=lambda: False, settle_s=0,
+                  # independent of whatever else runs on the host
+                  lock=SyncLock(root.root / ".lock", list_processes=lambda: []))
         apps.append(app)
         return app
 

@@ -264,8 +264,9 @@ def _clip_from_row(r: sqlite3.Row) -> ClipRecord:
 
 
 class Database:
-    def __init__(self, path: Path):
-        self._conn = sqlite3.connect(str(path))
+    def __init__(self, path: Path, timeout: float = 30.0):
+        # the app's process thread and its actions write through separate connections: wait, don't fail
+        self._conn = sqlite3.connect(str(path), timeout=timeout)
         self._conn.row_factory = sqlite3.Row
         self._depth = 0
 

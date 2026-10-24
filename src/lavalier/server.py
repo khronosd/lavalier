@@ -12,6 +12,7 @@ import logging
 import os
 import secrets
 import threading
+from concurrent.futures import CancelledError as FutureCancelled
 from concurrent.futures import TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,10 @@ _log = logging.getLogger("lavalier.server")
 
 class _Busy(Exception):
     pass
+
+
+class AppStopping(Exception):
+    """Raised by app_like.action() once the app is shutting down: the server answers 503."""
 
 
 class ControlServer:
@@ -161,6 +166,8 @@ def _handler(srv: ControlServer):
                     return self._reply(200, srv.action(path[5:]))
             except _Busy:
                 return self._reply(409, {"error": "busy"})
+            except (AppStopping, FutureCancelled):  # refused, or cancelled by the shutdown
+                return self._reply(503, {"error": "stopping"})
             except FutureTimeout:
                 return self._reply(504, {"error": "timeout"})
             except Exception as e:

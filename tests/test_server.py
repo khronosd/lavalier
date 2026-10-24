@@ -48,3 +48,13 @@ def test_busy_body_and_no_call_reaches_the_app(server, fake_app):
     fake_app.busy = True
     r = post(server, "/api/mute")
     assert r.status == 409 and json.loads(r.read()) == {"error": "busy"} and fake_app.calls == []
+
+
+def test_a_stopping_app_is_503(server, fake_app):
+    from lavalier.server import AppStopping
+
+    async def refuse(name):
+        raise AppStopping()
+    fake_app.action = refuse
+    r = post(server, "/api/mute")
+    assert r.status == 503 and json.loads(r.read()) == {"error": "stopping"}

@@ -136,3 +136,110 @@ async def test_sigterm_during_a_session_releases_the_lock_and_disconnects(app_en
     await asyncio.wait_for(_serve(app), 5)
     assert app.pendant.log[-1] == "exit" and not (app.paths.root / ".lock").exists()
     assert not app.token_path.exists() and app._db is None
+
+
+async def test_mute_runs_while_the_tick_is_still_processing(app_env, storage_payloads):
+    import threading
+    from conftest import speech_transcript
+    from lavalier.transcribe import FakeTranscriber
+    entered, gate = threading.Event(), threading.Event()
+
+    def slow_transcriber(cfg):  # called in the process worker thread, after the device is released
+        entered.set()
+        gate.wait(10)
+        return FakeTranscriber({}, default=speech_transcript())
+
+    app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads), transcriber_factory=slow_transcriber)
+    tick = asyncio.create_task(app.tick())
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert app.busy is False                                   # processing does not hold the device
+        r = await app.action("mute")
+        assert r["ok"] is True and r["state"] == "NOT_RECORDING"
+        assert not tick.done() and app.last_process is None        # the mute finished while processing waited
+    finally:
+        gate.set()
+    assert (await tick).outcome == "drained" and app.last_process is not None
+    log = app.pendant.log
+    assert log.count("stop") == 2 and log[-2:] == ["status", "exit"]
+
+
+class _SlowDrainPendant(FakePendant):
+    """Yields to the loop between messages and records what the app held when the session closed."""
+
+    def __init__(self, app_holder, **kw):
+        super().__init__(**kw)
+        self.app_holder = app_holder
+        self.at_exit = None
+
+    async def drain(self, *, idle_s):
+        async for m in super().drain(idle_s=idle_s):
+            await asyncio.sleep(0.01)
+            yield m
+
+    async def __aexit__(self, *exc):
+        app = self.app_holder[0]
+        self.at_exit = {"lock_file": (app.paths.root / ".lock").exists(), "db_open": app._db is not None}
+        await super().__aexit__(*exc)
+
+
+async def test_sigterm_during_an_action_restores_then_releases_then_closes(app_env, storage_payloads):
+    import signal
+    import threading
+    from types import SimpleNamespace
+    from conftest import post
+    from lavalier.app import _serve
+    from lavalier.db import Database
+
+    holder = []
+    pendant = _SlowDrainPendant(holder, pages=(0, 9), messages=storage_payloads * 3)
+    app = app_env(pendant)
+    holder.append(app)
+    pendant.on_ack = lambda index: os.kill(os.getpid(), signal.SIGTERM) if index == 11 else None
+    replies = []
+
+    async def fake_sleep(s):  # after the first (skipped) tick: ask the app to drain, over HTTP
+        pendant.pages = (0, 999)
+        info = json.loads(app.token_path.read_text())
+        srv = SimpleNamespace(port=info["port"], token=info["token"])
+        def call():
+            try:
+                replies.append(post(srv, "/api/sync"))
+            except Exception as e:
+                replies.append(e)
+        t = threading.Thread(target=call)
+        t.start()
+        threads.append(t)
+        await asyncio.sleep(10)
+
+    threads = []
+    app._sleep = fake_sleep
+    await asyncio.wait_for(_serve(app), 10)
+    for t in threads:  # off the loop: the reply needs the loop to finish the cancelled request
+        await asyncio.to_thread(t.join, 5)
+
+    log = pendant.log
+    assert "start" in log and log.index("start") > log.index("stop")       # restored before anything closed
+    assert pendant.at_exit == {"lock_file": True, "db_open": True}       # the file lock outlived the session
+    assert log[-1] == "exit" and not (app.paths.root / ".lock").exists()
+    assert app._db is None and not app.token_path.exists()             # the DB closed last
+    assert not isinstance(replies[0], Exception), replies
+    assert replies[0].status == 503 and json.loads(replies[0].read()) == {"error": "stopping"}
+    db = Database(app.paths.db)
+    try:
+        assert db.last_sync_run().unmute in ("confirmed", "pending")
+    finally:
+        db.close()
+
+
+async def test_a_stopping_app_refuses_actions(app_env):
+    from lavalier.server import AppStopping
+    app = app_env(FakePendant())
+    app.stop()
+    try:
+        await app.action("mute")
+    except AppStopping:
+        pass
+    else:
+        raise AssertionError("action ran on a stopping app")
+    assert app.pendant is None                                       # no session was opened

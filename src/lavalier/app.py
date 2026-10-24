@@ -20,7 +20,7 @@ from lavalier.db import Database, now_ms as _now_ms
 from lavalier.lock import SyncLock
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import ProcessReport, status_summary
-from lavalier.server import ControlServer
+from lavalier.server import AppStopping, ControlServer
 from lavalier.sync import SyncReport, run_sync
 from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
 
@@ -41,7 +41,8 @@ def _whisper(cfg: Config) -> Transcriber:
 class App:
     def __init__(self, paths: Paths, cfg: Config, *, pendant_factory, transcriber_factory,
                  now_ms: Callable[[], int] = _now_ms, sleep=asyncio.sleep,
-                 cdc_present: Callable[[], bool] = _cdc_from_ioreg, settle_s: float = 1.0):
+                 cdc_present: Callable[[], bool] = _cdc_from_ioreg, settle_s: float = 1.0,
+                 lock: Optional[SyncLock] = None):
         self.paths, self.cfg = paths, cfg
         self._pendant_factory = pendant_factory
         self._transcriber_factory = transcriber_factory
@@ -51,8 +52,12 @@ class App:
         self._cdc_present = cdc_present
         self.settle_s = settle_s
         self._device_lock = asyncio.Lock()   # one pendant session at a time, inside this process
-        self._lock = SyncLock(paths.root / ".lock")  # and across processes
+        self._process_lock = asyncio.Lock()  # one processing run at a time; never held with the device
+        self._action_tasks: set[asyncio.Task] = set()
+        self._ticking = False
+        self._lock = lock or SyncLock(paths.root / ".lock")  # and across processes
         self._db: Optional[Database] = None
+        self._closed = False
         self.pendant = None                  # the pendant of the latest session
         self.last_process: Optional[ProcessReport] = None
         self.next_poll_ms = now_ms()
@@ -65,6 +70,8 @@ class App:
     @property
     def db(self) -> Database:
         """Opened on first use, on the loop's thread; only the loop uses it."""
+        if self._closed:
+            raise RuntimeError("the app is closed")
         if self._db is None:
             self.paths.ensure()
             db = Database(self.paths.db)
@@ -73,6 +80,7 @@ class App:
         return self._db
 
     def close(self) -> None:
+        self._closed = True
         if self._db is not None:
             self._db.close()
             self._db = None
@@ -105,47 +113,76 @@ class App:
         finally:
             db.close()
 
-    async def _sync(self) -> tuple[SyncReport, Optional[ProcessReport]]:
+    async def _sync_device(self) -> SyncReport:
+        """The device half of a sync; the caller holds the device lock."""
         if not self.cfg.pendant_address:
-            return SyncReport(outcome="error", reason=actions.ADDRESS_MISSING, error=actions.ADDRESS_MISSING), None
-        report = await run_sync(self.db, self.paths, self.cfg, self._make_pendant(self.cfg), now_ms=self._now_ms,
-                                lock=self._lock, cdc_present=self._cdc_present, settle_s=self.settle_s, log=_log)
+            return SyncReport(outcome="error", reason=actions.ADDRESS_MISSING, error=actions.ADDRESS_MISSING)
+        return await run_sync(self.db, self.paths, self.cfg, self._make_pendant(self.cfg), now_ms=self._now_ms,
+                              lock=self._lock, cdc_present=self._cdc_present, settle_s=self.settle_s, log=_log)
+
+    async def _process_capture(self, report: SyncReport) -> Optional[ProcessReport]:
+        """Process what came in, whatever the outcome. No device involved, so the device lock is
+        free meanwhile; the process lock keeps two processing runs from overlapping."""
+        if report.capture is None:
+            return None
         processed = None
-        if report.capture is not None:  # whatever the outcome: a capture came in
+        async with self._process_lock:
             try:
                 processed = await asyncio.to_thread(self._process, report)
             except Exception:
                 _log.exception("processing after the sync failed")
-            if processed is not None:
-                self.last_process = processed
-        return report, processed
+        if processed is not None:
+            self.last_process = processed
+        return processed
 
     async def tick(self) -> SyncReport:
         async with self._device_lock:
-            report, _ = await self._sync()
+            self._ticking = True
+            try:
+                report = await self._sync_device()
+            finally:
+                self._ticking = False
         _log.info("sync: %s (%s)", report.outcome, report.reason)
+        await self._process_capture(report)
         return report
 
     async def action(self, name: str) -> dict:
         if name not in ACTIONS:
             raise ValueError(f"unknown action: {name}")
-        async with self._device_lock:
-            if name == "sync":
-                return actions.sync_result(*await self._sync())
-            kw = {"lock": self._lock, "cdc_present": self._cdc_present, "now_ms": self._now_ms}
-            if name == "mute":
-                return await actions.mute(self.db, self.cfg, self._make_pendant, **kw)
-            if name == "unmute":
-                return await actions.unmute(self.db, self.cfg, self._make_pendant, settle_s=self.settle_s, **kw)
-            return await actions.status_live(self.db, self.paths, self.cfg, self._make_pendant, **kw)
+        if self._stopping:
+            raise AppStopping()
+        task = asyncio.current_task()
+        self._action_tasks.add(task)
+        try:
+            async with self._device_lock:
+                if self._stopping:  # stop() came while this waited for the device
+                    raise AppStopping()
+                if name == "sync":
+                    report = await self._sync_device()
+                else:
+                    return await self._device_action(name)
+            return actions.sync_result(report, await self._process_capture(report))
+        finally:
+            self._action_tasks.discard(task)
+
+    async def _device_action(self, name: str) -> dict:
+        kw = {"lock": self._lock, "cdc_present": self._cdc_present, "now_ms": self._now_ms}
+        if name == "mute":
+            return await actions.mute(self.db, self.cfg, self._make_pendant, **kw)
+        if name == "unmute":
+            return await actions.unmute(self.db, self.cfg, self._make_pendant, settle_s=self.settle_s, **kw)
+        return await actions.status_live(self.db, self.paths, self.cfg, self._make_pendant, **kw)
 
     # the scheduler
 
     def stop(self) -> None:
-        """Stop after the current tick or action; an interval sleep ends at once."""
+        """Refuse new actions, end an interval sleep at once, and cancel the actions in flight: each
+        session's own cleanup (restore, lock release, disconnect) runs as it unwinds."""
         self._stopping = True
         if self._sleep_task is not None:
             self._sleep_task.cancel()
+        for task in list(self._action_tasks):
+            task.cancel()
 
     async def run(self) -> None:
         self._stopping = False
@@ -169,9 +206,13 @@ class App:
                     self._sleep_task.cancel()
                     self._sleep_task = None
         finally:
-            server.stop()
-            self._lock.release()  # only if this process still holds it
-            self.close()
+            self._stopping = True
+            # in this order: every session has unwound (restored, written to the DB, file lock
+            # released by its owner), then the server goes, then the file lock and the DB
+            async with self._device_lock:
+                server.stop()
+                self._lock.release()  # only if this process still holds it
+                self.close()
 
 
 def _configure_logging(paths: Paths) -> None:
@@ -190,8 +231,8 @@ async def _serve(app: App) -> None:
 
     def on_signal(signame: str) -> None:
         _log.info("%s: stopping", signame)
-        app.stop()
-        if app.busy:  # the session's own cleanup runs on the way out: restore, lock release, disconnect
+        app.stop()  # cancels the actions in flight
+        if app._ticking:  # the scheduled sync runs in this task; its cleanup runs as it unwinds
             task.cancel()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
