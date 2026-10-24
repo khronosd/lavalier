@@ -21,9 +21,8 @@ recording, and follow the recording-consent law where you are.
 Requires macOS on Apple Silicon, Python 3.12 and ffmpeg.
 
 The decoder is the `pendant_client` package from the `pendant-cli` fork. For
-development, check it out next to this repository (branch `plan-01-core` until
-it is merged) and install it editable; a git URL will follow when it is
-published.
+development, check it out next to this repository and install it editable; a
+git URL will follow when it is published.
 
 ```
 /opt/homebrew/bin/python3.12 -m venv .venv
