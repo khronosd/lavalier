@@ -1,6 +1,8 @@
 from dataclasses import replace
 from datetime import date, datetime
 
+import pytest
+
 from pendant_recorder import db as db_module
 from pendant_recorder.db import Database
 from pendant_recorder.models import (
@@ -18,7 +20,7 @@ def test_migrate_is_idempotent(root):
     with Database(root.db) as d:
         d.migrate()
         d.migrate()
-        assert d.get_status("schema_version") == "1"
+        assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS))
 
 
 def test_page_dedup_key(root):
@@ -160,3 +162,51 @@ def test_clips_with_audio_for_capture(db, clip_record):
     db.clear_clip_path(clip_record.clip_id)
     assert db.clips_with_audio_for_capture(1) == 0
     assert db.clips_with_audio_for_capture(2) == 1
+
+
+def test_nested_transaction_commits_only_at_the_outermost(root, db, clip_record):
+    db.add_clip(clip_record)
+    other = Database(root.db)
+    try:
+        with db.transaction():
+            with db.transaction():
+                db.set_loudness(clip_record.clip_id, -20.0, -3.0)
+            assert other.clip(clip_record.clip_id).mean_db is None  # inner exit did not commit
+            db.set_classification(clip_record.clip_id, "speech")
+        c = other.clip(clip_record.clip_id)
+        assert (c.mean_db, c.classification) == (-20.0, "speech")
+    finally:
+        other.close()
+
+
+def test_nested_transaction_rolls_back_everything_on_outer_error(db, clip_record):
+    db.add_clip(clip_record)
+    with pytest.raises(RuntimeError):
+        with db.transaction():
+            with db.transaction():
+                db.set_loudness(clip_record.clip_id, -20.0, -3.0)
+            raise RuntimeError("boom")
+    assert db.clip(clip_record.clip_id).mean_db is None
+    db.set_classification(clip_record.clip_id, "noise")  # depth is back to 0: writes commit again
+    assert db.clip(clip_record.clip_id).classification == "noise"
+
+
+def test_migrate_refuses_a_newer_schema(db):
+    db.set_status("schema_version", str(len(db_module.MIGRATIONS) + 1))
+    with pytest.raises(db_module.SchemaTooNewError, match="newer than this pendant-recorder supports"):
+        db.migrate()
+
+
+def test_a_failing_migration_leaves_no_trace(root, monkeypatch):
+    def bad(c):
+        c.execute("CREATE TABLE half_done (x INTEGER)")
+        raise RuntimeError("migration bug")
+
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS + [bad])
+    with Database(root.db) as d:
+        with pytest.raises(RuntimeError, match="migration bug"):
+            d.migrate()
+        assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS) - 1)
+        tables = {r[0] for r in d._conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "half_done" not in tables and "clips" in tables

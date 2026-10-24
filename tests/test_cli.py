@@ -96,3 +96,13 @@ def test_retry_failed_and_status_failed_count(root, monkeypatch, clip_record):
     out = r.invoke(main, ["retry-failed"])
     assert out.exit_code == 0 and "Requeued 1 failed clips" in out.output
     assert "Failed clips: 0\n" in r.invoke(main, ["status"]).output
+
+
+def test_newer_schema_is_a_clean_cli_error(root, monkeypatch):
+    monkeypatch.setenv("PENDANT_ROOT", str(root.root))
+    root.ensure()
+    with db_for(root) as db:
+        db.migrate()
+        db.set_status("schema_version", "999")
+    res = CliRunner().invoke(main, ["status"])
+    assert res.exit_code == 1 and "schema version 999 is newer" in res.output

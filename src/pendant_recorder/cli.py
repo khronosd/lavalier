@@ -13,7 +13,7 @@ import click
 from pendant_recorder.audio import ffmpeg_available
 from pendant_recorder.config import Config, load_config
 from pendant_recorder.dayfile import render_day, write_day
-from pendant_recorder.db import Database, now_ms
+from pendant_recorder.db import Database, SchemaTooNewError, now_ms
 from pendant_recorder.paths import Paths, default_root
 from pendant_recorder.pipeline import (
     ProcessReport, import_and_decode, process, refresh_day, retry_failed, status_summary,
@@ -27,7 +27,11 @@ def _setup() -> tuple[Paths, Config, Database]:
     paths.ensure()
     cfg = load_config(paths.config)
     db = Database(paths.db)
-    db.migrate()
+    try:
+        db.migrate()
+    except SchemaTooNewError as e:
+        db.close()
+        raise click.ClickException(str(e)) from e
     return paths, cfg, db
 
 

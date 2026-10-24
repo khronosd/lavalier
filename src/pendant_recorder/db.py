@@ -23,8 +23,20 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+class SchemaTooNewError(RuntimeError):
+    """The state database was written by a newer pendant-recorder."""
+
+
+def _run_script(c: sqlite3.Connection, script: str) -> None:
+    """Run DDL statements one by one: executescript would commit and escape the transaction."""
+    for stmt in script.split(";"):
+        if stmt.strip():
+            c.execute(stmt)
+
+
 def _migrate_1(c: sqlite3.Connection) -> None:
-    c.executescript(
+    _run_script(
+        c,
         """
         CREATE TABLE captures (
             id INTEGER PRIMARY KEY,
@@ -161,23 +173,37 @@ class Database:
     def __init__(self, path: Path):
         self._conn = sqlite3.connect(str(path))
         self._conn.row_factory = sqlite3.Row
-        self._in_transaction = False
+        self._depth = 0
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Run several writes as one unit: commit on success, roll back on error.
 
-        add_capture and add_page defer their own commit while inside it.
+        Every write method defers its own commit while inside it. A nested call joins the
+        outer transaction; only the outermost one commits or rolls back. The explicit BEGIN
+        also covers DDL, which sqlite3 would otherwise run outside any transaction.
         """
-        with self._conn:
-            self._in_transaction = True
+        if self._depth:
+            self._depth += 1
             try:
                 yield self._conn
             finally:
-                self._in_transaction = False
+                self._depth -= 1
+            return
+        self._conn.execute("BEGIN")
+        self._depth = 1
+        try:
+            yield self._conn
+        except BaseException:
+            self._conn.rollback()
+            raise
+        else:
+            self._conn.commit()
+        finally:
+            self._depth = 0
 
     def _write_scope(self):
-        return nullcontext() if self._in_transaction else self._conn
+        return nullcontext() if self._depth else self._conn
 
     def __enter__(self) -> "Database":
         return self
@@ -189,17 +215,20 @@ class Database:
         self._conn.close()
 
     def migrate(self) -> None:
-        with self._conn:
+        with self.transaction():
             self._conn.execute("CREATE TABLE IF NOT EXISTS status (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         current = int(self.get_status("schema_version") or 0)
+        if current > len(MIGRATIONS):
+            raise SchemaTooNewError(
+                f"state database schema version {current} is newer than this pendant-recorder "
+                f"supports ({len(MIGRATIONS)}); upgrade pendant-recorder before using this state root"
+            )
         for n, fn in enumerate(MIGRATIONS, start=1):
             if n <= current:
                 continue
-            with self._conn:
+            with self.transaction():  # the migration and its version bump land together or not at all
                 fn(self._conn)
-                self._conn.execute(
-                    "INSERT OR REPLACE INTO status (key, value) VALUES ('schema_version', ?)", (str(n),)
-                )
+                self.set_status("schema_version", str(n))
 
     # captures
 
