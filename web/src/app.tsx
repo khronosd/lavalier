@@ -1,23 +1,14 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, type DaySummary, type Settings } from "./api";
+import { api, type DaySummary, explainError, type Settings } from "./api";
 import { Shell } from "./components/Shell";
-import { dayTitle, isoDay } from "./format";
+import { isoDay } from "./format";
+import { Journal } from "./pages/Journal";
 import { Placeholder } from "./pages/Placeholder";
 import { type Route, useRoute } from "./router";
 import { applyAppearance } from "./theme";
 
-function loadError(e: unknown): string {
-  if (e instanceof ApiError && e.status === 401) {
-    return "This window could not sign in to the lavalier app. Close it and open it again from the app.";
-  }
-  const why = e instanceof Error ? e.message : String(e);
-  return `The days could not be loaded (${why}). Check that the lavalier app is running, then reload.`;
-}
-
-function Page({ route, today }: { route: Route; today: string }) {
+function Page({ route, today, days }: { route: Route; today: string; days: DaySummary[] | null }) {
   switch (route.name) {
-    case "day":
-      return <Placeholder title={dayTitle(route.params.date)} emptyTitle="This day's transcript is not shown here yet" />;
     case "starred":
       return <Placeholder title="Starred" emptyTitle="Starred moments will be listed here" />;
     case "search":
@@ -27,30 +18,42 @@ function Page({ route, today }: { route: Route; today: string }) {
     case "settings":
       return <Placeholder title="Settings" emptyTitle="Settings are not editable here yet" />;
     default:
-      return <Placeholder title={dayTitle(today)} lead="Today"
-        emptyTitle="Nothing from today yet">Conversations appear here after the next sync.</Placeholder>;
+      return <Journal route={route} today={today} days={days} />;
   }
+}
+
+/** The local date, recomputed when the window comes back into view (it may have been left open past midnight). */
+function useToday(): string {
+  const [today, setToday] = useState(() => isoDay(Date.now()));
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setToday(isoDay(Date.now()));
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+  return today;
 }
 
 export function App() {
   const route = useRoute();
+  const today = useToday();
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const today = isoDay(Date.now());
 
   useEffect(() => {
     // the stored appearance; until it arrives (or if it cannot), the window follows the system
     api<Settings>("GET", "/api/settings").then((s) => applyAppearance(s.appearance), () => undefined);
     api<DaySummary[]>("GET", "/api/days").then(setDays, (e) => {
       setDays([]);
-      setError(loadError(e));
+      setError(explainError(e, "The days"));
     });
   }, []);
 
   return (
     <Shell route={route} days={days} today={today}>
-      {error && <div class="page page-notice"><p class="notice" role="alert">{error}</p></div>}
-      <Page route={route} today={today} />
+      {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
+      <Page route={route} today={today} days={days} />
     </Shell>
   );
 }

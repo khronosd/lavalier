@@ -36,6 +36,12 @@ export function dayTitle(iso: string): string {
   return `${WEEKDAYS[weekday]}, ${d} ${MONTHS[m - 1]}`;
 }
 
+/** "2026-11-07" -> "7 November". */
+export function dayMonth(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+}
+
 /** How old a reading is: "just now", "as of 2 min ago", "as of 2 h ago". */
 export function age(seconds: number): string {
   if (seconds < 60) return "just now";

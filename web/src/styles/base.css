@@ -41,11 +41,12 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: var(--radius-s); color: var(--text);
 }
 .nav-item svg { width: 15px; height: 15px; flex: none; color: var(--text-2); }
-.nav-item[aria-current="page"] { background: var(--select); font-weight: 600; }
-.nav-item[aria-current="page"] svg { color: var(--text); }
+.nav-item[aria-current] { background: var(--select); font-weight: 600; }
+.nav-item[aria-current] svg { color: var(--text); }
+/* the section an open day belongs to: named, not filled, so the day itself stands out */
+.nav-item[aria-current="true"] { background: transparent; }
 .nav-count { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
 .nav-count .stars { color: var(--star); margin-left: 4px; }
-.nav-heading { margin: 16px 0 5px 9px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
 .nav-item.day { padding-left: 33px; }
 .nav-note { padding: 4px 9px 4px 33px; color: var(--text-3); font-size: 12px; }
 
@@ -63,4 +64,6 @@ button { font: inherit; color: inherit; }
   margin: 0 0 18px; padding: 10px 12px; border-radius: var(--radius-m);
   background: var(--accent-soft); color: var(--text); font-size: 12.5px; max-width: 66ch;
 }
+/* something went wrong: the warning colour, not the informational one */
+.notice.warn { background: transparent; border: 1px solid var(--warn); border-left-width: 3px; }
 .page-notice { padding-bottom: 0; }

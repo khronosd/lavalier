@@ -51,7 +51,17 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     body: hasBody ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw await failure(res);
-  return (await res.json()) as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T; // an empty 2xx body is undefined
+}
+
+/** What a failed request means to the person reading the window, and what to do about it. */
+export function explainError(e: unknown, what: string): string {
+  if (e instanceof ApiError && e.status === 401) {
+    return "This window could not sign in to the lavalier app. Reopen the window from the app.";
+  }
+  const why = e instanceof Error ? e.message : String(e);
+  return `${what} could not be loaded (${why}). Check that the lavalier app is running, then reload.`;
 }
 
 /** The clip's audio as an object URL; the caller revokes it with URL.revokeObjectURL. */

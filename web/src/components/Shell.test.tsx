@@ -16,6 +16,11 @@ test("the sidebar lists the five sections, the days under Journal, and Settings"
   }
   const current = screen.getByRole("link", { current: "page" });
   expect(current.getAttribute("href")).toBe("#/day/2026-10-23");
+  // the Journal section is marked as holding the open page; there is one "Journal" label, no heading
+  expect(screen.getByRole("link", { current: true }).textContent).toMatch(/^Journal/);
+  expect(screen.getAllByText("Journal")).toHaveLength(1);
+  const listed = screen.getAllByRole("link").filter((a) => a.classList.contains("day")).map((a) => a.getAttribute("href"));
+  expect(listed).toEqual(["#/day/2026-10-24", "#/day/2026-10-23"]);
   expect(current.textContent).toBe("Friday 233 h 16 min★2");
   expect(screen.getByRole("link", { name: /^Saturday 24/ }).textContent).toContain("today");
   expect(screen.getByText("page")).toBeTruthy();

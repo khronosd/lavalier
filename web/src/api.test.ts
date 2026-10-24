@@ -63,9 +63,14 @@ test("fetchAudioBlobUrl fetches the clip with the token and returns an object UR
   const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["m4a"]), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   const create = vi.fn().mockReturnValue("blob:x");
-  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: create }));
-
-  expect(await fetchAudioBlobUrl("clip_1")).toBe("blob:x");
+  const original = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+  Object.defineProperty(URL, "createObjectURL", { value: create, configurable: true, writable: true });
+  try {
+    expect(await fetchAudioBlobUrl("clip_1")).toBe("blob:x");
+  } finally {
+    if (original) Object.defineProperty(URL, "createObjectURL", original);
+    else delete (URL as { createObjectURL?: unknown }).createObjectURL;
+  }
   const [url, init] = fetchMock.mock.calls[0];
   expect(url).toBe("/api/audio/clip_1.m4a");
   expect(new Headers(init.headers).get("Authorization")).toBe("Bearer abc123");
@@ -78,4 +83,16 @@ test("fetchAudioBlobUrl throws ApiError when the audio is gone", async () => {
   expect(err).toBeInstanceOf(ApiError);
   expect(err.status).toBe(410);
   expect(err.message).toBe("audio expired");
+});
+
+test("api returns undefined for an empty 2xx body", async () => {
+  vi.stubGlobal("fetch", vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    .mockResolvedValueOnce(new Response("", { status: 200 })));
+  await expect(api("POST", "/api/pin/conv_1")).resolves.toBeUndefined();
+  await expect(api("POST", "/api/pin/conv_1")).resolves.toBeUndefined();
+});
+
+test("the createObjectURL stub does not outlive its test", () => {
+  expect(vi.isMockFunction(URL.createObjectURL)).toBe(false);
 });
