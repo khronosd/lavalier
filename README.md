@@ -43,14 +43,76 @@ once to fetch the speech model.
 
 ## Commands
 
-- `doctor [--download-model]`: check Python, ffmpeg, the state root and the cached model (exits 1 if a check fails); optionally fetch the model.
-- `status`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts and the last process report.
+- `doctor [--download-model] [--no-device]`: check Python, ffmpeg, the state root, the cached model and, if `pendant_address` is set, a read-only status read of the pendant (exits 1 if a check fails); `--download-model` fetches the model, `--no-device` skips the pendant. It also warns about another launch agent that syncs the pendant.
+- `sync [--dry-run]`: drain the pendant now, then process what came in. `--dry-run` connects, reads and decides, and changes nothing on the pendant.
+- `status [--live]`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts, the last process report, the last pendant status, a pending unmute and the last sync. `--live` reads the pendant first (read-only; it does not set the clock).
+- `mute` / `unmute`: stop or restart recording on the pendant. `mute` is the owner's mute and sync leaves it alone; `unmute` also clears every mute marker the recorder holds.
+- `app`: run the background app in the foreground (scheduler plus the loopback control server).
+- `install-agent [--program ...]` / `uninstall-agent`: install or remove the launch agent that keeps the app running from login. `--program` replaces the program argv; repeat it once per argument.
 - `import <bin> [--incomplete] [--process]`: import a capture file; `--incomplete` accepts a partial capture, `--process` runs the pipeline after.
 - `process`: measure loudness, transcribe, group and write day files for anything pending. Without ffmpeg or the cached model it skips those stages and leaves clips pending.
 - `day <YYYY-MM-DD> [--open] [--keep-noise]`: print that day's Markdown; `--open` writes the file and opens it; `--keep-noise` appends dropped noise clips (print mode only).
 - `pin <conversation-id>` / `unpin <conversation-id>`: keep that conversation's audio for good, or release it.
 - `retry-failed`: put failed clips back in the queue; the next `process` retries them.
 - `retention --now`: apply the retention policy immediately (`--now` is required).
+
+The commands that talk to the pendant (`sync`, `status --live`, `mute`, `unmute`, `doctor`) need `pendant_address` in `config.toml`. If the background app is running, they ask it to do the work, so only one process ever holds the Bluetooth link.
+
+## How syncing works
+
+A sync is one visit to the pendant. The background app makes one every
+`poll_interval_s` (600 s by default); `sync` makes one on demand. Each step
+below happens in this order, and no device command is ever retried.
+
+1. Take the lock (see "The lock file"). If another device user is active, the
+   sync ends as `locked`.
+2. Connect. If the pendant is not advertising, the sync ends as `not-in-range`.
+3. Set the pendant's clock, read its firmware and storage instance, and read
+   its status. If `require_firmware` is set and does not match, the sync ends
+   as `refused`.
+4. If an earlier sync left an unmute pending and the pendant is not recording,
+   send start recording once and read the status back.
+5. Decide whether to drain. There are three triggers; any one is enough:
+   - the pendant is on its charger (inferred from its USB serial device, a
+     positive battery current, or two quiet polls in a row);
+   - `drain_pages_threshold` pages are waiting (1000 by default);
+   - the last good drain was more than `drain_after_hours` ago (24 by default).
+
+   If none applies, the sync ends as `skipped`. `--dry-run` stops here and
+   reports `dry-run`.
+6. Mute. If the pendant is recording, the recorder sends stop recording and
+   reads the status back. It drains only once the mute is confirmed. If the
+   pendant was already not recording, the recorder takes that as the owner's
+   mute, drains, and leaves it muted. If the status read was partial, it
+   drains without muting and says so in the reason.
+7. Drain: download the pages into a capture file, writing a heartbeat to the
+   lock every 100 messages. The download acknowledges each page by deleting it
+   from the pendant.
+8. Import the capture and decode it. A drain cut short by a dropped link still
+   imports what arrived and is marked incomplete.
+9. Restore. If the recorder muted the pendant, it marks the unmute as pending,
+   sends start recording once and reads the status back. A confirmed state
+   clears the marker.
+10. Process the new clips (loudness, transcription, grouping, day files).
+
+Any unexpected failure ends the sync as `error` with the message. Check the
+LED and the log before running it again.
+
+### The 30-minute rule
+
+If the unmute was not confirmed (the link dropped, or the status did not show
+recording), the recorder keeps the unmute pending. The next sync retries it
+once, but only within 30 minutes of the mute. After that it stops trying,
+adds "unmute pending since <time>" to the sync's reason, and leaves the
+marker for you. `status` shows the marker as "Unmute pending since <time>: run
+'lavalier unmute' or hold the button". Either one clears it. A pendant that is
+seen recording or listening clears the marker by itself.
+
+### What the recorder sends to the pendant
+
+The set is closed: device info, device status, set clock, stop recording,
+start recording, download pages and delete page (the acknowledgement inside the
+download). Nothing else is ever sent, and a test enforces it.
 
 ## State root
 
@@ -59,16 +121,80 @@ Everything lives under `~/Pendant/`, or `$PENDANT_ROOT` if set:
 ```
 config.toml     settings (see src/lavalier/config.py)
 state.sqlite    clips, captures, transcripts, pins
+.lock           the device lock (see "The lock file")
+.server.json    port, token and PID of the running app
 captures/       imported capture files
 audio/<date>/   decoded audio clips
 days/           the Markdown day files
-logs/
+logs/           app.log, app.out.log, app.err.log
 ```
+
+## Background app
+
+`lavalier app` runs the scheduler and a control server bound to 127.0.0.1. The
+server writes its port, a random token and its PID to `~/Pendant/.server.json`
+(mode 0600). The CLI reads that file to hand work to the running app.
+
+`install-agent` writes `~/Library/LaunchAgents/io.github.khronosd.lavalier.plist`
+and loads it, so the app starts at login and is restarted if it exits. The
+program is `~/Applications/Lavalier.app` (or the `app_bundle` setting) if that
+exists, else this Python with `-m lavalier.app`. The bundle matters because
+macOS gives the Bluetooth permission to the app that holds the link; see
+"Building the app bundle".
+
+Logs are in `~/Pendant/logs/`: `app.log` (rotates at 5 MB, three backups) has
+the app's own lines; `app.out.log` and `app.err.log` capture the launch agent's
+stdout and stderr.
+
+To stop the app, run `uninstall-agent`; it unloads the agent and removes the
+plist. A plain `launchctl bootout gui/$(id -u)/io.github.khronosd.lavalier`
+stops it until the next login. If you started `lavalier app` yourself, press
+Ctrl-C; the app finishes restoring the pendant before it exits.
+
+## The lock file
+
+Only one process may talk to the pendant at a time. The recorder holds
+`~/Pendant/.lock` (under the state root) from before it connects until after it
+disconnects.
+
+- Line 1 is the PID of the holder.
+- Line 2 is the last heartbeat in Unix milliseconds. The holder rewrites it
+  every 100 messages during a drain.
+- The lock is stale after 30 minutes without a heartbeat, or when the PID is
+  dead. A stale lock is taken over.
+
+Any other tool that talks to the pendant should check this file, and `ps` for
+`lavalier`, before it connects. If the lock is present and live, do not
+connect. The recorder does the same in reverse: it refuses to connect while a
+`pendant`, `pendant_client`, `smpmgr` or `smp_probe` process is running, and
+reports the sync as `locked`.
+
+## Another app syncing the pendant
+
+Two apps draining one pendant take each other's pages and leave both with
+gaps. `doctor` looks in `~/Library/LaunchAgents` for the pendant maker's
+desktop app and its launch agent. If it finds one it prints a line like
+`WARN another launch agent syncs this pendant: <label> (<plist path>)`. Unload
+it before the first drain:
+
+```
+launchctl bootout gui/$(id -u)/<label>
+mv <plist path> ~/Documents/    # anywhere outside ~/Library/LaunchAgents
+```
+
+`bootout` stops it for this login; moving the plist stops it from coming back
+at the next one. Quit the desktop app too, or it may reconnect when opened.
 
 ## Retention
 
 Audio is deleted after 14 days by default; transcripts and day files stay.
 Starred, pinned and failed clips are kept.
+
+## Building the app bundle
+
+`Lavalier.app` is a small hand-built bundle whose launcher embeds Python, so
+macOS attributes the Bluetooth permission to "Lavalier". Build and signing
+steps, and the permission spike, are in [bundle/README.md](bundle/README.md).
 
 ## Known limitations
 
