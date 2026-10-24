@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/pr
 import { afterEach, expect, test, vi } from "vitest";
 import type { ConversationView, DaySummary, DayView } from "../api";
 import { neighbours } from "../components/DayNav";
+import { DataVersion } from "../refresh";
 import { parseHash } from "../router";
 import { Journal } from "./Journal";
 
@@ -212,4 +213,33 @@ test("a star with no speech nearby says so in the Starred section, and one in a 
   await screen.findByText("No speech recorded nearby");
   const notes = [...container.querySelectorAll(".starred .no-quote")].map((el) => el.textContent);
   expect(notes).toEqual(["No speech recorded nearby", "Nothing was said at this moment"]);
+});
+
+test("of two refetches in flight the latest wins: an older reply landing last never reverts a pin", async () => {
+  const deferred: Array<(r: Response) => void> = [];
+  const later = () => new Promise<Response>((resolve) => { deferred.push(resolve); });
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(json(day23))            // the first load
+    .mockImplementationOnce(later)                  // A: the refetch a new sync asked for
+    .mockResolvedValueOnce(json({ pinned: true }))  // the pin
+    .mockImplementationOnce(later);                 // B: the refetch after the pin
+  vi.stubGlobal("fetch", fetchMock);
+  const page = (v: string) => (
+    <DataVersion.Provider value={v}>
+      <Journal route={parseHash("#/day/2026-10-23")} today="2026-10-24" days={days} />
+    </DataVersion.Provider>
+  );
+  const { rerender } = render(page("v1"));
+  const pins = await screen.findAllByRole("button", { name: "Pin" });
+  rerender(page("v2"));
+  await waitFor(() => expect(deferred).toHaveLength(1));
+  fireEvent.click(pins[1]);
+  await waitFor(() => expect(deferred).toHaveLength(2));
+
+  deferred[1](json({ ...day23, conversations: [long, { ...test2256, pinned: true }] })); // B, the latest
+  expect(await screen.findByRole("button", { name: "Unpin" })).toBeTruthy();
+  deferred[0](json(day23));                                                            // A, older, lands last
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.getByRole("button", { name: "Unpin" })).toBeTruthy();
 });

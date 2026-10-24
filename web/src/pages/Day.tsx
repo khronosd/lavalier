@@ -1,6 +1,6 @@
 import { InsightsTab } from "../components/InsightsTab";
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type DayView, explainError } from "../api";
 import { AudioTab } from "../components/AudioTab";
 import { Conversation } from "../components/Conversation";
@@ -60,9 +60,11 @@ export function Day({ date, isToday, route, nav }: Props) {
 
   /** Fetch the day again in place: the page stays as it is (no loading state, same scroll) until the new
    * view arrives, and stays as it is if the fetch fails. */
+  const lastRefresh = useRef(0);
   function refreshQuietly() {
+    const n = ++lastRefresh.current; // latest wins: an older reply landing late must not undo a pin
     api<DayView>("GET", `/api/day/${date}`).then(
-      (view) => setLoad((cur) => (cur.date === date ? { date, view, error: null } : cur)),
+      (view) => n === lastRefresh.current && setLoad((cur) => (cur.date === date ? { date, view, error: null } : cur)),
       () => undefined,
     );
   }
