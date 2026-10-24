@@ -306,3 +306,12 @@ def _add_page_v3(d, key, capture_id, session, ingest_type, absolute_ms):
         (key.run, key.index, key.sha256, capture_id, session, ingest_type, absolute_ms),
     )
     d._conn.commit()
+
+
+def test_pages_differing_only_in_storage_instance_are_distinct(db):
+    cid = db.add_capture("captures/a.bin", "ee" * 32, 1, True)
+    k0 = PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=0)
+    k1 = PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5)
+    db.add_page(k0, cid, 100, 1, 1792821367981)
+    db.add_page(k1, cid, 100, 1, 1792821367981)
+    assert db.page_seen(k0) and db.page_seen(k1)

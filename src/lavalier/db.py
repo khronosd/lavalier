@@ -201,7 +201,21 @@ def _migrate_4(c: sqlite3.Connection) -> None:
     _run_script(
         c,
         """
-        ALTER TABLE pages ADD COLUMN storage_instance INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pages RENAME TO pages_v3;
+        CREATE TABLE pages (
+            run INTEGER NOT NULL,
+            "index" INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            capture_id INTEGER NOT NULL REFERENCES captures(id),
+            session INTEGER NOT NULL,
+            ingest_type INTEGER NOT NULL,
+            absolute_ms INTEGER NOT NULL,
+            storage_instance INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (storage_instance, run, "index", sha256)
+        );
+        INSERT INTO pages (run, "index", sha256, capture_id, session, ingest_type, absolute_ms)
+            SELECT run, "index", sha256, capture_id, session, ingest_type, absolute_ms FROM pages_v3 ORDER BY rowid;
+        DROP TABLE pages_v3;
         CREATE TABLE device_status (
             id INTEGER PRIMARY KEY, read_at_ms INTEGER NOT NULL, source TEXT NOT NULL,
             has_all_fields INTEGER NOT NULL, recording_state TEXT NOT NULL,
