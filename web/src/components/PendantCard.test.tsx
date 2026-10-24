@@ -100,7 +100,7 @@ test("muted: a dark lamp, Unmute, the pending unmute, and Unmute's result with a
   fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
   expect((screen.getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(true);
   await flush();
-  expect(calls).toEqual(["POST /api/unmute", "GET /api/status", "POST /api/status-live"]);
+  expect(calls).toEqual(["POST /api/unmute", "GET /api/status", "POST /api/status-live", "GET /api/status"]);
   expect(container.querySelector(".pendant-result")!.textContent).toBe("Listening");
   expect(container.querySelector(".lamp")!.classList.contains("lamp-listening")).toBe(true);
   expect(screen.getByRole("button", { name: "Mute" })).toBeTruthy();
@@ -184,11 +184,11 @@ test("the timers: status every 15 s, a live read every 60 s while visible; none 
   });
   const { unmount } = render(<PendantCard />);
   await flush();
-  expect(calls).toEqual(["GET /api/status", "POST /api/status-live"]);
+  expect(calls).toEqual(["GET /api/status", "POST /api/status-live", "GET /api/status"]);
   calls.length = 0;
 
   await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-  expect(calls.filter((c) => c === "GET /api/status")).toHaveLength(4);
+  expect(calls.filter((c) => c === "GET /api/status")).toHaveLength(5); // 4 polls and one after the live read
   expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(1);
   calls.length = 0;
 
@@ -197,10 +197,13 @@ test("the timers: status every 15 s, a live read every 60 s while visible; none 
   document.dispatchEvent(new Event("visibilitychange"));
   await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
   expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(0);
+  // visible again: a live read at once, then the timer's
   visibility = "visible";
   document.dispatchEvent(new Event("visibilitychange"));
-  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  await flush();
   expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(calls.filter((c) => c === "POST /api/status-live")).toHaveLength(2);
 
   unmount();
   calls.length = 0;
@@ -217,4 +220,55 @@ test("after a sync that found no pendant, the live read waits", async () => {
   await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
   expect(calls.filter((c) => c.startsWith("POST"))).toEqual([]);
+});
+
+test("a poll that saw the card's own live read as busy does not outlive the read", async () => {
+  const idle = status();
+  let polledBusy = false;
+  let answer!: () => void;
+  const { handler } = server({ "GET /api/status": () => json(polledBusy ? { ...idle, busy: true } : idle) });
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/status-live") {
+      await new Promise<void>((r) => { answer = r; });
+      polledBusy = false; // the read has let go of the pendant
+      return json({ ok: true, error: null, summary: summaryOf(idle) });
+    }
+    return handler(init?.method ?? "GET", url);
+  }));
+  const { container } = render(<PendantCard />);
+  await flush();
+  polledBusy = true; // the 15 s poll lands while the live read holds the pendant
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(container.querySelector(".pendant")!.getAttribute("aria-busy")).toBe("true");
+  answer();
+  await flush();
+  expect((screen.getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(container.querySelector(".pendant")!.getAttribute("aria-busy")).toBeNull();
+});
+
+test("when the app cannot be reached the card says so, and stops saying so once it answers", async () => {
+  const s = status({ device: device({ age_s: 125 }) });
+  let down = false;
+  server({
+    "GET /api/status": () => (down ? json({ error: "nope" }, 500) : json(s)),
+    "POST /api/status-live": () => json({ ok: true, error: null, summary: summaryOf(s) }),
+  });
+  render(<PendantCard />);
+  await flush();
+  expect(screen.getByText("as of 2 min ago")).toBeTruthy();
+  down = true;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.getByText("Cannot reach the app")).toBeTruthy();
+  expect(screen.queryByText("as of 2 min ago")).toBeNull();
+  down = false;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.queryByText("Cannot reach the app")).toBeNull();
+  expect(screen.getByText("as of 2 min ago")).toBeTruthy();
+});
+
+test("a failed fetch of the status also counts as the app out of reach", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+  render(<PendantCard />);
+  await flush();
+  expect(screen.getByText("Cannot reach the app")).toBeTruthy();
 });

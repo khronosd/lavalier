@@ -5,7 +5,7 @@ import { Lamp } from "./Lamp";
 
 /** The one dark element: the pendant's state from its latest read, and Sync now, Mute or Unmute. */
 export function PendantCard() {
-  const { status, inflight, result, liveError, noAddress, run } = usePendantStatus();
+  const { status, inflight, result, liveError, noAddress, unreachable, run } = usePendantStatus();
   const lamp = lampState(status);
   const device = lamp === "unknown" ? null : status?.device ?? null;
   const disabled = buttonsDisabled(status, inflight);
@@ -23,7 +23,7 @@ export function PendantCard() {
       ) : (
         <>
           <ul class="pendant-facts">
-            {device && <li>{age(device.age_s)}</li>}
+            {unreachable ? <li class="pendant-strong">Cannot reach the app</li> : device && <li>{age(device.age_s)}</li>}
             {device && <li class="pendant-strong">{batteryLine(device)}</li>}
             {pages && <li>{pages}</li>}
             {pending && <li class="pendant-pending">{pending}</li>}

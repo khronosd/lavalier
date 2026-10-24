@@ -24,6 +24,8 @@ export interface PendantStatus {
   liveError: string | null;
   /** The app has no pendant address: nothing can be done from the card. */
   noAddress: boolean;
+  /** The last GET /api/status failed: the reading shown may be stale. */
+  unreachable: boolean;
   run: (action: PendantAction) => Promise<void>;
 }
 
@@ -35,6 +37,7 @@ export function usePendantStatus(): PendantStatus {
   const [result, setResult] = useState<string | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [noAddress, setNoAddress] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
 
   // the timers read these, not the render's values
   const statusRef = useRef<Status | null>(null);
@@ -57,9 +60,11 @@ export function usePendantStatus(): PendantStatus {
     try {
       const next = await api<Status>("GET", "/api/status");
       take(next);
+      if (mounted.current) setUnreachable(false);
       return next;
     } catch {
-      return null; // the next tick tries again; the card keeps the last status it had
+      if (mounted.current) setUnreachable(true); // the next tick tries again
+      return null;
     }
   }
 
@@ -84,6 +89,9 @@ export function usePendantStatus(): PendantStatus {
       inflightRef.current = false;
       if (mounted.current) setInflight(false);
     }
+    // the summary carries no busy: a poll that landed while this read held the pendant left busy set,
+    // so take the app's whole snapshot now that the read has let go
+    if (mounted.current) await readStatus();
   }
 
   function liveAllowed(s: Status | null): boolean {
@@ -132,12 +140,18 @@ export function usePendantStatus(): PendantStatus {
     const liveTimer = setInterval(() => {
       if (liveAllowed(statusRef.current)) void readLive();
     }, LIVE_EVERY_MS);
+    // a window brought back to the front reads the pendant at once instead of waiting for the timer
+    const onVisible = () => {
+      if (isVisible() && liveAllowed(statusRef.current)) void readLive();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mounted.current = false;
       clearInterval(statusTimer);
       clearInterval(liveTimer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
-  return { status, inflight, result, liveError, noAddress, run };
+  return { status, inflight, result, liveError, noAddress, unreachable, run };
 }
