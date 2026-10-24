@@ -115,3 +115,29 @@ def test_doctor_reports_an_unwritable_root_as_fail(tmp_path, monkeypatch):
     res = CliRunner().invoke(main, ["doctor"])
     assert "FAIL state root writable" in res.output
     assert res.exit_code == 1 and isinstance(res.exception, SystemExit)
+
+
+# --- final review fixes: install-agent prints the real logs path and warns about bare Python ---
+
+def _install_env(tmp_path, monkeypatch, program):
+    from lavalier import agent, cli
+    root = tmp_path / "Pendant"
+    monkeypatch.setenv("PENDANT_ROOT", str(root))
+    monkeypatch.setattr(agent, "install", lambda paths, cfg, program=None: tmp_path / "x.plist")
+    monkeypatch.setattr(agent, "default_program", lambda cfg: program)
+    return root, cli
+
+
+def test_install_agent_prints_the_logs_path_under_the_state_root(tmp_path, monkeypatch):
+    root, cli = _install_env(tmp_path, monkeypatch, ["/A/Lavalier.app/Contents/MacOS/Lavalier"])
+    r = CliRunner().invoke(cli.main, ["install-agent"])
+    assert r.exit_code == 0 and f"Logs: {root / 'logs' / 'app.out.log'}" in r.output and "warning" not in r.output
+
+
+def test_install_agent_warns_when_no_bundle_is_found(tmp_path, monkeypatch):
+    import sys
+    root, cli = _install_env(tmp_path, monkeypatch, [sys.executable, "-m", "lavalier.app"])
+    r = CliRunner().invoke(cli.main, ["install-agent"])
+    assert r.exit_code == 0
+    assert ("warning: no app bundle found; the agent will run bare Python, which has no Bluetooth grant. "
+            "Build the bundle (see bundle/README.md) and run install-agent again.") in r.output

@@ -137,3 +137,34 @@ async def test_fake_pendant_drop_raises_link_dropped_and_stays_down():
             [m async for m in p.drain(idle_s=5)]
         with pytest.raises(LinkDropped):
             await p.status()
+
+
+# --- final review fixes: a failed teardown after a good session is logged, not raised ---
+
+@pytest.mark.parametrize("exc", [RuntimeError("cleanup failed"), OSError("gone")])
+async def test_ble_teardown_failure_is_logged_and_swallowed(monkeypatch, caplog, exc):
+    import logging
+    caplog.set_level(logging.INFO)
+    class S(_Session):
+        async def get_device_status(self):
+            from pendant_client.proto import server_pb2
+            return server_pb2.DeviceStatus(has_all_fields=True)
+
+        async def __aexit__(self, *e):
+            raise exc
+    device = _patch(monkeypatch, S)
+    async with device.BlePendant("addr", scan_timeout_s=1) as p:
+        snap = await p.status()
+    assert snap.has_all_fields and "session teardown" in caplog.text
+
+
+async def test_ble_teardown_does_not_swallow_cancellation(monkeypatch):
+    import asyncio
+
+    class S(_Session):
+        async def __aexit__(self, *e):
+            raise asyncio.CancelledError()
+    device = _patch(monkeypatch, S)
+    with pytest.raises(asyncio.CancelledError):
+        async with device.BlePendant("addr", scan_timeout_s=1):
+            pass

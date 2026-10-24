@@ -332,12 +332,16 @@ def app_cmd() -> None:
 def install_agent_cmd(program: tuple[str, ...]) -> None:
     """Install the launchd agent that runs the app from login."""
     paths, cfg = _paths_cfg()
+    argv = list(program) or agent.default_program(cfg)
     try:
-        plist = agent.install(paths, cfg, program=list(program) or None)
+        plist = agent.install(paths, cfg, program=argv)
     except subprocess.CalledProcessError as e:
         raise click.ClickException(f"launchctl bootstrap failed ({e.returncode})") from e
     click.echo(f"Installed {plist}")
-    click.echo("Logs: ~/Pendant/logs/app.out.log")
+    click.echo(f"Logs: {paths.logs / 'app.out.log'}")
+    if not program and argv[1:] == ["-m", "lavalier.app"]:
+        click.echo("warning: no app bundle found; the agent will run bare Python, which has no Bluetooth grant. "
+                   "Build the bundle (see bundle/README.md) and run install-agent again.")
 
 
 @main.command("uninstall-agent")

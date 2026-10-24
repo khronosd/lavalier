@@ -9,7 +9,7 @@ from typing import Protocol
 
 from bleak import BleakScanner
 from bleak.exc import BleakError
-from pendant_client.ble import PendantNotPairedError, is_disconnect_exception
+from pendant_client.ble import PendantNotPairedError, is_disconnect_exception, suppress_disconnect
 from pendant_client.proto import shared_pb2
 from pendant_client.session import PendantSession
 
@@ -104,7 +104,9 @@ class BlePendant:
     async def __aexit__(self, *exc) -> None:
         session, self._session = self._session, None
         if session is not None:
-            await session.__aexit__(*exc)
+            # a teardown that fails after a good session (a dropped link, most often) is logged
+            # and swallowed: it must not turn a finished drain into an error
+            await suppress_disconnect(session.__aexit__(*exc), what="session teardown")
 
     def _require(self):
         if self._session is None:

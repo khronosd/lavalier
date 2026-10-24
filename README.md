@@ -44,12 +44,12 @@ once to fetch the speech model.
 ## Commands
 
 - `doctor [--download-model] [--no-device]`: check Python, ffmpeg, the state root, the cached model and, if `pendant_address` is set, a read-only status read of the pendant (exits 1 if a check fails); `--download-model` fetches the model, `--no-device` skips the pendant. It also warns about another launch agent that syncs the pendant.
-- `sync [--dry-run]`: drain the pendant now, then process what came in. `--dry-run` connects, reads and decides, and changes nothing on the pendant.
-- `status [--live]`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts, the last process report, the last pendant status, a pending unmute and the last sync. `--live` reads the pendant first (read-only; it does not set the clock).
-- `mute` / `unmute`: stop or restart recording on the pendant. `mute` is the owner's mute and sync leaves it alone; `unmute` also clears every mute marker the recorder holds.
+- `sync [--dry-run]`: drain the pendant now, then process what came in. Through the app, the drain's result comes back at once and processing runs on in the app (`status` shows it when done). `--dry-run` connects, reads and decides, and changes nothing on the pendant.
+- `status [--live]`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts, the last process report, the last pendant status, who muted the pendant ("muted by the recorder" or "muted by you") and the last sync. `--live` reads the pendant first (read-only; it does not set the clock).
+- `mute` / `unmute`: set the pendant's clock, then stop or restart recording. `mute` is the owner's mute and sync leaves it alone; `unmute` also clears every mute marker the recorder holds.
 - `app`: run the background app in the foreground (scheduler plus the loopback control server).
 - `install-agent [--program ...]` / `uninstall-agent`: install or remove the launch agent that keeps the app running from login. `--program` replaces the program argv; repeat it once per argument.
-- `import <bin> [--incomplete] [--process]`: import a capture file; `--incomplete` accepts a partial capture, `--process` runs the pipeline after.
+- `import [<bin>] [--incomplete] [--orphans] [--process]`: import a capture file; `--incomplete` accepts a partial capture; `--orphans` imports any capture a cancelled or killed drain left in `captures/` without importing it (each sync also does this before it connects); `--process` runs the pipeline after.
 - `process`: measure loudness, transcribe, group and write day files for anything pending. Without ffmpeg or the cached model it skips those stages and leaves clips pending.
 - `day <YYYY-MM-DD> [--open] [--keep-noise]`: print that day's Markdown; `--open` writes the file and opens it; `--keep-noise` appends dropped noise clips (print mode only).
 - `pin <conversation-id>` / `unpin <conversation-id>`: keep that conversation's audio for good, or release it.
@@ -65,13 +65,17 @@ A sync is one visit to the pendant. The background app makes one every
 below happens in this order, and no device command is ever retried.
 
 1. Take the lock (see "The lock file"). If another device user is active, the
-   sync ends as `locked`.
+   sync ends as `locked`. Then import any capture an earlier drain left in
+   `captures/` without importing it (a drain cancelled by Ctrl-C or a stop, or
+   a process killed mid-drain): the pendant already deleted those pages, so
+   that file is their only copy.
 2. Connect. If the pendant is not advertising, the sync ends as `not-in-range`.
 3. Set the pendant's clock, read its firmware and storage instance, and read
    its status. If `require_firmware` is set and does not match, the sync ends
    as `refused`.
-4. If an earlier sync left an unmute pending and the pendant is not recording,
-   send start recording once and read the status back.
+4. If an earlier sync left an unmute pending, or left its mute marker behind
+   because its process died between the mute and the restore, and the pendant
+   is not recording, send start recording once and read the status back.
 5. Decide whether to drain. There are three triggers; any one is enough:
    - the pendant is on its charger (inferred from its USB serial device, a
      positive battery current, or two quiet polls in a row);
@@ -96,7 +100,9 @@ below happens in this order, and no device command is ever retried.
 10. Process the new clips (loudness, transcription, grouping, day files).
 
 Any unexpected failure ends the sync as `error` with the message. Check the
-LED and the log before running it again.
+LED and the log before running it again. A sync cancelled mid-way (Ctrl-C, or
+the app stopping) still restores the pendant, and ends as `error` with the
+message `cancelled`; what it drained is imported by the next sync.
 
 ### The 30-minute rule
 
@@ -104,14 +110,22 @@ If the recorder's unmute was not confirmed (the link dropped, or the status did
 not show recording), it marks the unmute as pending. The marker is set at the
 restore step, after the drain, so a long drain moves the start of the window.
 
+If the recorder's process died after muting and before restoring (a crash, a
+forced quit, power loss), only its mute marker is left. The next sync that
+finds the pendant not recording takes that as the recorder's mute and marks the
+unmute pending from the time of the mute itself.
+
 On every later sync (not `--dry-run`), within 30 minutes of that marker, the
 recorder retries while the pendant reports NOT_RECORDING with a complete
 status. It sends start recording at most once per sync and reads the status
 back. After 30 minutes it stops retrying, adds "unmute pending since <time>" to
 the sync's reason, and leaves the marker for you. `status` shows it as
-"Unmute pending since <time>: run 'lavalier unmute' or hold the button". Either
-one clears it. A pendant seen listening or recording clears the marker by
-itself, instead of a retry.
+"Pendant muted by the recorder, unmute pending since <time>: run 'lavalier
+unmute' or hold the button" (or "Pendant muted by the recorder since <time>"
+while only the mute marker is set). Either one clears it. A pendant seen
+listening or recording clears the marker by itself, instead of a retry. After
+your own `mute`, `status` says "Pendant muted by you since <time>" while the
+last full status read shows it not recording.
 
 ### What the recorder sends to the pendant
 
@@ -154,7 +168,13 @@ stdout and stderr.
 To stop the app, run `uninstall-agent`; it unloads the agent and removes the
 plist. A plain `launchctl bootout gui/$(id -u)/io.github.khronosd.lavalier`
 stops it until the next login. If you started `lavalier app` yourself, press
-Ctrl-C; the app finishes restoring the pendant before it exits.
+Ctrl-C; the app finishes restoring the pendant before it exits. A drain cut
+short this way keeps what it wrote in `captures/`, and the next sync imports
+it (or run `lavalier import --orphans`).
+
+If the program is bare Python because no bundle was found, `install-agent`
+warns: that process has no Bluetooth grant, so every poll reads
+`not-in-range`. Build the bundle and run `install-agent` again.
 
 ## The lock file
 
@@ -171,8 +191,8 @@ disconnects.
 Any other tool that talks to the pendant should check this file, and `ps` for
 `lavalier`, before it connects. If the lock is present and live, do not
 connect. The recorder does the same in reverse: it refuses to connect while a
-`pendant`, `pendant_client`, `smpmgr` or `smp_probe` process is running, and
-reports the sync as `locked`.
+`pendant`, `pendant_client`, `smpmgr` or `smp_probe` process, or the pendant
+maker's desktop app, is running, and reports the sync as `locked`.
 
 ## Another app syncing the pendant
 
