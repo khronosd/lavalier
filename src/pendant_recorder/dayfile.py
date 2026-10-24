@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pendant_recorder.config import Config
 from pendant_recorder.db import Database
-from pendant_recorder.group import orphan_stars
+from pendant_recorder.group import orphan_stars, press_times
 from pendant_recorder.models import ClipRecord, Conversation, Transcript
 from pendant_recorder.paths import Paths
 from pendant_recorder.retention import deadline_ms
@@ -138,7 +138,7 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
 
     entries = [(ms, conv, _quote(ms, conv_segs[conv.conversation_id]))
                for conv in convs for ms in conv.star_ms]
-    entries += [(ms, None, None) for ms in orphan_stars(_press_times(db, day), convs)]
+    entries += [(ms, None, None) for ms in orphan_stars(press_times(db, day), convs)]
 
     parts = [_frontmatter(day, convs, n_noise, len(entries)),
              f"# {day:%A} {day.isoformat()}\n"]
@@ -156,15 +156,6 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
     if keep_noise:
         parts.append(_noise_section(clips))
     return "\n".join(parts)
-
-
-def _press_times(db: Database, day: date) -> list[int]:
-    times = []
-    for e in db.events_for_day(day, types=["button"]):
-        if e.payload.get("button_event") != "BUTTON_SHORT_PRESS":
-            continue
-        times.append(e.payload.get("button_event_absolute_timestamp_ms") or e.absolute_ms)
-    return times
 
 
 def write_day(db: Database, paths: Paths, day: date, cfg: Config, *, now_ms: int) -> Path:

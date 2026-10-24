@@ -49,9 +49,8 @@ def orphan_stars(stars_ms: list[int], convs: list[Conversation]) -> list[int]:
     return [s for s in stars_ms if s not in attached]
 
 
-def rebuild_day(db: Database, day: date, cfg: Config) -> list[Conversation]:
-    """Regroup one day's speech clips and store the result."""
-    clips = [c for c in db.clips_for_day(day) if c.classification == "speech"]
+def press_times(db: Database, day: date) -> list[int]:
+    """Absolute times of the day's short button presses (stars)."""
     stars = []
     for e in db.events_for_day(day, types=["button"]):
         if e.payload.get("button_event") != "BUTTON_SHORT_PRESS":
@@ -61,6 +60,13 @@ def rebuild_day(db: Database, day: date, cfg: Config) -> list[Conversation]:
             log.warning("short press on page %s has no timestamp; using event time", e.page_index)
             ts = e.absolute_ms
         stars.append(ts)
+    return stars
+
+
+def rebuild_day(db: Database, day: date, cfg: Config) -> list[Conversation]:
+    """Regroup one day's speech clips and store the result."""
+    clips = [c for c in db.clips_for_day(day) if c.classification == "speech"]
+    stars = press_times(db, day)
     convs = group_clips(clips, stars, cfg)
     db.replace_conversations(day, convs)
     return convs
