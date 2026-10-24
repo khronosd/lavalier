@@ -13,10 +13,10 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 import huggingface_hub.constants as hf_constants  # noqa: E402
 import mlx_whisper  # noqa: E402
 
-from pendant_recorder.audio import to_wav16k
-from pendant_recorder.db import Database
-from pendant_recorder.models import ClipRecord, Segment, Transcript, Word
-from pendant_recorder.paths import Paths
+from lavalier.audio import to_wav16k
+from lavalier.db import Database
+from lavalier.models import ClipRecord, Segment, Transcript, Word
+from lavalier.paths import Paths
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class MlxWhisperTranscriber:
 
     def unavailable_reason(self) -> Optional[str]:
         if not model_cache_dir(self.model).exists():
-            return f"model {self.model} is not cached; run `pendant-recorder doctor --download-model`"
+            return f"model {self.model} is not cached; run `lavalier doctor --download-model`"
         return None
 
     def transcribe(self, wav: Path) -> Transcript:

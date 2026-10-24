@@ -1,6 +1,6 @@
 """Speech-versus-noise classification from loudness and transcript confidence."""
-from pendant_recorder.config import Config
-from pendant_recorder.models import ClipRecord, Transcript
+from lavalier.config import Config
+from lavalier.models import ClipRecord, Transcript
 
 
 def classify(clip: ClipRecord, t: Transcript, cfg: Config) -> str:

@@ -2,7 +2,7 @@ from datetime import date
 from pathlib import Path
 
 from conftest import T
-from pendant_recorder.dayfile import render_day, write_day
+from lavalier.dayfile import render_day, write_day
 
 
 def test_render_matches_golden(root, db, cfg, seeded_2026_10_23_subset):
@@ -26,8 +26,8 @@ def test_write_day_marks_clean(root, db, cfg, seeded_2026_10_23_subset):
 import dataclasses
 
 from conftest import _press, _real_transcript
-from pendant_recorder.dayfile import _duration
-from pendant_recorder.group import rebuild_day
+from lavalier.dayfile import _duration
+from lavalier.group import rebuild_day
 
 DAY = date(2026, 10, 23)
 

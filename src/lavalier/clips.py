@@ -8,10 +8,10 @@ from pathlib import Path
 
 from pendant_client.decode import decode_messages
 
-from pendant_recorder.db import Database
-from pendant_recorder.models import MIN_VALID_MS, ClipRecord, EventRecord
-from pendant_recorder.pages import ImportResult
-from pendant_recorder.paths import Paths
+from lavalier.db import Database
+from lavalier.models import MIN_VALID_MS, ClipRecord, EventRecord
+from lavalier.pages import ImportResult
+from lavalier.paths import Paths
 
 log = logging.getLogger(__name__)
 

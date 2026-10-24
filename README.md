@@ -1,4 +1,4 @@
-# pendant-recorder
+# lavalier
 
 A local macOS tool that turns captures from a BLE audio pendant into
 transcripts and Markdown day files. It decodes the audio, drops noise clips,
@@ -33,9 +33,9 @@ git URL will follow when it is published.
 ## First run
 
 ```
-.venv/bin/pendant-recorder doctor --download-model
-.venv/bin/pendant-recorder import <capture.bin> --process
-.venv/bin/pendant-recorder day <YYYY-MM-DD>
+.venv/bin/lavalier doctor --download-model
+.venv/bin/lavalier import <capture.bin> --process
+.venv/bin/lavalier day <YYYY-MM-DD>
 ```
 
 `doctor --download-model` is the only step that touches the network; run it
@@ -57,7 +57,7 @@ once to fetch the speech model.
 Everything lives under `~/Pendant/`, or `$PENDANT_ROOT` if set:
 
 ```
-config.toml     settings (see src/pendant_recorder/config.py)
+config.toml     settings (see src/lavalier/config.py)
 state.sqlite    clips, captures, transcripts, pins
 captures/       imported capture files
 audio/<date>/   decoded audio clips

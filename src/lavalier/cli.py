@@ -10,16 +10,16 @@ from pathlib import Path
 
 import click
 
-from pendant_recorder.audio import ffmpeg_available
-from pendant_recorder.config import Config, load_config
-from pendant_recorder.dayfile import render_day, write_day
-from pendant_recorder.db import Database, SchemaTooNewError, now_ms
-from pendant_recorder.paths import Paths, default_root
-from pendant_recorder.pipeline import (
+from lavalier.audio import ffmpeg_available
+from lavalier.config import Config, load_config
+from lavalier.dayfile import render_day, write_day
+from lavalier.db import Database, SchemaTooNewError, now_ms
+from lavalier.paths import Paths, default_root
+from lavalier.pipeline import (
     ProcessReport, import_and_decode, process, refresh_day, retry_failed, status_summary,
 )
-from pendant_recorder.retention import sweep
-from pendant_recorder.transcribe import MlxWhisperTranscriber, model_cache_dir
+from lavalier.retention import sweep
+from lavalier.transcribe import MlxWhisperTranscriber, model_cache_dir
 
 
 def _setup() -> tuple[Paths, Config, Database]:

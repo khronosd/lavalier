@@ -2,11 +2,11 @@ from datetime import date
 
 from click.testing import CliRunner
 
-from pendant_recorder.config import Config, save_config
+from lavalier.config import Config, save_config
 from conftest import T, speech_transcript
-from pendant_recorder.cli import main
-from pendant_recorder.db import Database
-from pendant_recorder.transcribe import FakeTranscriber
+from lavalier.cli import main
+from lavalier.db import Database
+from lavalier.transcribe import FakeTranscriber
 
 
 def db_for(root):
@@ -20,7 +20,7 @@ def test_cli_round_trip(root, make_capture, monkeypatch):
     monkeypatch.setenv("PENDANT_ROOT", str(root.root))
     # the synthetic packet is quiet (about -46 dB); lower the gate so the clip counts as speech
     save_config(Config(noise_mean_db=-60.0), root.config)
-    monkeypatch.setattr("pendant_recorder.cli.MlxWhisperTranscriber",
+    monkeypatch.setattr("lavalier.cli.MlxWhisperTranscriber",
                         lambda m, l: FakeTranscriber({}, default=speech_transcript()))
     r = CliRunner()
     assert r.invoke(main, ["import", str(capture), "--process"]).exit_code == 0
@@ -64,7 +64,7 @@ def test_download_model_runs_offline_free_subprocess(root, monkeypatch):
     monkeypatch.setenv("PENDANT_ROOT", str(root.root))
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     calls = []
-    monkeypatch.setattr("pendant_recorder.cli.subprocess.run", lambda *a, **k: calls.append((a, k)))
+    monkeypatch.setattr("lavalier.cli.subprocess.run", lambda *a, **k: calls.append((a, k)))
     CliRunner().invoke(main, ["doctor", "--download-model"])
     (argv,), kw = calls[0]
     assert "HF_HUB_OFFLINE" not in kw["env"] and Config().whisper_model in argv

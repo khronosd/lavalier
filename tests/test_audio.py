@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from pendant_recorder.audio import AudioToolError, ffmpeg_available, loudness, measure_loudness, to_wav16k
+from lavalier.audio import AudioToolError, ffmpeg_available, loudness, measure_loudness, to_wav16k
 
 needs_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg missing")
 
@@ -75,7 +75,7 @@ def test_measure_loudness_without_ffmpeg_aborts_the_stage(root, db, clip_record,
     def missing(*a, **k):
         raise FileNotFoundError(2, "No such file or directory", "ffmpeg")
 
-    monkeypatch.setattr("pendant_recorder.audio.subprocess.run", missing)
+    monkeypatch.setattr("lavalier.audio.subprocess.run", missing)
     with pytest.raises(AudioToolError, match="ffmpeg not found"):
         measure_loudness(db, root)
     assert db.clip(clip_record.clip_id).classification is None

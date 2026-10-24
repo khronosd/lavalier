@@ -5,18 +5,18 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from pendant_recorder import noise
-from pendant_recorder.audio import ffmpeg_available, measure_loudness
-from pendant_recorder.clips import decode_new_pages
-from pendant_recorder.config import Config
-from pendant_recorder.dayfile import write_day
-from pendant_recorder.db import Database
-from pendant_recorder.group import press_times, rebuild_day
-from pendant_recorder.models import ClipRecord
-from pendant_recorder.pages import ImportResult, import_capture
-from pendant_recorder.paths import Paths
-from pendant_recorder.retention import deadline_ms, sweep
-from pendant_recorder.transcribe import Transcriber, transcribe_pending
+from lavalier import noise
+from lavalier.audio import ffmpeg_available, measure_loudness
+from lavalier.clips import decode_new_pages
+from lavalier.config import Config
+from lavalier.dayfile import write_day
+from lavalier.db import Database
+from lavalier.group import press_times, rebuild_day
+from lavalier.models import ClipRecord
+from lavalier.pages import ImportResult, import_capture
+from lavalier.paths import Paths
+from lavalier.retention import deadline_ms, sweep
+from lavalier.transcribe import Transcriber, transcribe_pending
 
 log = logging.getLogger(__name__)
 

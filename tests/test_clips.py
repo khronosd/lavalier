@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from pendant_recorder.clips import clip_id_for, day_for, decode_new_pages
+from lavalier.clips import clip_id_for, day_for, decode_new_pages
 
 
 def test_clip_id_is_utc_millis():
@@ -32,7 +32,7 @@ def test_bad_clock_pages_file_under_capture_day(root, db, imported_capture_with_
 
 
 def test_empty_import_marks_capture_decoded(root, db, make_capture):
-    from pendant_recorder.pages import import_capture
+    from lavalier.pages import import_capture
     first = import_capture(db, root, make_capture([1, 2]))
     decode_new_pages(db, root, first, capture_day=date(2026, 10, 24))
     dup = import_capture(db, root, make_capture([2, 1]))  # another file, only pages already seen
@@ -42,7 +42,7 @@ def test_empty_import_marks_capture_decoded(root, db, make_capture):
 
 
 def test_empty_payloads_never_mark_a_capture_that_owns_pages(root, db, make_capture):
-    from pendant_recorder.pages import ImportResult, import_capture
+    from lavalier.pages import ImportResult, import_capture
     imp = import_capture(db, root, make_capture([1, 2]))
     decode_new_pages(db, root, ImportResult(imp.capture_id, imp.messages, 0, 0, []), capture_day=date(2026, 10, 24))
     assert not db.capture_decoded(imp.capture_id)
@@ -51,8 +51,8 @@ def test_empty_payloads_never_mark_a_capture_that_owns_pages(root, db, make_capt
 def test_failed_decode_is_rerun_by_the_next_import(root, db, make_capture, monkeypatch):
     from pathlib import Path
 
-    from pendant_recorder.db import Database
-    from pendant_recorder.pipeline import import_and_decode
+    from lavalier.db import Database
+    from lavalier.pipeline import import_and_decode
     from conftest import T
 
     packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
@@ -75,7 +75,7 @@ def test_failed_decode_is_rerun_by_the_next_import(root, db, make_capture, monke
 
 
 def test_failure_leaves_no_files_or_rows(root, db, imported_two_chunk_capture, monkeypatch):
-    from pendant_recorder.db import Database
+    from lavalier.db import Database
 
     def boom(self, e):
         raise RuntimeError("boom")
@@ -94,7 +94,7 @@ def test_failure_leaves_no_files_or_rows(root, db, imported_two_chunk_capture, m
 def test_zero_timestamp_recordings_get_distinct_ids(root, db, tmp_path):
     from pendant_client.decode import write_batch_ingest_request
     from builders import make_audio_flash_page, make_storage_buffer_msg
-    from pendant_recorder.pages import import_capture
+    from lavalier.pages import import_capture
 
     def page(i, start=False, stop=False):
         fp = make_audio_flash_page(b"\xb8" + b"A" * 39, did_start_recording=start, did_stop_recording=stop)
@@ -115,8 +115,8 @@ def test_valid_clock_ids_have_no_page_suffix(root, db, imported_two_chunk_captur
 
 
 def test_zero_timestamp_short_press_surfaces_on_the_fallback_day(root, db, make_capture):
-    from pendant_recorder.group import press_times
-    from pendant_recorder.pages import import_capture
+    from lavalier.group import press_times
+    from lavalier.pages import import_capture
 
     imp = import_capture(db, root, make_capture([1, 2], timestamps=[0, 0], button_at=0))
     decode_new_pages(db, root, imp, capture_day=date(2026, 10, 24))

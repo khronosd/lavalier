@@ -3,8 +3,8 @@ import hashlib
 
 from pendant_client.decode import StoragePage
 
-from pendant_recorder.models import PageKey
-from pendant_recorder.pages import import_capture, page_key
+from lavalier.models import PageKey
+from lavalier.pages import import_capture, page_key
 
 
 def test_page_key_hashes_flash_page_bytes():
@@ -42,7 +42,7 @@ def test_same_index_different_bytes_is_new(root, db, make_capture):
 def test_crash_mid_import_leaves_nothing_and_retry_is_complete(root, db, tmp_path, monkeypatch):
     from pendant_client.decode import write_batch_ingest_request
     from builders import make_audio_flash_page, make_button_page, make_storage_buffer_msg
-    from pendant_recorder.db import Database
+    from lavalier.db import Database
 
     button = make_storage_buffer_msg(page_index=0, flash_page=make_button_page(1000), session=1, run=1)
     msgs = [button] + [

@@ -3,8 +3,8 @@ import socket
 from datetime import date
 
 from conftest import speech_transcript
-from pendant_recorder.pipeline import import_and_process
-from pendant_recorder.transcribe import FakeTranscriber
+from lavalier.pipeline import import_and_process
+from lavalier.transcribe import FakeTranscriber
 
 
 def test_pipeline_runs_with_sockets_blocked(root, db, cfg, capture_file, monkeypatch):

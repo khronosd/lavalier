@@ -3,12 +3,12 @@
 from datetime import date, datetime
 from pathlib import Path
 
-from pendant_recorder.config import Config
-from pendant_recorder.db import Database
-from pendant_recorder.group import orphan_stars, press_times
-from pendant_recorder.models import ClipRecord, Conversation, Transcript
-from pendant_recorder.paths import Paths
-from pendant_recorder.retention import deadline_ms
+from lavalier.config import Config
+from lavalier.db import Database
+from lavalier.group import orphan_stars, press_times
+from lavalier.models import ClipRecord, Conversation, Transcript
+from lavalier.paths import Paths
+from lavalier.retention import deadline_ms
 
 QUOTE_WINDOW_MS = 10_000
 

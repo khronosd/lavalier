@@ -5,8 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from pendant_recorder.db import Database
-from pendant_recorder.paths import Paths
+from lavalier.db import Database
+from lavalier.paths import Paths
 
 log = logging.getLogger(__name__)
 

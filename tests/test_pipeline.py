@@ -1,8 +1,8 @@
 from datetime import date
 
 from conftest import T, speech_transcript, thank_you_transcript
-from pendant_recorder.pipeline import ProcessReport, process, retry_failed, status_summary
-from pendant_recorder.transcribe import FakeTranscriber
+from lavalier.pipeline import ProcessReport, process, retry_failed, status_summary
+from lavalier.transcribe import FakeTranscriber
 
 
 def test_process_runs_all_stages_and_isolates_failures(root, db, cfg, imported_and_decoded_three_clips):
@@ -26,22 +26,22 @@ def test_a_failing_stage_does_not_stop_later_stages(root, db, cfg, imported_and_
     def boom(*a, **k):
         raise RuntimeError("stage down")
 
-    monkeypatch.setattr("pendant_recorder.pipeline.measure_loudness", boom)
-    monkeypatch.setattr("pendant_recorder.pipeline.sweep", boom)
+    monkeypatch.setattr("lavalier.pipeline.measure_loudness", boom)
+    monkeypatch.setattr("lavalier.pipeline.sweep", boom)
     r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0))
     assert r.loudness_measured == 0 and r.transcribed == 3 and r.days_written == [date(2026, 10, 23)]
 
 
 def test_a_failing_day_does_not_stop_other_days(root, db, cfg, imported_and_decoded_three_clips, monkeypatch):
     db.mark_day_dirty(date(2026, 10, 22))
-    real = __import__("pendant_recorder.pipeline", fromlist=["write_day"]).write_day
+    real = __import__("lavalier.pipeline", fromlist=["write_day"]).write_day
 
     def flaky(db_, paths, day, cfg_, **k):
         if day == date(2026, 10, 22):
             raise RuntimeError("disk full")
         return real(db_, paths, day, cfg_, **k)
 
-    monkeypatch.setattr("pendant_recorder.pipeline.write_day", flaky)
+    monkeypatch.setattr("lavalier.pipeline.write_day", flaky)
     r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0))
     assert r.days_written == [date(2026, 10, 23)]
 
@@ -59,9 +59,9 @@ def test_day_written_before_process_gains_its_conversation(root, db, make_captur
     """import -> write_day (as day --open or pin would) -> process: the file must not stay stale."""
     from pathlib import Path
 
-    from pendant_recorder.config import Config
-    from pendant_recorder.dayfile import write_day
-    from pendant_recorder.pipeline import import_and_decode
+    from lavalier.config import Config
+    from lavalier.dayfile import write_day
+    from lavalier.pipeline import import_and_decode
 
     cfg = Config(noise_mean_db=-60.0)  # the synthetic packet is quiet; let it count as speech
     packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
@@ -78,7 +78,7 @@ def test_day_written_before_process_gains_its_conversation(root, db, make_captur
 
 def test_missing_ffmpeg_skips_audio_stages_and_leaves_clips_pending(
         root, db, cfg, imported_and_decoded_three_clips, monkeypatch, caplog):
-    monkeypatch.setattr("pendant_recorder.pipeline.ffmpeg_available", lambda: False)
+    monkeypatch.setattr("lavalier.pipeline.ffmpeg_available", lambda: False)
     with caplog.at_level("WARNING"):
         r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0))
     assert (r.loudness_measured, r.transcribed, r.failed) == (0, 0, 0)

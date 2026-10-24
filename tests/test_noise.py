@@ -1,5 +1,5 @@
-from pendant_recorder.models import Segment, Transcript, Word
-from pendant_recorder.noise import classify
+from lavalier.models import Segment, Transcript, Word
+from lavalier.noise import classify
 
 
 def test_rec0099_is_speech(cfg, clip_at):

@@ -3,9 +3,9 @@ from datetime import date, datetime
 
 import pytest
 
-from pendant_recorder import db as db_module
-from pendant_recorder.db import Database
-from pendant_recorder.models import (
+from lavalier import db as db_module
+from lavalier.db import Database
+from lavalier.models import (
     Conversation,
     EventRecord,
     PageKey,
@@ -217,7 +217,7 @@ def test_nested_transaction_rolls_back_everything_on_outer_error(db, clip_record
 
 def test_migrate_refuses_a_newer_schema(db):
     db.set_status("schema_version", str(len(db_module.MIGRATIONS) + 1))
-    with pytest.raises(db_module.SchemaTooNewError, match="newer than this pendant-recorder supports"):
+    with pytest.raises(db_module.SchemaTooNewError, match="newer than this lavalier supports"):
         db.migrate()
 
 

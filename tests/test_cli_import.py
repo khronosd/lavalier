@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 
-from pendant_recorder.cli import main
+from lavalier.cli import main
 
 
 def test_cli_import_prints_summary(root, capture_file, monkeypatch):

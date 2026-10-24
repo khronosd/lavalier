@@ -1,7 +1,7 @@
 import pytest
 
-from pendant_recorder.config import Config, ConfigError, load_config, save_config
-from pendant_recorder.paths import Paths
+from lavalier.config import Config, ConfigError, load_config, save_config
+from lavalier.paths import Paths
 
 
 def test_defaults_when_file_missing(tmp_path):

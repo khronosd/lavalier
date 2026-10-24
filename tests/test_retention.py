@@ -1,7 +1,7 @@
 from dataclasses import replace
 
-from pendant_recorder.models import Transcript
-from pendant_recorder.retention import deadline_ms, sweep
+from lavalier.models import Transcript
+from lavalier.retention import deadline_ms, sweep
 
 
 def test_deadline_rules(cfg, clip_at):

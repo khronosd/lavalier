@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from pendant_recorder.paths import Paths
+from lavalier.paths import Paths
 
 
 @pytest.fixture(autouse=True)
@@ -27,8 +27,8 @@ def root(tmp_path):
 
 from datetime import date
 
-from pendant_recorder.db import Database
-from pendant_recorder.models import ClipRecord
+from lavalier.db import Database
+from lavalier.models import ClipRecord
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ from builders import (
     make_storage_buffer_msg,
     make_storage_session_stop_page,
 )
-from pendant_recorder.pages import import_capture
+from lavalier.pages import import_capture
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ def two_clips_with_audio(root, db):
 
 import dataclasses
 
-from pendant_recorder.config import Config
+from lavalier.config import Config
 
 
 @pytest.fixture
@@ -216,9 +216,9 @@ def clip_rows_spanning_midnight(db, clip):
     return c
 
 
-from pendant_recorder.config import Config
-from pendant_recorder.group import rebuild_day
-from pendant_recorder.models import EventRecord, Segment, Transcript, Word
+from lavalier.config import Config
+from lavalier.group import rebuild_day
+from lavalier.models import EventRecord, Segment, Transcript, Word
 
 
 def _words(*specs):
@@ -331,7 +331,7 @@ def imported_and_decoded_three_clips(root, db):
 
 @pytest.fixture
 def imported_status_only(root, db, imported_status_only_capture):
-    from pendant_recorder.clips import decode_new_pages
+    from lavalier.clips import decode_new_pages
     decode_new_pages(db, root, imported_status_only_capture, capture_day=date(2026, 10, 24))
     return imported_status_only_capture
 

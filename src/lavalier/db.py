@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
-from pendant_recorder.models import (
+from lavalier.models import (
     MIN_VALID_MS,
     ClipRecord,
     Conversation,
@@ -25,7 +25,7 @@ def now_ms() -> int:
 
 
 class SchemaTooNewError(RuntimeError):
-    """The state database was written by a newer pendant-recorder."""
+    """The state database was written by a newer lavalier."""
 
 
 def _run_script(c: sqlite3.Connection, script: str) -> None:
@@ -232,8 +232,8 @@ class Database:
         current = int(self.get_status("schema_version") or 0)
         if current > len(MIGRATIONS):
             raise SchemaTooNewError(
-                f"state database schema version {current} is newer than this pendant-recorder "
-                f"supports ({len(MIGRATIONS)}); upgrade pendant-recorder before using this state root"
+                f"state database schema version {current} is newer than this lavalier "
+                f"supports ({len(MIGRATIONS)}); upgrade lavalier before using this state root"
             )
         for n, fn in enumerate(MIGRATIONS, start=1):
             if n <= current:

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from conftest import T
-from pendant_recorder.group import group_clips, orphan_stars, rebuild_day
+from lavalier.group import group_clips, orphan_stars, rebuild_day
 
 
 def test_gap_merges_and_splits(cfg, clip):
@@ -37,7 +37,7 @@ def test_gap_boundaries(cfg, clip):
 
 
 def test_rebuild_day_stars_from_events(db, cfg, clip, caplog):
-    from pendant_recorder.models import EventRecord
+    from lavalier.models import EventRecord
     c = clip(T(22,56,9), T(22,56,25))
     db.add_clip(c)
 

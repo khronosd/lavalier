@@ -4,10 +4,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from pendant_recorder.config import Config
-from pendant_recorder.db import Database
-from pendant_recorder.models import ClipRecord
-from pendant_recorder.paths import Paths
+from lavalier.config import Config
+from lavalier.db import Database
+from lavalier.models import ClipRecord
+from lavalier.paths import Paths
 
 log = logging.getLogger(__name__)
 

@@ -3,9 +3,9 @@
 import logging
 from datetime import date, datetime
 
-from pendant_recorder.config import Config
-from pendant_recorder.db import Database
-from pendant_recorder.models import ClipRecord, Conversation
+from lavalier.config import Config
+from lavalier.db import Database
+from lavalier.models import ClipRecord, Conversation
 
 log = logging.getLogger(__name__)
 

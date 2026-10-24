@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from conftest import T, speech_transcript, thank_you_transcript, _real_transcript
-from pendant_recorder.pipeline import import_and_process
-from pendant_recorder.transcribe import FakeTranscriber
+from lavalier.pipeline import import_and_process
+from lavalier.transcribe import FakeTranscriber
 
 FIXTURE = Path("/Users/khronos/Repos/pendant-lab/artifacts/capture-2026-10-23.bin")
 DAY = date(2026, 10, 23)

@@ -10,9 +10,9 @@ from pathlib import Path
 from pendant_client.decode import StoragePage, iter_messages_from_bin, storage_page_of
 from pendant_client.flash_page import parse_flash_page
 
-from pendant_recorder.db import Database
-from pendant_recorder.models import PageKey
-from pendant_recorder.paths import Paths
+from lavalier.db import Database
+from lavalier.models import PageKey
+from lavalier.paths import Paths
 
 log = logging.getLogger(__name__)
 
