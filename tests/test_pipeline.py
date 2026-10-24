@@ -16,8 +16,10 @@ def test_process_runs_all_stages_and_isolates_failures(root, db, cfg, imported_a
 
 
 def test_process_on_status_only_capture_writes_nothing(root, db, cfg, imported_status_only):
+    assert db.days_dirty() == [date(2026, 10, 24)]  # the decoded status event dirtied its day
     r = process(db, root, cfg, FakeTranscriber({}), now_ms=0)
     assert r.days_written == [] and not list(root.days.glob("*.md"))
+    assert db.days_dirty() == []
 
 
 def test_a_failing_stage_does_not_stop_later_stages(root, db, cfg, imported_and_decoded_three_clips, monkeypatch):

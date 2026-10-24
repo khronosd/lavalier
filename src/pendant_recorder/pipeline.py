@@ -11,7 +11,7 @@ from pendant_recorder.clips import decode_new_pages
 from pendant_recorder.config import Config
 from pendant_recorder.dayfile import write_day
 from pendant_recorder.db import Database
-from pendant_recorder.group import rebuild_day
+from pendant_recorder.group import press_times, rebuild_day
 from pendant_recorder.models import ClipRecord
 from pendant_recorder.pages import ImportResult, import_capture
 from pendant_recorder.paths import Paths
@@ -67,6 +67,9 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
     for day in dirty:
         try:
             rebuild_day(db, day, cfg)
+            if not db.clips_for_day(day) and not press_times(db, day):
+                db.mark_day_clean(day)  # only status events: nothing worth a file
+                continue
             write_day(db, paths, day, cfg, now_ms=now_ms)
             report.days_written.append(day)
         except Exception:

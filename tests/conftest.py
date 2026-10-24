@@ -330,7 +330,9 @@ def imported_and_decoded_three_clips(root, db):
 
 
 @pytest.fixture
-def imported_status_only(imported_status_only_capture):
+def imported_status_only(root, db, imported_status_only_capture):
+    from pendant_recorder.clips import decode_new_pages
+    decode_new_pages(db, root, imported_status_only_capture, capture_day=date(2026, 10, 24))
     return imported_status_only_capture
 
 
