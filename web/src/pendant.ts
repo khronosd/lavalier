@@ -2,7 +2,7 @@
 // from the latest status read only, never from what an action was meant to do.
 
 import { ApiError, type DeviceStatus, type Status, type SyncActionResult, type ToggleResult } from "./api";
-import { hm } from "./format";
+import { age, hm } from "./format";
 
 export type LampState = "listening" | "recording" | "muted" | "unknown";
 
@@ -109,4 +109,11 @@ export function pendingUnmuteLine(status: Status | null): string {
   const since = status?.unmute_pending_since_ms;
   if (!since) return "";
   return `Unmute pending since ${hm(since)}, hold the button or press Unmute`;
+}
+
+/** "Listening as of 2 min ago, battery 94%": the last full read in one line, for Settings. */
+export function lastReadLine(status: Status | null): string {
+  const d = status?.device;
+  if (!d || !d.has_all_fields) return "No reading yet";
+  return `${stateText(lampState(status))} ${age(d.age_s)}, battery ${d.soc}%`;
 }

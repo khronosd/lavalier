@@ -5,7 +5,7 @@
 let token: string | null = null;
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(public readonly status: number, message: string, public readonly field?: string) {
     super(message);
     this.name = "ApiError";
   }
@@ -34,13 +34,15 @@ function headers(json: boolean): Headers {
 
 async function failure(res: Response): Promise<ApiError> {
   let message = `HTTP ${res.status}`;
+  let field: string | undefined;
   try {
     const body = await res.json();
     if (body && typeof body.error === "string") message = body.error;
+    if (body && typeof body.field === "string") field = body.field;
   } catch {
     // not JSON: keep the status
   }
-  return new ApiError(res.status, message);
+  return new ApiError(res.status, message, field);
 }
 
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {

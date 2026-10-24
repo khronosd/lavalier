@@ -166,7 +166,7 @@ test("the Audio tab lists the day's conversations with Play day", async () => {
 test("the Insights tab keeps its placeholder and the tabs keep ?tab=", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
   render(<Journal route={parseHash("#/day/2026-10-23?tab=insights")} today="2026-10-24" days={days} />);
-  expect(await screen.findByText("Insights are not available yet")).toBeTruthy();
+  expect(await screen.findByText("Insights arrive in a later release.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Audio" }).getAttribute("href")).toBe("#/day/2026-10-23?tab=audio");
   expect(screen.queryByRole("heading", { name: "22:56" })).toBeNull();
 });

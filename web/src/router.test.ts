@@ -19,6 +19,9 @@ test.each([
   ["#/search?q=retention%20days", { name: "search", params: {}, query: { q: "retention days" } }],
   ["#/insights", { name: "insights", params: {}, query: {} }],
   ["#/settings/retention", { name: "settings", params: { tab: "retention" }, query: {} }],
+  ["#/settings/connectors", { name: "settings", params: { tab: "connectors" }, query: {} }],
+  ["#/settings/model", { name: "settings", params: { tab: "model" }, query: {} }],
+  ["#/settings/nonsense", { name: "settings", params: { tab: "general" }, query: {} }],
   ["#/settings", { name: "settings", params: { tab: "general" }, query: {} }],
   ["#/elsewhere", { name: "today", params: {}, query: {} }],
 ])("parseHash %s", (hash, expected) => expect(parseHash(hash)).toEqual(expected));

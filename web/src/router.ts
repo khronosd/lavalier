@@ -12,7 +12,7 @@ export interface Route {
   query: Record<string, string>;
 }
 
-export const SETTINGS_TABS = ["general", "pendant", "retention", "appearance"] as const;
+export const SETTINGS_TABS = ["general", "pendant", "retention", "connectors", "model", "appearance"] as const;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** The query keys a day page keeps; anything else in its hash is dropped. */
 const DAY_QUERY = ["tab", "conv", "at"] as const;

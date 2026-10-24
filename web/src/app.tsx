@@ -1,11 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, type DaySummary, explainError, type Settings } from "./api";
+import { api, type DaySummary, explainError, type Settings as SettingsData } from "./api";
 import { PendantCard } from "./components/PendantCard";
 import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
 import { Journal } from "./pages/Journal";
-import { Placeholder } from "./pages/Placeholder";
+import { Insights } from "./pages/Insights";
 import { Search } from "./pages/Search";
+import { Settings } from "./pages/Settings";
 import { StarredPage } from "./pages/Starred";
 import { type Route, useRoute } from "./router";
 import { applyAppearance } from "./theme";
@@ -17,9 +18,9 @@ function Page({ route, today, days }: { route: Route; today: string; days: DaySu
     case "search":
       return <Search q={route.query.q ?? ""} />;
     case "insights":
-      return <Placeholder title="Insights" emptyTitle="Insights are not available yet" />;
+      return <Insights />;
     case "settings":
-      return <Placeholder title="Settings" emptyTitle="Settings are not editable here yet" />;
+      return <Settings tab={route.params.tab ?? "general"} />;
     default:
       return <Journal route={route} today={today} days={days} />;
   }
@@ -46,7 +47,7 @@ export function App() {
 
   useEffect(() => {
     // the stored appearance; until it arrives (or if it cannot), the window follows the system
-    api<Settings>("GET", "/api/settings").then((s) => applyAppearance(s.appearance), () => undefined);
+    api<SettingsData>("GET", "/api/settings").then((s) => applyAppearance(s.appearance), () => undefined);
     api<DaySummary[]>("GET", "/api/days").then(setDays, (e) => {
       setDays([]);
       setError(explainError(e, "The days"));

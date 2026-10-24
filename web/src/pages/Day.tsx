@@ -1,3 +1,4 @@
+import { InsightsTab } from "../components/InsightsTab";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, type DayView, explainError } from "../api";
@@ -26,7 +27,7 @@ function TabPanel({ route, view, onPin }: {
 }) {
   switch (tabOf(route)) {
     case "insights":
-      return <Empty title="Insights are not available yet" />;
+      return <InsightsTab />;
     case "audio":
       return <AudioTab view={view} conv={route.query.conv} />;
     default:

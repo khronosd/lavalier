@@ -8,6 +8,7 @@ import "./styles/day.css";
 import "./styles/lists.css";
 import "./styles/audio.css";
 import "./styles/pendant.css";
+import "./styles/settings.css";
 
 initToken();
 applyAppearance("system");

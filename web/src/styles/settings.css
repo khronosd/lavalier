@@ -1,0 +1,39 @@
+/* Settings: a tab list (180px) and content no wider than 62ch. */
+.set-layout { display: flex; min-height: 100%; }
+.set-nav { width: 180px; flex: none; border-right: 1px solid var(--hairline); padding: 18px 10px; display: flex; flex-direction: column; gap: 1px; }
+.set-tab { padding: 6px 10px; border-radius: var(--radius-s); color: var(--text); }
+.set-tab:hover { background: var(--hair2); }
+.set-tab[aria-current="page"] { background: var(--select); font-weight: 600; }
+.set-main { flex: 1; min-width: 0; padding: 28px 40px 16px; display: flex; flex-direction: column; }
+.set-body { max-width: 62ch; }
+.set-title { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; }
+.set-lead { margin: 0 0 22px; color: var(--text-2); font-size: 14px; }
+.set-sub { margin: 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.set-body > .set-title:not(:has(+ .set-lead)) { margin-bottom: 20px; }
+
+.field { margin: 0 0 18px; }
+.field label { display: block; margin-bottom: 5px; color: var(--text-2); font-size: 13px; }
+.field input {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--text);
+  background: var(--field); border: 1px solid var(--field-b); border-radius: 8px;
+}
+.field input[type="number"] { max-width: 14ch; }
+.field input[aria-invalid="true"] { border-color: var(--warn); }
+.field-help { margin: 5px 0 0; color: var(--text-3); font-size: 12px; }
+.field-error { margin: 5px 0 0; color: var(--warn); font-size: 12.5px; }
+
+.set-fact { margin: 0 0 14px; display: flex; gap: 12px; font-size: 13px; }
+.set-fact-label { width: 90px; flex: none; color: var(--text-2); }
+.set-fact .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+
+.radios { margin: 0 0 14px; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
+.radios legend { padding: 0; margin-bottom: 8px; color: var(--text-2); font-size: 13px; }
+.radio { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.radio input { accent-color: var(--accent); margin: 0; }
+
+.toast-row { position: sticky; bottom: 16px; margin-top: auto; padding-top: 24px; height: 28px; text-align: center; pointer-events: none; }
+.toast {
+  display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 12.5px;
+  background: var(--slate); color: var(--on-slate); opacity: 0; transition: opacity 0.18s linear;
+}
+.toast.on { opacity: 1; }
