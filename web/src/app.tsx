@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, type DaySummary, explainError, type Settings } from "./api";
+import { PendantCard } from "./components/PendantCard";
 import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
 import { Journal } from "./pages/Journal";
@@ -53,7 +54,7 @@ export function App() {
   }, []);
 
   return (
-    <Shell route={route} days={days} today={today}>
+    <Shell route={route} days={days} today={today} pendant={<PendantCard />}>
       {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
       <Page route={route} today={today} days={days} />
     </Shell>

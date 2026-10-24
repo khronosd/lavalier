@@ -96,3 +96,17 @@ def test_days_index_is_count_only_and_agrees_with_the_day_views(db_two_days, cfg
     monkeypatch.setattr(journal, "day_view", no_views)
     assert days_index(db_two_days, cfg, now_ms=NOW) == expected
     assert expected[1] == journal.DaySummary(DAY, 16000, 1, 2, 2)
+
+
+def test_a_whitespace_only_segment_makes_no_line(db_with_fixture_day, cfg):
+    from conftest import _real_transcript
+    from lavalier.models import Segment
+    golden = (Path(__file__).parent / "golden" / "2026-10-23.md").read_text()
+    clip_id = day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW).conversations[0].clip_ids[0]
+    t = _real_transcript()
+    t.segments.insert(1, Segment(2.5, 3.0, "   ", -0.5, 0.2, []))
+    db_with_fixture_day.set_transcript(clip_id, t, "speech", T(23, 0, 0))
+    lines = day_view(db_with_fixture_day, DAY, cfg, now_ms=NOW).conversations[0].lines
+    assert [ln.text for ln in lines] == ["test test test one two three"] * 2
+    assert [ln.seq for ln in lines] == [0, 2]  # seq stays the segment's index, as search hits use it
+    assert render_day(db_with_fixture_day, DAY, cfg, now_ms=NOW) == golden

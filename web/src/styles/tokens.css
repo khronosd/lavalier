@@ -25,4 +25,6 @@
   --radius-s: 7px;
   --radius-m: 9px;
   --radius-l: 12px;
+  /* text on the pendant card, which is dark (--slate) in both themes */
+  --on-slate: #F5F5F7;
 }

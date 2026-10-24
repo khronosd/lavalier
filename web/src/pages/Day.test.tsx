@@ -155,6 +155,14 @@ test("Play opens the Audio tab with that conversation", async () => {
   expect(window.location.hash).toBe("#/day/2026-10-23?tab=audio&conv=conv_long");
 });
 
+test("the Audio tab lists the day's conversations with Play day", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+  render(<Journal route={parseHash("#/day/2026-10-23?tab=audio")} today="2026-10-24" days={days} />);
+  expect(await screen.findByRole("button", { name: "Play day" })).toBeTruthy();
+  expect(screen.getByText("Audio is kept until 7 November.")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Play" })).toHaveLength(2);
+});
+
 test("the Insights tab keeps its placeholder and the tabs keep ?tab=", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
   render(<Journal route={parseHash("#/day/2026-10-23?tab=insights")} today="2026-10-24" days={days} />);

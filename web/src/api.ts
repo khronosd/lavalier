@@ -167,6 +167,46 @@ export interface SyncRun {
   error: string | null;
 }
 
+/** SyncReport.to_json_dict(): what one sync did. */
+export interface SyncReportJson {
+  outcome: "not-in-range" | "locked" | "refused" | "skipped" | "dry-run" | "drained" | "error" | string;
+  reason: string;
+  pages: number;
+  messages: number;
+  capture: string | null;
+  capture_complete: boolean;
+  muted_by: string | null;
+  unmute: string;
+  status: Omit<DeviceStatus, "pages_waiting" | "source" | "charger_signal" | "age_s"> | null;
+  charger_signal: string;
+  error: string | null;
+  orphans: number;
+}
+
+/** POST /api/sync. */
+export interface SyncActionResult {
+  sync: SyncReportJson;
+  /** "scheduled" when processing what came in has started, null when nothing came in. */
+  process: string | null;
+}
+
+/** POST /api/mute and /api/unmute. */
+export interface ToggleResult {
+  ok: boolean;
+  state: string | null;
+  error: string | null;
+}
+
+/** The part of the snapshot the pipeline computes; status-live returns it after its read. */
+export type StatusSummary = Omit<Status, "busy" | "next_poll_ms" | "app">;
+
+/** POST /api/status-live: a read-only status read, then the summary whether or not the read worked. */
+export interface LiveResult {
+  ok: boolean;
+  error: string | null;
+  summary: StatusSummary;
+}
+
 /** GET /api/status: the app's snapshot(). */
 export interface Status {
   days_with_clips: IsoDate[];

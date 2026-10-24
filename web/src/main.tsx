@@ -6,6 +6,8 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/day.css";
 import "./styles/lists.css";
+import "./styles/audio.css";
+import "./styles/pendant.css";
 
 initToken();
 applyAppearance("system");

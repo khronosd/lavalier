@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, type DayView, explainError } from "../api";
+import { AudioTab } from "../components/AudioTab";
 import { Conversation } from "../components/Conversation";
 import { DayHeader } from "../components/DayHeader";
 import { Empty } from "../components/Empty";
@@ -27,7 +28,7 @@ function TabPanel({ route, view, onPin }: {
     case "insights":
       return <Empty title="Insights are not available yet" />;
     case "audio":
-      return <Empty title="Audio is not playable here yet" />;
+      return <AudioTab view={view} conv={route.query.conv} />;
     default:
       return (
         <>

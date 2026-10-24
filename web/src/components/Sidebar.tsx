@@ -10,7 +10,7 @@ interface Props {
   route: Route;
   days: DaySummary[] | null;
   today: string;
-  /** The pendant card, filled by a later task; nothing is drawn while it is empty. */
+  /** The pendant card (PendantCard); nothing is drawn while it is empty. */
   pendant?: ComponentChildren;
 }
 

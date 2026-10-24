@@ -76,8 +76,9 @@ def _lines(db: Database, clips: list[ClipRecord]) -> list[Line]:
         t = db.transcript(c.clip_id)
         if t is None:
             continue
+        # a segment with no words (whitespace only) makes no line; seq stays the segment's index
         lines += [Line(segment_at_ms(c.first_ms, s.start_s), s.text.strip(), c.clip_id, i)
-                  for i, s in enumerate(t.segments)]
+                  for i, s in enumerate(t.segments) if s.text.strip()]
     lines.sort(key=lambda ln: ln.at_ms)
     return lines
 
