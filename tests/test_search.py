@@ -83,3 +83,17 @@ def test_migration_5_backfills_existing_segments(root, clip_record, monkeypatch)
         monkeypatch.undo()
         d.migrate()
         assert d.get_status("schema_version") == "5" and search(d, "one two")
+
+
+def test_a_noise_clip_is_never_a_hit_and_a_speech_clip_is(db, clip_record):
+    import dataclasses
+    noise = dataclasses.replace(clip_record, clip_id="clip_20261024T055514.111Z", first_ms=clip_record.first_ms - 60000,
+                                last_ms=clip_record.first_ms - 55000)
+    db.add_clip(clip_record)
+    db.add_clip(noise)
+    db.set_transcript(clip_record.clip_id, speech_transcript_with("rutabaga season"), "speech", 1)
+    db.set_transcript(noise.clip_id, speech_transcript_with("rutabaga thank you"), "noise", 1)
+    hits = search(db, "rutabaga")
+    assert [h.clip_id for h in hits] == [clip_record.clip_id]
+    db.set_classification(clip_record.clip_id, "noise")  # reclassified later: drops out too
+    assert search(db, "rutabaga") == []

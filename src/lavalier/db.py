@@ -490,10 +490,12 @@ class Database:
             "SELECT 1 FROM sqlite_master WHERE name = ? AND type = 'table'", (name,)).fetchone() is not None
 
     def search_segments(self, match: str, *, limit: int) -> list[sqlite3.Row]:
-        """Best matches first; match is an FTS5 expression (search.fts_query shapes user text into one)."""
+        """Best matches first, speech clips only (noise lines are never shown, so a hit there would lead
+        nowhere); match is an FTS5 expression (search.fts_query shapes user text into one)."""
         return self._conn.execute(
-            "SELECT clip_id, seq, snippet(segments_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet, "
-            "bm25(segments_fts) AS rank FROM segments_fts WHERE segments_fts MATCH ? ORDER BY rank LIMIT ?",
+            "SELECT f.clip_id, f.seq, snippet(segments_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet, "
+            "bm25(segments_fts) AS rank FROM segments_fts f JOIN clips c ON c.clip_id = f.clip_id "
+            "WHERE segments_fts MATCH ? AND c.classification = 'speech' ORDER BY rank LIMIT ?",
             (match, limit)).fetchall()
 
     def segment_start_s(self, clip_id: str, seq: int) -> Optional[float]:
