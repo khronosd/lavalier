@@ -5,6 +5,10 @@ from datetime import date
 from typing import Optional
 
 
+# 2025-01-01T00:00:00Z: earlier timestamps mean the pendant clock was not set.
+MIN_VALID_MS = 1735689600000
+
+
 @dataclass(frozen=True)
 class PageKey:
     run: int
@@ -66,6 +70,7 @@ class EventRecord:
     type: str
     payload: dict
     capture_id: int
+    day: Optional[date] = None  # the day it is filed under; add_event defaults it to the local date
 
 
 @dataclass

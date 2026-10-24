@@ -4,11 +4,12 @@ import json
 from contextlib import contextmanager, nullcontext
 import sqlite3
 import time
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
 from pendant_recorder.models import (
+    MIN_VALID_MS,
     ClipRecord,
     Conversation,
     EventRecord,
@@ -131,8 +132,25 @@ def _migrate_1(c: sqlite3.Connection) -> None:
     )
 
 
+def _local_date(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000).date().isoformat()
+
+
+def _migrate_2(c: sqlite3.Connection) -> None:
+    """Events store the day they are filed under (the capture's day when the clock was unset)."""
+    c.execute("ALTER TABLE events ADD COLUMN day TEXT")
+    rows = c.execute(
+        "SELECT e.id, e.absolute_ms, k.imported_at_ms FROM events e LEFT JOIN captures k ON k.id = e.capture_id"
+    ).fetchall()
+    for event_id, ms, imported_at_ms in rows:
+        # the decode-time capture day is not stored; the import date is the closest stand-in
+        when = imported_at_ms if ms < MIN_VALID_MS and imported_at_ms is not None else ms
+        c.execute("UPDATE events SET day = ? WHERE id = ?", (_local_date(when), event_id))
+    c.execute("CREATE INDEX events_day ON events(day)")
+
+
 # Numbered, applied in order (the status table is bootstrapped by migrate()); the status row "schema_version" records the last applied.
-MIGRATIONS = [_migrate_1]
+MIGRATIONS = [_migrate_1, _migrate_2]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -161,12 +179,6 @@ def _clip_from_row(r: sqlite3.Row) -> ClipRecord:
         classification=r["classification"],
         transcribed_at=r["transcribed_at"],
     )
-
-
-def _local_day_bounds_ms(day: date) -> tuple[int, int]:
-    start = datetime.combine(day, dtime.min).astimezone()
-    end = datetime.combine(day + timedelta(days=1), dtime.min).astimezone()
-    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
 class Database:
@@ -399,20 +411,21 @@ class Database:
     def add_event(self, e: EventRecord) -> None:
         with self._write_scope():
             self._conn.execute(
-                "INSERT INTO events (page_index, absolute_ms, type, payload, capture_id) VALUES (?, ?, ?, ?, ?)",
-                (e.page_index, e.absolute_ms, e.type, json.dumps(e.payload), e.capture_id),
+                "INSERT INTO events (page_index, absolute_ms, type, payload, capture_id, day) VALUES (?, ?, ?, ?, ?, ?)",
+                (e.page_index, e.absolute_ms, e.type, json.dumps(e.payload), e.capture_id,
+                 e.day.isoformat() if e.day is not None else _local_date(e.absolute_ms)),
             )
 
     def events_for_day(self, day: date, types: Optional[list[str]] = None) -> list[EventRecord]:
-        lo, hi = _local_day_bounds_ms(day)
-        sql = "SELECT * FROM events WHERE absolute_ms >= ? AND absolute_ms < ?"
-        params: list = [lo, hi]
+        sql = "SELECT * FROM events WHERE day = ?"
+        params: list = [day.isoformat()]
         if types is not None:
             sql += f" AND type IN ({', '.join('?' * len(types))})"
             params += types
         rows = self._conn.execute(sql + " ORDER BY absolute_ms, id", params).fetchall()
         return [
-            EventRecord(r["page_index"], r["absolute_ms"], r["type"], json.loads(r["payload"]), r["capture_id"])
+            EventRecord(r["page_index"], r["absolute_ms"], r["type"], json.loads(r["payload"]), r["capture_id"],
+                        date.fromisoformat(r["day"]))
             for r in rows
         ]
 

@@ -107,13 +107,37 @@ def test_retention_queries(db, clip_record):
 
 def test_events(db):
     d1 = datetime.fromtimestamp(1792821369085 / 1000).date()
-    ev = EventRecord(5, 1792821369085, "button", {"n": 1}, 1)
-    other = EventRecord(6, 1792821369086, "star", {}, 1)
-    far = EventRecord(7, 1792821369085 + 10 * 86400 * 1000, "button", {}, 1)
+    ev = EventRecord(5, 1792821369085, "button", {"n": 1}, 1, day=d1)
+    other = EventRecord(6, 1792821369086, "star", {}, 1, day=d1)
+    far = EventRecord(7, 1792821369085 + 10 * 86400 * 1000, "button", {}, 1, day=date(2026, 11, 2))
     for e in (ev, other, far):
         db.add_event(e)
     assert db.events_for_day(d1) == [ev, other]
     assert db.events_for_day(d1, ["star"]) == [other]
+
+
+def test_event_day_is_the_stored_day_not_the_timestamp(db):
+    db.add_event(EventRecord(1, 0, "button", {}, 1, day=date(2026, 10, 24)))
+    db.add_event(EventRecord(2, 1792821369085, "button", {}, 1))  # no day given: its local date
+    assert [e.page_index for e in db.events_for_day(date(2026, 10, 24))] == [1]
+    assert [e.page_index for e in db.events_for_day(date(2026, 10, 23))] == [2]
+
+
+def test_migration_2_backfills_event_days(root, monkeypatch):
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS[:1])
+    with Database(root.db) as d:
+        d.migrate()
+        cid = d._conn.execute(
+            "INSERT INTO captures (path, sha256, message_count, complete, imported_at_ms) VALUES ('c', 's', 1, 1, ?)",
+            (int(datetime(2026, 10, 24, 9, 0).timestamp() * 1000),)).lastrowid
+        d._conn.execute("INSERT INTO events (page_index, absolute_ms, type, payload, capture_id) "
+                        "VALUES (1, 1792821369085, 'button', '{}', ?), (2, 0, 'button', '{}', ?)", (cid, cid))
+        d._conn.commit()
+        monkeypatch.undo()
+        d.migrate()
+        assert [e.page_index for e in d.events_for_day(date(2026, 10, 23))] == [1]
+        assert [e.page_index for e in d.events_for_day(date(2026, 10, 24))] == [2]
 
 
 def test_conversation_round_trip_and_day_state(db):

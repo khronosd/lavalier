@@ -112,3 +112,14 @@ def test_zero_timestamp_recordings_get_distinct_ids(root, db, tmp_path):
 def test_valid_clock_ids_have_no_page_suffix(root, db, imported_two_chunk_capture):
     clips = decode_new_pages(db, root, imported_two_chunk_capture, capture_day=date(2026, 10, 24))
     assert [c.clip_id for c in clips] == ["clip_20261024T055609.085Z"]
+
+
+def test_zero_timestamp_short_press_surfaces_on_the_fallback_day(root, db, make_capture):
+    from pendant_recorder.group import press_times
+    from pendant_recorder.pages import import_capture
+
+    imp = import_capture(db, root, make_capture([1, 2], timestamps=[0, 0], button_at=0))
+    decode_new_pages(db, root, imp, capture_day=date(2026, 10, 24))
+    presses = db.events_for_day(date(2026, 10, 24), ["button"])
+    assert [e.payload["button_event"] for e in presses] == ["BUTTON_SHORT_PRESS"]
+    assert len(press_times(db, date(2026, 10, 24))) == 1

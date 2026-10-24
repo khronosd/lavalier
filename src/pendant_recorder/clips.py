@@ -9,14 +9,12 @@ from pathlib import Path
 from pendant_client.decode import decode_messages
 
 from pendant_recorder.db import Database
-from pendant_recorder.models import ClipRecord, EventRecord
+from pendant_recorder.models import MIN_VALID_MS, ClipRecord, EventRecord
 from pendant_recorder.pages import ImportResult
 from pendant_recorder.paths import Paths
 
 log = logging.getLogger(__name__)
 
-# 2025-01-01T00:00:00Z: earlier timestamps mean the pendant clock was not set.
-_MIN_VALID_MS = 1735689600000
 
 
 def clip_id_for(first_absolute_ms: int) -> str:
@@ -25,7 +23,7 @@ def clip_id_for(first_absolute_ms: int) -> str:
 
 
 def day_for(ms: int, *, fallback: date) -> tuple[date, bool]:
-    if ms < _MIN_VALID_MS:
+    if ms < MIN_VALID_MS:
         return fallback, True
     return datetime.fromtimestamp(ms / 1000).date(), False
 
@@ -77,9 +75,10 @@ def decode_new_pages(db: Database, paths: Paths, imp: ImportResult, *, capture_d
             for d in result.events:
                 if d["type"] == "raw_status":
                     continue
+                ev_day = day_for(d["absolute_chunk_timestamp_ms"], fallback=capture_day)[0]
                 db.add_event(EventRecord(page_index=d["page_index"], absolute_ms=d["absolute_chunk_timestamp_ms"],
-                                         type=d["type"], payload=d, capture_id=imp.capture_id))
-                dirty.add(day_for(d["absolute_chunk_timestamp_ms"], fallback=capture_day)[0])
+                                         type=d["type"], payload=d, capture_id=imp.capture_id, day=ev_day))
+                dirty.add(ev_day)
             for day in dirty:
                 db.mark_day_dirty(day)
             db.mark_capture_decoded(imp.capture_id)
