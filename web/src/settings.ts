@@ -10,6 +10,8 @@ export interface FieldProblem {
 
 const WINDOW_SIZE = /^\d{3,4}x\d{3,4}$/;
 const APPEARANCES = ["system", "light", "dark"];
+const LANGUAGE = /^[a-z]{2,3}$/;
+const MAX_RETENTION_DAYS = 36500;
 
 /** Whole minutes or part of one, typed by a person, as the seconds the app stores; NaN when not a number. */
 export function minutesToSeconds(text: string): number {
@@ -26,20 +28,28 @@ export function secondsToMinutes(seconds: number): string {
 
 const isWhole = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n);
 
-/** The first rule a patch breaks, or null. Mirrors the server: retention >= 0, poll >= 60 s, window size, appearance. */
+/** The first rule a patch breaks, or null. Mirrors the server: retention 0 to 36500 days, poll >= 60 s,
+ * at least 1 page, hours >= 0, a 2 or 3 letter language code, window size, appearance. */
 export function validateLocally(patch: SettingsPatch): FieldProblem | null {
   const bad = (field: string, message: string): FieldProblem => ({ field, message });
   if ("retention_days" in patch) {
     const v = patch.retention_days;
-    if (!isWhole(v) || v < 0) return bad("retention_days", "Days must be a whole number, 0 or more.");
+    if (!isWhole(v) || v < 0 || v > MAX_RETENTION_DAYS) {
+      return bad("retention_days", `Days must be a whole number from 0 to ${MAX_RETENTION_DAYS}.`);
+    }
   }
   if ("poll_interval_s" in patch) {
     const v = patch.poll_interval_s;
     if (typeof v !== "number" || Number.isNaN(v)) return bad("poll_interval_s", "The poll interval must be a number of minutes.");
     if (v < 60) return bad("poll_interval_s", "The poll interval must be at least 1 minute.");
   }
-  for (const [field, label] of [["drain_pages_threshold", "Pages"], ["drain_after_hours", "Hours"]] as const) {
-    if (field in patch && !isWhole(patch[field])) return bad(field, `${label} must be a whole number.`);
+  for (const [field, label, min] of [["drain_pages_threshold", "Pages", 1], ["drain_after_hours", "Hours", 0]] as const) {
+    if (!(field in patch)) continue;
+    const v = patch[field];
+    if (!isWhole(v) || v < min) return bad(field, `${label} must be a whole number, ${min} or more.`);
+  }
+  if ("whisper_language" in patch && !LANGUAGE.test(String(patch.whisper_language))) {
+    return bad("whisper_language", "The language must be a 2 or 3 letter code, like en.");
   }
   if ("window_size" in patch && !WINDOW_SIZE.test(String(patch.window_size))) {
     return bad("window_size", "The window size must look like 1120x720.");

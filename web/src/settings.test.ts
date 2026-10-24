@@ -22,6 +22,18 @@ test.each([
   [{ drain_after_hours: Number.NaN }, "drain_after_hours"],
   [{ require_firmware: "" }, null],
   [{ whisper_language: "en" }, null],
+  // the server's bounds (src/lavalier/settings.py), mirrored
+  [{ retention_days: 36500 }, null],
+  [{ retention_days: 36501 }, "retention_days"],
+  [{ drain_pages_threshold: 1 }, null],
+  [{ drain_pages_threshold: 0 }, "drain_pages_threshold"],
+  [{ drain_after_hours: 0 }, null],
+  [{ drain_after_hours: -1 }, "drain_after_hours"],
+  [{ whisper_language: "yue" }, null],
+  [{ whisper_language: "english" }, "whisper_language"],
+  [{ whisper_language: "E" }, "whisper_language"],
+  [{ whisper_language: "en\n" }, "whisper_language"],
+  [{ whisper_language: "" }, "whisper_language"],
   [{ pendant_address: "ABC" }, null],
 ])("validateLocally %j", (patch, field) => {
   const got = validateLocally(patch as never);
