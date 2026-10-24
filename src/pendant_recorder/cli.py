@@ -5,19 +5,17 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 
 import click
 
 from pendant_recorder.audio import ffmpeg_available
-from pendant_recorder.clips import decode_new_pages
 from pendant_recorder.config import Config, load_config
 from pendant_recorder.dayfile import render_day, write_day
 from pendant_recorder.db import Database, now_ms
-from pendant_recorder.pages import import_capture
 from pendant_recorder.paths import Paths, default_root
-from pendant_recorder.pipeline import ProcessReport, process, status_summary
+from pendant_recorder.pipeline import ProcessReport, import_and_decode, process, refresh_day, status_summary
 from pendant_recorder.retention import sweep
 from pendant_recorder.transcribe import MlxWhisperTranscriber
 
@@ -62,15 +60,14 @@ def main() -> None:
 def import_cmd(capture: Path, incomplete: bool, run_process: bool) -> None:
     """Register a capture .bin and record its pages."""
     paths, cfg, db = _setup()
+    capture_day = datetime.fromtimestamp(capture.stat().st_mtime).date()
     with db:
-        result = import_capture(db, paths, capture, complete=not incomplete)
-        db.set_status("last_import_iso", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        result, _ = import_and_decode(db, paths, capture, complete=not incomplete, capture_day=capture_day)
         click.echo(
             f"Imported {capture.name}: {result.messages} messages, "
             f"{result.pages_new} new pages, {result.pages_duplicate} duplicates"
         )
         if run_process:
-            decode_new_pages(db, paths, result, capture_day=date.today())
             _run_process(db, paths, cfg)
 
 
@@ -124,15 +121,14 @@ def doctor_cmd(download_model: bool) -> None:
     paths.ensure()
     cfg = load_config(paths.config)
     if download_model:
-        import huggingface_hub
-
-        old = os.environ.pop("HF_HUB_OFFLINE", None)
-        try:
-            click.echo(f"Downloading {cfg.whisper_model} ...")
-            huggingface_hub.snapshot_download(cfg.whisper_model)
-        finally:
-            if old is not None:
-                os.environ["HF_HUB_OFFLINE"] = old
+        # huggingface_hub reads HF_HUB_OFFLINE at import, and this process already imported it
+        # offline; a child process with the variable removed is the only way to go online.
+        click.echo(f"Downloading {cfg.whisper_model} ...")
+        env = {k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"}
+        subprocess.run(
+            [sys.executable, "-c", "import huggingface_hub,sys; huggingface_hub.snapshot_download(sys.argv[1])",
+             cfg.whisper_model],
+            env=env, check=False)
     ok = True
 
     def check(label: str, good: bool, detail: str = "") -> None:
@@ -166,6 +162,7 @@ def day_cmd(day: datetime, open_file: bool, keep_noise: bool) -> None:
     d = day.date()
     with db:
         if open_file:
+            refresh_day(db, d, cfg)
             out = write_day(db, paths, d, cfg, now_ms=now_ms())
             subprocess.run(["open", str(out)], check=False)
         else:
@@ -184,6 +181,7 @@ def _pin(conversation_id: str, pin: bool) -> None:
     with db:
         d = _find_conversation_day(db, conversation_id)
         (db.pin if pin else db.unpin)(conversation_id)
+        refresh_day(db, d, cfg)
         write_day(db, paths, d, cfg, now_ms=now_ms())
     click.echo(f"{'pinned' if pin else 'unpinned'} {conversation_id}")
 

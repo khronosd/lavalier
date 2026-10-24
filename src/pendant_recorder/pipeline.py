@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pendant_recorder import noise
@@ -12,6 +12,7 @@ from pendant_recorder.config import Config
 from pendant_recorder.dayfile import write_day
 from pendant_recorder.db import Database
 from pendant_recorder.group import rebuild_day
+from pendant_recorder.models import ClipRecord
 from pendant_recorder.pages import ImportResult, import_capture
 from pendant_recorder.paths import Paths
 from pendant_recorder.retention import deadline_ms, sweep
@@ -70,13 +71,28 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
     return report
 
 
+def import_and_decode(
+    db: Database, paths: Paths, src: Path, *, complete: bool = True, capture_day: date,
+) -> tuple[ImportResult, list[ClipRecord]]:
+    """Import and decode in one step: a re-import sees every page as a duplicate."""
+    imp = import_capture(db, paths, src, complete=complete)
+    clips = decode_new_pages(db, paths, imp, capture_day=capture_day)
+    db.set_status("last_import_iso", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    return imp, clips
+
+
 def import_and_process(
     db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, src: Path,
-    *, now_ms: int, capture_day: date,
+    *, now_ms: int, capture_day: date, complete: bool = True,
 ) -> tuple[ImportResult, ProcessReport]:
-    imp = import_capture(db, paths, src)
-    decode_new_pages(db, paths, imp, capture_day=capture_day)
+    imp, _ = import_and_decode(db, paths, src, complete=complete, capture_day=capture_day)
     return imp, process(db, paths, cfg, transcriber, now_ms=now_ms)
+
+
+def refresh_day(db: Database, day: date, cfg: Config) -> None:
+    """Regroup the day if its grouping is stale, so a write never marks stale data clean."""
+    if day in db.days_dirty():
+        rebuild_day(db, day, cfg)
 
 
 def _tree_bytes(root: Path) -> int:
