@@ -51,3 +51,24 @@ def test_status_summary_reports_pending_and_next_deletion(root, db, cfg, importe
     s = status_summary(db, root, cfg, now_ms=T(23, 30, 0))
     assert s["pending_transcripts"] == 0 and s["next_deletion"] is not None
     assert isinstance(ProcessReport().days_written, list)
+
+
+def test_day_written_before_process_gains_its_conversation(root, db, make_capture):
+    """import -> write_day (as day --open or pin would) -> process: the file must not stay stale."""
+    from pathlib import Path
+
+    from pendant_recorder.config import Config
+    from pendant_recorder.dayfile import write_day
+    from pendant_recorder.pipeline import import_and_decode
+
+    cfg = Config(noise_mean_db=-60.0)  # the synthetic packet is quiet; let it count as speech
+    packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
+    capture = make_capture([1, 2, 3], opus=packet, start_stop=True,
+                           timestamps=[T(10, 0, 0), T(10, 0, 1), T(10, 0, 2)])
+    import_and_decode(db, root, capture, capture_day=date(2026, 10, 23))
+    day = date(2026, 10, 23)
+    write_day(db, root, day, cfg, now_ms=T(10, 5, 0))
+    assert "## Conversations" not in (root.days / "2026-10-23.md").read_text()
+    r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(10, 5, 0))
+    assert r.transcribed == 1 and r.days_written == [day]
+    assert "## Conversations" in (root.days / "2026-10-23.md").read_text()

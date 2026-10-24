@@ -77,10 +77,14 @@ def transcribe_pending(
                 wav = Path(tmp) / f"{clip.clip_id}.wav"
                 to_wav16k(paths.root / clip.path, wav)
                 t = transcriber.transcribe(wav)
-                db.set_transcript(clip.clip_id, t, classify(clip, t), int(time.time() * 1000))
+                with db.transaction():
+                    db.set_transcript(clip.clip_id, t, classify(clip, t), int(time.time() * 1000))
+                    db.mark_day_dirty(clip.day)
                 done += 1
             except Exception:
                 log.exception("transcription failed for %s", clip.clip_id)
-                db.set_classification(clip.clip_id, "failed")
+                with db.transaction():
+                    db.set_classification(clip.clip_id, "failed")
+                    db.mark_day_dirty(clip.day)
                 failed += 1
     return done, failed

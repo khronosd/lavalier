@@ -19,6 +19,7 @@ def test_transcribe_pending_marks_failures_and_continues(root, db, two_clips_wit
     assert db.clip(two_clips_with_audio[0].clip_id).classification == "failed"
     assert db.clip(two_clips_with_audio[1].clip_id).classification == "speech"
     assert db.clips_needing_transcript() == []
+    assert db.days_dirty() == [two_clips_with_audio[0].day]
 
 
 def test_fake_default_and_unknown(tmp_path):

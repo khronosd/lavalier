@@ -61,5 +61,6 @@ def test_measure_loudness_isolates_a_corrupt_clip(root, db, clip_record, opus_cl
     db.add_clip(bad)
     assert measure_loudness(db, root) == 1
     assert db.clip("clip_bad").classification == "failed"
+    assert db.days_dirty() == [bad.day]
     assert db.clip(clip_record.clip_id).mean_db is not None
     assert measure_loudness(db, root) == 0  # the failed clip is not retried
