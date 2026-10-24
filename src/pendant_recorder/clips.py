@@ -50,8 +50,10 @@ def decode_new_pages(db: Database, paths: Paths, imp: ImportResult, *, capture_d
             for rec in result.recordings:
                 assert rec.first_page_index is not None and rec.last_page_index is not None
                 first_ms = rec.first_absolute_timestamp_ms
-                clip_id = clip_id_for(first_ms)
                 day, suspect = day_for(first_ms, fallback=capture_day)
+                clip_id = clip_id_for(first_ms)
+                if suspect:  # unset clocks repeat timestamps; the first page keeps ids apart
+                    clip_id += f"-p{rec.first_page_index}"
                 dest = paths.audio / day.isoformat() / f"{clip_id}.opus"
                 moves.append((rec.path, dest))
                 clip = ClipRecord(

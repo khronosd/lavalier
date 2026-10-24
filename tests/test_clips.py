@@ -89,3 +89,26 @@ def test_failure_leaves_no_files_or_rows(root, db, imported_two_chunk_capture, m
         raise AssertionError("expected failure")
     assert not list(root.audio.rglob("*.opus"))
     assert db.clips_for_day(date(2026, 10, 23)) == []
+
+
+def test_zero_timestamp_recordings_get_distinct_ids(root, db, tmp_path):
+    from pendant_client.decode import write_batch_ingest_request
+    from builders import make_audio_flash_page, make_storage_buffer_msg
+    from pendant_recorder.pages import import_capture
+
+    def page(i, start=False, stop=False):
+        fp = make_audio_flash_page(b"\xb8" + b"A" * 39, did_start_recording=start, did_stop_recording=stop)
+        return make_storage_buffer_msg(page_index=i, flash_page=fp, ingest_type=2, session=1, run=1)
+
+    path = tmp_path / "two-recordings.bin"
+    write_batch_ingest_request(messages=[page(1, start=True), page(2, stop=True), page(3, start=True), page(4, stop=True)],
+                               ble_identifier="test", path=path)
+    clips = decode_new_pages(db, root, import_capture(db, root, path), capture_day=date(2026, 10, 24))
+    assert len(clips) == 2 and clips[0].first_page != clips[1].first_page
+    assert [c.clip_id for c in clips] == [f"clip_19700101T000000.000Z-p{c.first_page}" for c in clips]
+    assert all((root.root / c.path).exists() for c in clips)
+
+
+def test_valid_clock_ids_have_no_page_suffix(root, db, imported_two_chunk_capture):
+    clips = decode_new_pages(db, root, imported_two_chunk_capture, capture_day=date(2026, 10, 24))
+    assert [c.clip_id for c in clips] == ["clip_20261024T055609.085Z"]
