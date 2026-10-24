@@ -63,7 +63,7 @@ def _report_lines(r: dict) -> list[str]:
 
 
 def _echo_process(db: Database, report: ProcessReport) -> None:
-    db.set_status("last_process", json.dumps(report.to_json_dict()))
+    db.set_status("last_process", json.dumps({**report.to_json_dict(), "processed_ms": now_ms()}))
     for line in _report_lines(report.to_json_dict()):
         click.echo(line)
 

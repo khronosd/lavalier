@@ -507,3 +507,11 @@ async def test_the_retention_worker_deletes_expired_audio_and_rewrites_the_day(a
     db.mark_day_clean(old.day)
     assert await app.retention_if_due() is True
     assert db.clip(old.clip_id).path == "" and (app.paths.days / f"{old.day.isoformat()}.md").exists()
+
+
+async def test_each_processing_run_leaves_a_distinct_last_process(app_env, storage_payloads):
+    """The window refetches when last_process changes; two runs with equal counts must still differ."""
+    app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads))
+    await app.tick()
+    first = json.loads(app.db.get_status("last_process"))
+    assert first["processed_ms"] == APP_CLOCK_MS

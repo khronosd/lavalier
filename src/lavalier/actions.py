@@ -133,7 +133,8 @@ def process_after_sync(db: Database, paths: Paths, cfg: Config, report: SyncRepo
         return None
     processed = after_sync(db, paths, cfg, report, make_transcriber(), now_ms=now_ms)
     if processed is not None:
-        db.set_status("last_process", json.dumps(processed.to_json_dict()))
+        # the time makes every run's record distinct: the window refetches its data when it changes
+        db.set_status("last_process", json.dumps({**processed.to_json_dict(), "processed_ms": now_ms}))
     return processed
 
 
