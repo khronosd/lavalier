@@ -1,6 +1,23 @@
+import os
+import time
+
 import pytest
 
 from pendant_recorder.paths import Paths
+
+
+@pytest.fixture(autouse=True)
+def _pacific_time():
+    """The plan's expected local dates are for US Pacific; pin it."""
+    old = os.environ.get("TZ")
+    os.environ["TZ"] = "America/Los_Angeles"
+    time.tzset()
+    yield
+    if old is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old
+    time.tzset()
 
 
 @pytest.fixture

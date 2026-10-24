@@ -27,3 +27,30 @@ def test_status_only_capture_yields_no_files(root, db, imported_status_only_capt
 def test_bad_clock_pages_file_under_capture_day(root, db, imported_capture_with_zero_timestamps):
     clips = decode_new_pages(db, root, imported_capture_with_zero_timestamps, capture_day=date(2026, 10, 24))
     assert clips[0].day == date(2026, 10, 24) and clips[0].clock_suspect is True
+
+
+def test_empty_import_marks_capture_decoded(root, db, make_capture):
+    from pendant_recorder.pages import import_capture
+    path = make_capture([1, 2])
+    import_capture(db, root, path)
+    dup = import_capture(db, root, path)  # same file again: no new pages
+    assert dup.new_payloads == []
+    assert decode_new_pages(db, root, dup, capture_day=date(2026, 10, 24)) == []
+    assert dup.capture_id in [c[0] for c in db.captures_decoded_before(2**62)]
+
+
+def test_failure_leaves_no_files_or_rows(root, db, imported_two_chunk_capture, monkeypatch):
+    from pendant_recorder.db import Database
+
+    def boom(self, e):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(Database, "add_event", boom)
+    try:
+        decode_new_pages(db, root, imported_two_chunk_capture, capture_day=date(2026, 10, 24))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected failure")
+    assert not list(root.audio.rglob("*.opus"))
+    assert db.clips_for_day(date(2026, 10, 23)) == []

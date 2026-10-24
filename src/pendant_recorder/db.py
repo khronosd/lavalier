@@ -217,7 +217,7 @@ class Database:
         return r["id"] if r else None
 
     def mark_capture_decoded(self, capture_id: int) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("UPDATE captures SET decoded = 1 WHERE id = ?", (capture_id,))
 
     def captures_decoded_before(self, cutoff_ms: int) -> list[tuple[int, str]]:
@@ -247,7 +247,7 @@ class Database:
     # clips
 
     def add_clip(self, c: ClipRecord) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 f"INSERT INTO clips ({_CLIP_COLS}) VALUES ({', '.join('?' * 17)})",
                 (
@@ -338,7 +338,7 @@ class Database:
     # events
 
     def add_event(self, e: EventRecord) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 "INSERT INTO events (page_index, absolute_ms, type, payload, capture_id) VALUES (?, ?, ?, ?, ?)",
                 (e.page_index, e.absolute_ms, e.type, json.dumps(e.payload), e.capture_id),
@@ -425,7 +425,7 @@ class Database:
         self._set_dirty(day, 0)
 
     def _set_dirty(self, day: date, dirty: int) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 "INSERT INTO day_state (day, dirty) VALUES (?, ?) "
                 "ON CONFLICT(day) DO UPDATE SET dirty = excluded.dirty",
