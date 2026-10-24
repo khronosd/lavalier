@@ -74,23 +74,57 @@ class SyncLock:
             return None
 
     def _write(self) -> None:
+        """Atomically replace the lock file with our PID and the current heartbeat."""
         tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n")
         os.replace(tmp, self.path)
+
+    def _create_exclusive(self) -> bool:
+        """Take the lock only if no file exists; False if someone else's file is there."""
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.new")
+        tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n")
+        try:
+            os.link(tmp, self.path)
+            return True
+        except FileExistsError:
+            return False
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def _is_live(self, held: tuple[int, int] | None) -> bool:
+        return held is not None and self._pid_alive(held[0]) and self._now_ms() - held[1] < STALE_AFTER_MS
+
+    def _break(self) -> None:
+        """Move the stale file aside under a unique name, so only one breaker wins the rename."""
+        aside = self.path.with_name(f"{self.path.name}.{os.getpid()}.stale")
+        try:
+            os.rename(self.path, aside)
+        except FileNotFoundError:
+            return
+        aside.unlink(missing_ok=True)
 
     def acquire(self) -> None:
         others = other_device_processes(self._list_processes)
         if others:
             raise LockHeld(f"process: {others[0]}")
-        if self.path.exists():
+        for _ in range(2):
+            if self._create_exclusive():
+                return
             held = self._read()
-            if held is not None:
-                pid, beat = held
-                if self._pid_alive(pid) and self._now_ms() - beat < STALE_AFTER_MS:
-                    raise LockHeld(f"pid {pid}")
-        self._write()
+            if self._is_live(held):
+                raise LockHeld(f"pid {held[0]}")
+            self._break()
+        if self._create_exclusive():
+            return
+        held = self._read()
+        raise LockHeld(f"pid {held[0]}" if held else "lock contended")
 
     def heartbeat(self) -> None:
+        held = self._read()
+        if held is None:
+            raise LockHeld("lost")
+        if held[0] != os.getpid():
+            raise LockHeld(f"lost: pid {held[0]}")
         self._write()
 
     def release(self) -> None:
