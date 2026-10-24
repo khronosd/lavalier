@@ -8,7 +8,7 @@ from lavalier.config import Config
 from lavalier.db import Database
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
-from lavalier.playback import evict
+from lavalier.playback import evict, sweep_cache
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
         file.unlink(missing_ok=True)
         try:
             evict(paths, clip.clip_id)
-        except OSError as e:  # a stale cache entry must not stop the sweep; the next one retries it
+        except OSError as e:  # must not stop the sweep; sweep_cache below removes it once it can
             log.warning("could not evict the cached AAC of %s: %s", clip.clip_id, e)
         with db.transaction():
             db.clear_clip_path(clip.clip_id)
@@ -72,4 +72,8 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
             continue
         file.unlink(missing_ok=True)
         captures_deleted += 1
+
+    stale = sweep_cache(db, paths)
+    if stale:
+        log.info("removed %d cached AAC file(s) whose audio is gone", stale)
     return clips_deleted, captures_deleted

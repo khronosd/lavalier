@@ -93,3 +93,36 @@ def test_a_cache_eviction_failure_does_not_abort_the_sweep(root, db, cfg, seeded
     with caplog.at_level(logging.WARNING, logger="lavalier.retention"):
         assert sweep(db, root, cfg, now_ms=old.transcribed_at + 15 * 86_400_000) == (1, 0)
     assert db.clip(old.clip_id).path == "" and "cache is read-only" in caplog.text
+
+
+def test_sweep_removes_cached_aac_whose_audio_is_gone(root, db, cfg, seeded_retention_day):
+    old, starred, fresh, failed = seeded_retention_day
+    aac = root.cache / "aac"
+    aac.mkdir(parents=True, exist_ok=True)
+    db.clear_clip_path(failed.clip_id)                     # deleted earlier, its m4a left behind (race or failed evict)
+    for name in (failed.clip_id, fresh.clip_id, "clip_unknown"):
+        (aac / f"{name}.m4a").write_bytes(b"m4a")
+    (aac / f".{fresh.clip_id}.abc.tmp").write_bytes(b"in flight")
+    sweep(db, root, cfg, now_ms=old.transcribed_at + 1)    # nothing expires by the rules
+    assert sorted(f.name for f in aac.iterdir()) == sorted([f"{fresh.clip_id}.m4a", f".{fresh.clip_id}.abc.tmp"])
+
+
+def test_sweep_cache_counts_and_survives_an_unlink_failure(root, db, two_clips_with_audio, monkeypatch, caplog):
+    import logging
+    from pathlib import Path
+    from lavalier.playback import cache_dir, sweep_cache
+    d = cache_dir(root)
+    for name in ("clip_a", "clip_b", two_clips_with_audio[0].clip_id):
+        (d / f"{name}.m4a").write_bytes(b"x")
+    assert sweep_cache(db, root) == 2 and [f.name for f in d.iterdir()] == [f"{two_clips_with_audio[0].clip_id}.m4a"]
+    (d / "clip_c.m4a").write_bytes(b"x")
+    real = Path.unlink
+
+    def refuse(self, *a, **kw):
+        if self.name == "clip_c.m4a":
+            raise PermissionError("read-only")
+        return real(self, *a, **kw)
+    monkeypatch.setattr(Path, "unlink", refuse)
+    with caplog.at_level(logging.WARNING, logger="lavalier.playback"):
+        assert sweep_cache(db, root) == 0
+    assert "read-only" in caplog.text

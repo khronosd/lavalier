@@ -147,13 +147,24 @@ class ControlServer:
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout_s)
 
     def snapshot(self) -> dict:
-        return self.call(self.app_like.snapshot, timeout_s=ACTION_TIMEOUT_S)
+        async def snap():  # answers during shutdown too: the CLI's status reads it
+            return self.app_like.snapshot()
+        return self.on_loop(snap(), ACTION_TIMEOUT_S)
 
     def call(self, fn: Callable, *args, timeout_s: float = DATA_TIMEOUT_S):
-        """Run a plain app method on the loop (the thread that owns the app's database) and wait."""
+        """Run a plain app method on the loop (the thread that owns the app's database) and wait;
+        refused with AppStopping (503) once the app is shutting down."""
         async def run():
+            if getattr(self.app_like, "stopping", False):
+                raise AppStopping()
             return fn(*args)
         return self.on_loop(run(), timeout_s)
+
+    async def unless_stopping(self, fn: Callable, *args):
+        """Await an async app method on the loop, refused like `call` once the app is stopping."""
+        if getattr(self.app_like, "stopping", False):
+            raise AppStopping()
+        return await fn(*args)
 
     def action(self, name: str) -> dict:
         async def run():
@@ -196,7 +207,8 @@ class _Response:
     status: int
     body: bytes
     content_type: str = "application/json"
-    headers: dict = field(default_factory=dict)
+    # never cached by default: the window's HTTP cache lives outside the state root and no sweep reaches it
+    headers: dict = field(default_factory=lambda: {"Cache-Control": "no-store"})
 
 
 def _json(body, status: int = 200) -> _Response:
@@ -267,8 +279,11 @@ def _put_settings(srv, req):
 
 
 def _audio(srv, req):
-    path = srv.on_loop(srv.app_like.audio_file(req.groups[0]), AUDIO_TIMEOUT_S)
-    data = Path(path).read_bytes()   # read once the transcode is done; no database involved
+    path = srv.on_loop(srv.unless_stopping(srv.app_like.audio_file, req.groups[0]), AUDIO_TIMEOUT_S)
+    try:
+        data = Path(path).read_bytes()   # read once the transcode is done; no database involved
+    except FileNotFoundError:            # retention evicted it in between
+        raise AudioExpired(req.groups[0]) from None
     return _Response(200, data, "audio/mp4")
 
 

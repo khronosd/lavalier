@@ -372,3 +372,38 @@ def test_an_oversized_or_malformed_body_is_413(server):
             assert conn.getresponse().status == 413
         finally:
             conn.close()
+
+
+# --- fix round 1 ---
+
+@needs_ffmpeg
+def test_api_replies_are_never_cached(server_with_audio):
+    for route in ("/api/day/2026-10-23", "/api/search?q=one", f"/api/audio/{CLIP}.m4a", "/api/status",
+                  "/api/nope"):
+        r = get(server_with_audio, route)
+        assert r.getheader("Cache-Control") == "no-store", route
+    assert get(server_with_audio, "/api/days", token=None).getheader("Cache-Control") == "no-store"
+
+
+def test_assets_are_cacheable(web_server):
+    assert get(web_server, "/assets/app.js", token=None).getheader("Cache-Control") is None
+
+
+def test_audio_evicted_before_it_is_read_is_410(server_with_audio, monkeypatch):
+    from lavalier import playback
+
+    def vanished(src, dst):
+        pass                                              # "finished", but the sweep already removed the file
+    monkeypatch.setattr(playback, "transcode", vanished)
+    r = get(server_with_audio, f"/api/audio/{CLIP}.m4a")
+    assert r.status == 410 and json.loads(r.read()) == {"error": "audio expired"}
+
+
+def test_data_routes_are_503_while_the_app_stops(server_with_fixture):
+    server_with_fixture.app._app._stopping = True
+    for route in ("/api/days", "/api/day/2026-10-23", "/api/settings"):
+        r = get(server_with_fixture, route)
+        assert r.status == 503 and json.loads(r.read()) == {"error": "stopping"}
+    assert post(server_with_fixture, f"/api/pin/{CONV}").status == 503
+    assert get(server_with_fixture, f"/api/audio/{CLIP}.m4a").status == 503
+    assert get(server_with_fixture, "/api/status").status == 200       # status still answers during shutdown

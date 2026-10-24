@@ -1,4 +1,5 @@
 """On-demand AAC transcodes of clip audio, cached under the state root, for the window's WKWebView."""
+import logging
 import os
 import subprocess
 import tempfile
@@ -7,6 +8,9 @@ from pathlib import Path
 from lavalier.audio import AudioToolError
 from lavalier.db import Database
 from lavalier.paths import Paths
+
+
+log = logging.getLogger(__name__)
 
 
 class PlaybackError(Exception):
@@ -73,3 +77,24 @@ def aac_path(db: Database, paths: Paths, clip_id: str) -> Path:
 
 def evict(paths: Paths, clip_id: str) -> None:
     (paths.cache / "aac" / f"{clip_id}.m4a").unlink(missing_ok=True)
+
+
+def sweep_cache(db: Database, paths: Paths) -> int:
+    """Remove every cached m4a whose clip is unknown or has no audio left; returns how many went.
+    Catches what evict cannot: a failed eviction, or a transcode that finished after retention
+    deleted its source. Temp files of transcodes in flight are left alone."""
+    d = paths.cache / "aac"
+    if not d.is_dir():
+        return 0
+    removed = 0
+    for f in sorted(d.glob("*.m4a")):
+        clip = db.clip(f.stem)
+        if clip is not None and clip.path:
+            continue
+        try:
+            f.unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("could not remove the stale cached AAC %s: %s", f.name, e)
+            continue
+        removed += 1
+    return removed
