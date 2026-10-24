@@ -30,6 +30,7 @@ class Config:
     drain_after_hours: int = 24
     fsync_every_pages: int = 100
     require_firmware: str = ""
+    app_bundle: str = ""
 
 
 def _type_ok(value: object, default: object) -> bool:

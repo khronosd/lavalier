@@ -45,8 +45,8 @@ line. The launcher reads it at startup into an isolated `PyConfig` with
 3. every existing directory named by a plain-path line in a `*.pth` file inside
    those site-packages directories, de-duplicated.
 
-Step 3 exists because the isolated config never runs `site.py`, so `.pth`
-files are not processed. Editable installs (`lavalier`, `pendant_client`) are
+Step 3 exists because the launcher sets `site_import = 0`, so `site.py` never
+runs and `.pth` files are not processed (nor is any global site-packages added). Editable installs (`lavalier`, `pendant_client`) are
 only reachable through them.
 
 ## Signing identity

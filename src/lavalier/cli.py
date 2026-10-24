@@ -13,7 +13,7 @@ from typing import Optional
 
 import click
 
-from lavalier import actions, client, doctor
+from lavalier import actions, agent, client, doctor
 from lavalier.actions import another_process as _another_process
 from lavalier.charger import cdc_present, read_ioreg
 from lavalier.config import Config, load_config
@@ -302,6 +302,25 @@ def app_cmd() -> None:
     """Run the long-lived app process: the scheduler and the loopback control server."""
     from lavalier import app
     raise SystemExit(app.main([]))
+
+
+@main.command("install-agent")
+@click.option("--program", multiple=True, help="Override the program argv (repeat per argument).")
+def install_agent_cmd(program: tuple[str, ...]) -> None:
+    """Install the launchd agent that runs the app from login."""
+    paths, cfg = _paths_cfg()
+    try:
+        plist = agent.install(paths, cfg, program=list(program) or None)
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"launchctl bootstrap failed ({e.returncode})") from e
+    click.echo(f"Installed {plist}")
+    click.echo("Logs: ~/Pendant/logs/app.out.log")
+
+
+@main.command("uninstall-agent")
+def uninstall_agent_cmd() -> None:
+    """Remove the launchd agent."""
+    click.echo("Removed" if agent.uninstall() else "Not installed")
 
 
 @main.command("doctor")
