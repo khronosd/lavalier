@@ -27,10 +27,10 @@ def fixture_transcriber() -> FakeTranscriber:
 @pytest.mark.slow
 @pytest.mark.skipif(not FIXTURE.exists(), reason="fixture capture not present")
 def test_real_capture_end_to_end(root, db, cfg):
-    """8058 messages yield exactly 7908 new pages, the 7908 distinct audio/event pages
-    (indices 5..7912) counted in NOTES.md. The brief allowed up to 8058; the observed
-    value is 7908, so the 5 log pages (0..4) and the remaining messages are not stored
-    as pages. Loudness is real ffmpeg; only the speech model is faked."""
+    """8058 messages yield exactly 7908 new pages, matching the 7908 distinct audio/event
+    pages (indices 5..7912) counted in NOTES.md; the brief allowed up to 8058. The 5 log
+    pages (0..4) did not add to the count (not investigated further). Loudness is real
+    ffmpeg; only the speech model is faked."""
     imp, rep = import_and_process(
         db, root, cfg, fixture_transcriber(), FIXTURE, now_ms=T(23, 30, 0), capture_day=DAY)
     assert imp.messages == 8058 and imp.pages_new == 7908 and imp.pages_duplicate == 0
