@@ -20,6 +20,7 @@ from lavalier.config import Config, load_config
 from lavalier.dayfile import render_day, write_day
 from lavalier.db import Database, SchemaTooNewError, now_ms
 from lavalier.device import Pendant
+from lavalier.logsetup import quiet_fork_chatter
 from lavalier.lock import LockHeld, SyncLock
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import (
@@ -150,7 +151,7 @@ def _sync_line(r: dict, paths: Paths) -> str:
 def main() -> None:
     """Turn pendant captures into transcripts and day files."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    logging.getLogger("pendant_client").setLevel(logging.ERROR)  # its connection INFO lines and .pair() warning
+    quiet_fork_chatter()
 
 
 def _import_line(name: str, result) -> str:

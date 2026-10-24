@@ -397,7 +397,7 @@ async def test_stopping_the_app_after_a_sync_action_does_not_cancel_its_processi
 
 
 async def test_running_sync_rows_are_closed_at_start(app_env, db):
-    rid = db.start_sync_run(1); assert db.last_sync_run().outcome == "running"
+    db.start_sync_run(1); assert db.last_sync_run().outcome == "running"
     app = app_env(FakePendant())
     app._startup_housekeeping()            # the method run() calls before its first tick
     assert db.last_sync_run().outcome == "error" and db.last_sync_run().error == "interrupted"

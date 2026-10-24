@@ -18,6 +18,7 @@ from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, load_config
 from lavalier.db import Database, now_ms as _now_ms
 from lavalier.lock import SyncLock
+from lavalier.logsetup import quiet_fork_chatter
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import ProcessReport, status_summary
 from lavalier.server import AppStopping, ControlServer
@@ -301,7 +302,7 @@ def main(argv=None) -> int:
     paths = Paths(default_root())
     paths.ensure()
     _configure_logging(paths)
-    logging.getLogger("pendant_client").setLevel(logging.ERROR)
+    quiet_fork_chatter()
     if client.app_running(paths.root / SERVER_FILE):
         _log.error("the lavalier app is already running")
         return 1

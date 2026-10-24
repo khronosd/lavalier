@@ -177,13 +177,41 @@ def test_mute_clears_recorder_keys_before_the_read_back(cli_env, db_at_root, mon
 
 
 def test_cli_quiets_the_fork_connection_log(cli_env):
-    logging.getLogger("pendant_client").setLevel(logging.NOTSET)
+    for n in ("ble", "session"):
+        logging.getLogger(f"pendant_client.{n}").setLevel(logging.NOTSET)
     cli_env.invoke(["status"])
-    assert logging.getLogger("pendant_client").level == logging.ERROR
+    assert logging.getLogger("pendant_client.ble").level == logging.ERROR
+    assert logging.getLogger("pendant_client.session").level == logging.ERROR
+    assert logging.getLogger("pendant_client.decode").getEffectiveLevel() <= logging.WARNING
+
+
+def test_quiet_fork_chatter_leaves_decode_warnings_audible():
+    from lavalier.logsetup import quiet_fork_chatter
+    quiet_fork_chatter()
+    assert logging.getLogger("pendant_client.ble").level == logging.ERROR
+    assert logging.getLogger("pendant_client.session").level == logging.ERROR
+    assert logging.getLogger("pendant_client.decode").getEffectiveLevel() <= logging.WARNING
+
+
+async def test_owner_mute_with_a_failed_read_back_is_not_restored_by_the_next_poll(cli_env, db_at_root, monkeypatch):
+    from lavalier.lock import SyncLock
+    from lavalier.sync import run_sync
+    from lavalier.config import Config
+    from lavalier import actions
+    cfg = Config(pendant_address="FAKE")
+    lock = SyncLock(cli_env.root.root / ".lock", list_processes=lambda: [])
+    p = FakePendant(fail_on={"status": DeviceError("timeout")})
+    r = await actions.mute(db_at_root, cfg, lambda c: p, lock=lock, cdc_present=lambda: False, now_ms=lambda: 1_000_000)
+    assert r["ok"] is False
+    assert all(db_at_root.get_status(k) is None for k in
+               ("unmute_pending_since_ms", "muted_by_recorder_since_ms", "muted_by_owner_since_ms"))
+    q = FakePendant(state="NOT_RECORDING", pages=(0, 999))   # enough pages to drain
+    rep = await run_sync(db_at_root, cli_env.root, cfg, q, now_ms=lambda: 1_100_000, lock=lock,
+                         cdc_present=lambda: False, settle_s=0, scheduled=True)
+    assert "start" not in q.log and rep.muted_by == "owner" and rep.unmute == "owner-mute-left"
 
 
 def test_status_prints_only_the_recorder_line_when_both_markers_are_set(cli_env, db_at_root):
-    from lavalier.device import DeviceError  # noqa: F401
     db_at_root.set_status("muted_by_recorder_since_ms", "1792821367981")
     db_at_root.set_status("muted_by_owner_since_ms", "1792821367981")
     r = cli_env.invoke(["status"])

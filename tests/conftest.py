@@ -615,7 +615,8 @@ def seeded_fully_duplicated_undecoded_capture(root, db, tmp_path):
 def _restore_fork_log_level():
     """The CLI and app quiet the fork's logger for the whole process; a test must not leak that."""
     import logging
-    logger = logging.getLogger("pendant_client")
-    level = logger.level
+    loggers = [logging.getLogger(n) for n in ("pendant_client", "pendant_client.ble", "pendant_client.session")]
+    levels = [lg.level for lg in loggers]
     yield
-    logger.setLevel(level)
+    for lg, level in zip(loggers, levels):
+        lg.setLevel(level)
