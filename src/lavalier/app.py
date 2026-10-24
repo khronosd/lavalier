@@ -155,7 +155,7 @@ class App:
         entry[1] += 1
         try:
             async with entry[0]:
-                src, dst = playback.locate(self.db, self.paths, clip_id)
+                src, dst = playback.locate(self.db, self.paths, clip_id, cfg=self.cfg, now_ms=self._now_ms())
                 if not dst.exists():
                     await asyncio.to_thread(playback.transcode, src, dst)
                 return dst

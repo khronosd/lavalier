@@ -1,3 +1,4 @@
+from lavalier.config import Config
 from dataclasses import replace
 
 from lavalier.models import Transcript
@@ -75,7 +76,7 @@ def test_sweep_evicts_the_aac_cache(root, db, cfg, seeded_retention_day):
         pytest.skip("ffmpeg missing")
     from lavalier.playback import aac_path
     old = seeded_retention_day[0]
-    aac_path(db, root, old.clip_id)
+    aac_path(db, root, old.clip_id, cfg=Config(), now_ms=0)
     cached = root.cache / "aac" / f"{old.clip_id}.m4a"
     assert cached.exists()
     sweep(db, root, cfg, now_ms=old.transcribed_at + 15 * 86_400_000)

@@ -101,6 +101,12 @@ def _kept_for_good(clips: list[ClipRecord], protected_ids: set[str]) -> bool:
     return any(c.path and (c.clip_id in protected_ids or c.classification == "failed") for c in clips)
 
 
+def _expired(clip: ClipRecord, protected_ids: set[str], cfg: Config, now_ms: int) -> bool:
+    """Past its retention deadline: not playable, even before the sweep deletes the file."""
+    deadline = deadline_ms(clip, cfg, protected=clip.clip_id in protected_ids)
+    return deadline is not None and deadline <= now_ms
+
+
 def _pending_pages(db: Database, now_ms: int) -> Optional[int]:
     latest = db.latest_device_status()
     if latest is None or now_ms - latest[0].read_at_ms >= _HOUR_MS:
@@ -122,7 +128,8 @@ def day_view(db: Database, day: date, cfg: Config, *, now_ms: int) -> DayView:
             conversation_id=conv.conversation_id, start_ms=conv.start_ms, end_ms=conv.end_ms,
             speech_ms=conv.speech_ms, star_ms=list(conv.star_ms), pinned=conv.pinned,
             label=conv.label, clip_ids=list(conv.clip_ids), lines=lines,
-            audio_available=bool(members) and all(c.path for c in members)))
+            audio_available=bool(members) and all(c.path and not _expired(c, protected_ids, cfg, now_ms)
+                                                  for c in members)))
         stars += [StarView(ms, conv.conversation_id, _quote(ms, lines)) for ms in conv.star_ms]
     stars += [StarView(ms, None, None) for ms in orphan_stars(press_times(db, day), convs)]
     stars.sort(key=lambda s: s.at_ms)

@@ -30,6 +30,12 @@ def deadline_ms(clip: ClipRecord, cfg: Config, *, protected: bool) -> Optional[i
     return clip.transcribed_at + cfg.retention_days * _DAY_MS
 
 
+def audio_expired(db: Database, clip: ClipRecord, cfg: Config, *, now_ms: int) -> bool:
+    """Past its deadline, whether or not a sweep has deleted the file yet: the window never plays it."""
+    deadline = deadline_ms(clip, cfg, protected=clip.clip_id in _protected_clip_ids(db, clip.day))
+    return deadline is not None and deadline <= now_ms
+
+
 def _protected_clip_ids(db: Database, day) -> set[str]:
     """Clips in a starred or pinned conversation of the day."""
     ids: set[str] = set()

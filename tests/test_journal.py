@@ -110,3 +110,12 @@ def test_a_whitespace_only_segment_makes_no_line(db_with_fixture_day, cfg):
     assert [ln.text for ln in lines] == ["test test test one two three"] * 2
     assert [ln.seq for ln in lines] == [0, 2]  # seq stays the segment's index, as search hits use it
     assert render_day(db_with_fixture_day, DAY, cfg, now_ms=NOW) == golden
+
+
+def test_a_conversation_past_its_retention_deadline_has_no_audio(db, cfg, seeded_retention_day):
+    old, starred, fresh, failed = seeded_retention_day
+    now = old.transcribed_at + 14 * 86_400_000  # the files are all still there
+    v = day_view(db, DAY, cfg, now_ms=now)
+    by_clip = {c.clip_ids[0]: c.audio_available for c in v.conversations}
+    assert by_clip == {old.clip_id: False, starred.clip_id: True, fresh.clip_id: True}  # failed: no conversation
+    assert all(c.audio_available for c in day_view(db, DAY, cfg, now_ms=now - 1).conversations)
