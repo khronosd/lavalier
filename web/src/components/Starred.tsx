@@ -1,5 +1,5 @@
 import type { ConversationView, StarView } from "../api";
-import { hm, hms } from "../format";
+import { hm, hms, noQuote } from "../format";
 import { type Route, toHash } from "../router";
 
 interface Props {
@@ -22,7 +22,7 @@ export function Starred({ stars, conversations, route }: Props) {
           <div class="line" key={`${s.at_ms}-${i}`}>
             <time class="time" dateTime={new Date(s.at_ms).toISOString()}>{hms(s.at_ms)}</time>
             <p>
-              {s.quote ? <span class="reading quote">{s.quote}</span> : <span class="no-quote">Nothing was said at this moment</span>}
+              {s.quote ? <span class="reading quote">{s.quote}</span> : <span class="no-quote">{noQuote(s)}</span>}
               {conv && (
                 <a class="star-link" href={toHash({ ...route, query: { at: `c-${conv.conversation_id}` } })}>
                   in the {hm(conv.start_ms)} conversation

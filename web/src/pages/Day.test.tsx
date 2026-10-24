@@ -198,3 +198,18 @@ test("neighbours are the nearest older and newer days with clips", () => {
   expect(neighbours("2026-10-24", list)).toEqual({ previous: "2026-10-21", next: undefined });
   expect(neighbours("2026-10-20", list)).toEqual({ previous: undefined, next: "2026-10-21" });
 });
+
+test("a star with no speech nearby says so in the Starred section, and one in a conversation without a quote does not", async () => {
+  const lonely: DayView = {
+    ...day23,
+    stars: [
+      { at_ms: at(22, 50, 0), conversation_id: null, quote: null },
+      { at_ms: at(22, 56, 12), conversation_id: "conv_test", quote: null },
+    ],
+  };
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(lonely)));
+  const { container } = render(<Journal route={parseHash("#/day/2026-10-23")} today="2026-10-24" days={days} />);
+  await screen.findByText("No speech recorded nearby");
+  const notes = [...container.querySelectorAll(".starred .no-quote")].map((el) => el.textContent);
+  expect(notes).toEqual(["No speech recorded nearby", "Nothing was said at this moment"]);
+});

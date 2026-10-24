@@ -54,3 +54,9 @@ export function isoDay(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/** What a star with no quote shows: a star with no conversation within 60 s has no speech nearby (the
+ * spec's words); one in a conversation had nothing said in the seconds after it. */
+export function noQuote(star: { conversation_id: string | null }): string {
+  return star.conversation_id === null ? "No speech recorded nearby" : "Nothing was said at this moment";
+}

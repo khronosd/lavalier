@@ -37,7 +37,8 @@ test("Starred lists every star by day, newest first, each with its quote and a j
   expect(screen.getByText("<b>not bold</b>")).toBeTruthy();
   expect(container.querySelector(".star-row b")).toBeNull();
 
-  const muted = screen.getByText("Nothing was said at this moment");
+  // a star with no conversation within 60 s, in the spec's words
+  const muted = screen.getByText("No speech recorded nearby");
   expect(muted.classList.contains("no-quote")).toBe(true);
 
   const links = screen.getAllByRole("link", { name: "in the 22:56 conversation" });

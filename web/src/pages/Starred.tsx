@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, explainError, type StarredEntry } from "../api";
 import { Empty } from "../components/Empty";
-import { dayTitle, hms } from "../format";
+import { dayTitle, hms, noQuote } from "../format";
 import { convStart, groupByDay, jumpHref } from "../search";
 
 function StarRow({ entry }: { entry: StarredEntry }) {
@@ -13,7 +13,7 @@ function StarRow({ entry }: { entry: StarredEntry }) {
       <p>
         {star.quote
           ? <span class="reading quote">{star.quote}</span>
-          : <span class="no-quote">Nothing was said at this moment</span>}
+          : <span class="no-quote">{noQuote(star)}</span>}
         {star.conversation_id
           ? <a class="star-link" href={jumpHref(day, `c-${star.conversation_id}`)}>
               {start ? `in the ${start} conversation` : "in its conversation"}
