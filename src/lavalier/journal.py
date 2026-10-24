@@ -65,13 +65,18 @@ class DaySummary:
     noise_clips: int
 
 
+def segment_at_ms(first_ms: int, start_s: float) -> int:
+    """Wall-clock time of a segment: its clip's first_ms plus the segment's offset."""
+    return first_ms + round(start_s * 1000)
+
+
 def _lines(db: Database, clips: list[ClipRecord]) -> list[Line]:
     lines = []
     for c in clips:
         t = db.transcript(c.clip_id)
         if t is None:
             continue
-        lines += [Line(c.first_ms + round(s.start_s * 1000), s.text.strip(), c.clip_id, i)
+        lines += [Line(segment_at_ms(c.first_ms, s.start_s), s.text.strip(), c.clip_id, i)
                   for i, s in enumerate(t.segments)]
     lines.sort(key=lambda ln: ln.at_ms)
     return lines

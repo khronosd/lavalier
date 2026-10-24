@@ -302,7 +302,7 @@ def test_migration_4_keeps_pages_and_defaults_storage_instance(root, monkeypatch
         _add_page_v3(d, PageKey(run=1, index=7, sha256="ab" * 32), cid, 100, 1, 1792821367981)
         monkeypatch.undo()
         d.migrate()
-        assert d.get_status("schema_version") == "4"
+        assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS))
         assert d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32))                       # storage_instance defaults to 0
         assert d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))   # R47: 0 is unknown
 

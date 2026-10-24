@@ -232,7 +232,19 @@ def _migrate_4(c: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4]
+def _migrate_5(c: sqlite3.Connection) -> None:
+    """Full-text index over transcript segments (standalone table; set_transcript keeps it in step)."""
+    _run_script(
+        c,
+        """
+        CREATE VIRTUAL TABLE segments_fts USING fts5(
+            clip_id UNINDEXED, seq UNINDEXED, text, tokenize='unicode61 remove_diacritics 2');
+        INSERT INTO segments_fts (clip_id, seq, text) SELECT clip_id, seq, text FROM segments;
+        """,
+    )
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -448,7 +460,14 @@ class Database:
         with self._write_scope():
             self._conn.execute("DELETE FROM words WHERE clip_id = ?", (clip_id,))
             self._conn.execute("DELETE FROM segments WHERE clip_id = ?", (clip_id,))
+            # Guard on the table's existence (one sqlite_master lookup): at schema 4 there is no index yet.
+            indexed = self._has_table("segments_fts")
+            if indexed:
+                self._conn.execute("DELETE FROM segments_fts WHERE clip_id = ?", (clip_id,))
             for i, s in enumerate(t.segments):
+                if indexed:
+                    self._conn.execute(
+                        "INSERT INTO segments_fts (clip_id, seq, text) VALUES (?, ?, ?)", (clip_id, i, s.text))
                 self._conn.execute(
                     "INSERT INTO segments (clip_id, seq, start_s, end_s, text, avg_logprob, no_speech_prob) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -465,6 +484,22 @@ class Database:
                 "transcribed_at = ? WHERE clip_id = ?",
                 (t.text, t.language, t.model, classification, transcribed_at_ms, clip_id),
             )
+
+    def _has_table(self, name: str) -> bool:
+        return self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = ? AND type = 'table'", (name,)).fetchone() is not None
+
+    def search_segments(self, match: str, *, limit: int) -> list[sqlite3.Row]:
+        """Best matches first; match is an FTS5 expression (search.fts_query shapes user text into one)."""
+        return self._conn.execute(
+            "SELECT clip_id, seq, snippet(segments_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet, "
+            "bm25(segments_fts) AS rank FROM segments_fts WHERE segments_fts MATCH ? ORDER BY rank LIMIT ?",
+            (match, limit)).fetchall()
+
+    def segment_start_s(self, clip_id: str, seq: int) -> Optional[float]:
+        r = self._conn.execute(
+            "SELECT start_s FROM segments WHERE clip_id = ? AND seq = ?", (clip_id, seq)).fetchone()
+        return None if r is None else r["start_s"]
 
     def transcript(self, clip_id: str) -> Optional[Transcript]:
         r = self._conn.execute(
