@@ -23,6 +23,12 @@ def _pacific_time():
     time.tzset()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_state_root(tmp_path, monkeypatch):
+    """No test may touch the real ~/Pendant: the default state root is a per-test tmp directory."""
+    monkeypatch.setenv("PENDANT_ROOT", str(tmp_path / "default-root"))
+
+
 @pytest.fixture
 def root(tmp_path):
     return Paths(tmp_path / "Pendant")

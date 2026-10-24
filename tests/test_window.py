@@ -137,3 +137,17 @@ def test_a_malformed_window_size_falls_back_with_a_warning(window_server, capsys
     (_, kwargs), = fake.created
     assert (kwargs["width"], kwargs["height"]) == (1120, 720)
     assert capsys.readouterr().err.count("window_size") == 1
+
+
+def test_the_default_state_root_is_never_the_real_one(tmp_path):
+    from pathlib import Path
+    from lavalier.paths import default_root
+    assert tmp_path in default_root().parents and Path.home() / "Pendant" != default_root()
+
+
+def test_an_injected_cfg_without_a_config_path_is_never_saved(window_server, tmp_path, capsys):
+    from lavalier.paths import default_root
+    fake = FakeWebview(final_size=(1280, 800))
+    assert main(webview=fake, token_path=window_server.token_path, cfg=Config(window_size="1000x700")) == 0
+    assert not (default_root() / "config.toml").exists()
+    assert "no config path" in capsys.readouterr().err

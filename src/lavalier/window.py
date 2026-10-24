@@ -34,9 +34,12 @@ def main(argv=None, *, webview=None, token_path: Optional[Path] = None, cfg: Opt
          config_path: Optional[Path] = None) -> int:
     paths = Paths(default_root())
     token_path = Path(token_path) if token_path is not None else paths.root / ".server.json"
-    config_path = Path(config_path) if config_path is not None else paths.config
     if cfg is None:
+        config_path = Path(config_path) if config_path is not None else paths.config
         cfg = load_config(config_path)
+    elif config_path is not None:
+        config_path = Path(config_path)
+    # else: an injected cfg without its path is never saved (no guessing the state root)
     if not client.app_running(token_path):
         print(NOT_RUNNING, file=sys.stderr)
         return 1
@@ -59,6 +62,9 @@ def main(argv=None, *, webview=None, token_path: Optional[Path] = None, cfg: Opt
     def on_closed(*_args) -> None:
         # Never read window.width/height here: on macOS the window is already gone when `closed` fires.
         if last["size"] == (width, height):
+            return
+        if config_path is None:
+            print("could not save the window size: no config path was given", file=sys.stderr)
             return
         try:
             settings.apply(cfg, {"window_size": "%dx%d" % last["size"]}, config_path)
