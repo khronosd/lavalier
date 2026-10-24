@@ -83,6 +83,7 @@ test("a mute or unmute result in one line", () => {
 test("a refused request says what to do", () => {
   expect(requestErrorLine(new ApiError(409, "busy"))).toBe("The pendant is busy, try again in a moment");
   expect(requestErrorLine(new ApiError(503, "stopping"))).toBe("The app is stopping");
+  expect(requestErrorLine(new ApiError(504, "timeout"))).toBe("The pendant took too long to answer");
   expect(requestErrorLine(new ApiError(500, "boom"))).toBe("boom");
   expect(requestErrorLine(new TypeError("Failed to fetch"))).toBe("Failed to fetch");
 });

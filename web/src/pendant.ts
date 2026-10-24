@@ -105,6 +105,7 @@ export function toggleResultLine(result: ToggleResult): string {
 export function requestErrorLine(e: unknown): string {
   if (e instanceof ApiError && e.status === 409) return "The pendant is busy, try again in a moment";
   if (e instanceof ApiError && e.status === 503) return "The app is stopping";
+  if (e instanceof ApiError && e.status === 504) return "The pendant took too long to answer";
   return e instanceof Error ? e.message : String(e);
 }
 
