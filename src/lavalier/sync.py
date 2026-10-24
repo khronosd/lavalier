@@ -121,8 +121,16 @@ class _Run:
         self.report.charger_signal = charger.signal
         self.record(snap)
         self.db.set_status(LAST_SEEN, str(self.now_ms()))
+        if (snap.has_all_fields and snap.recording_state in ("LISTENING", "RECORDING")
+                and self.db.get_status(UNMUTE_PENDING)):
+            self.log.info("unmute pending cleared: pendant is %s", snap.recording_state)
+            self.clear_mute_keys()
         self.check_firmware(firmware)
         return charger
+
+    def clear_mute_keys(self) -> None:
+        self.db.clear_status(UNMUTE_PENDING)
+        self.db.clear_status(MUTED_SINCE)
 
     def check_firmware(self, firmware: str) -> None:
         last = self.db.get_status(LAST_FIRMWARE)
@@ -149,8 +157,7 @@ class _Run:
         await asyncio.sleep(self.settle_s)
         snap = await self.read_status()
         if snap.recording_state in ("LISTENING", "RECORDING"):
-            self.db.clear_status(UNMUTE_PENDING)
-            self.db.clear_status(MUTED_SINCE)
+            self.clear_mute_keys()
             self.report.unmute = "retried"
             self.log.info("pending unmute retried: %s", snap.recording_state)
         else:
@@ -202,7 +209,7 @@ class _Run:
         self.report.capture_complete = complete
         return cf, stopped_by
 
-    # step 9
+    # step 9: the installed copy becomes canonical; the sink's file goes only once it is in
     def import_capture(self, cf: CaptureFile) -> None:
         self.report.capture = cf.path
         self.report.pages, self.report.messages = cf.pages, cf.messages
@@ -210,6 +217,10 @@ class _Run:
                                    capture_day=_local_day(self.now_ms()),
                                    storage_instance=self.report.status.storage_instance)
         self.capture_id = imp.capture_id
+        installed = self.paths.root / imp.path
+        if installed != cf.path:
+            cf.path.unlink(missing_ok=True)
+        self.report.capture = installed
 
     # step 10
     async def restore(self) -> None:
@@ -227,11 +238,11 @@ class _Run:
             state = f"link gone ({e})"
         if state == "LISTENING":
             self.report.unmute = "confirmed"
-            self.db.clear_status(MUTED_SINCE)
+            self.clear_mute_keys()
         elif state == "RECORDING":
             self.report.unmute = "confirmed-recording"
             self.log.warning("forced recording after StartRecording")
-            self.db.clear_status(MUTED_SINCE)
+            self.clear_mute_keys()
         else:
             self.report.unmute = "pending"
             self.db.set_status(UNMUTE_PENDING, str(self.now_ms()))
@@ -313,7 +324,12 @@ async def _mute_drain_restore(run: _Run) -> None:
     try:
         cf, stopped_by = await run.drain()
         if cf is not None:
-            run.import_capture(cf)
+            try:
+                run.import_capture(cf)
+            except Exception as e:  # the sink's file stays on disk: nothing is lost
+                run.log.exception("import of %s failed", cf.path)
+                report.outcome, report.error = "error", str(e)
+                return
         if stopped_by is not None:
             report.outcome, report.error = "error", stopped_by
         elif cf is None and not report.capture_complete:
@@ -326,7 +342,7 @@ async def _mute_drain_restore(run: _Run) -> None:
 
 def after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport, transcriber: Transcriber, *,
                now_ms: int) -> Optional[ProcessReport]:
-    """Process what a drain brought in; any other outcome brought in nothing."""
-    if report.outcome != "drained":
+    """Process what a drain brought in; any other outcome, or an empty drain, brought in nothing."""
+    if report.outcome != "drained" or report.capture is None:
         return None
     return process(db, paths, cfg, transcriber, now_ms=now_ms)

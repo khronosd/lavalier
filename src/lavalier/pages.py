@@ -28,6 +28,7 @@ class ImportResult:
     pages_new: int
     pages_duplicate: int
     new_payloads: list[bytes] = field(default_factory=list)
+    path: str = ""  # the installed copy, relative to the state root, as the captures row stores it
 
 
 def _absolute_ms(sp: StoragePage) -> int:
@@ -84,7 +85,10 @@ def import_capture(
         capture_id = db.capture_by_sha(sha)
         already_imported = capture_id is not None
         if capture_id is None:
-            capture_id = db.add_capture(str(dest.relative_to(paths.root)), sha, len(messages), complete)
+            stored_path = str(dest.relative_to(paths.root))
+            capture_id = db.add_capture(stored_path, sha, len(messages), complete)
+        else:
+            stored_path = db.capture_path(capture_id)
         for payload in messages:
             sp = storage_page_of(payload)
             if sp is None:
@@ -104,4 +108,4 @@ def import_capture(
             # capture owns so the decode runs again instead of being skipped for good.
             new_payloads = _owned_payloads(db, capture_id, messages, storage_instance)
 
-    return ImportResult(capture_id, len(messages), pages_new, pages_duplicate, new_payloads)
+    return ImportResult(capture_id, len(messages), pages_new, pages_duplicate, new_payloads, stored_path)

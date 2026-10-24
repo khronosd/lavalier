@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from dataclasses import replace
 
 import pytest
@@ -291,7 +292,55 @@ async def test_report_json_is_plain(sync_env, storage_payloads):
     assert d["capture"] == str(r.capture) and d["status"]["recording_state"] == "LISTENING" and d["outcome"] == "drained"
 
 
-def test_after_sync_processes_a_drain(root, db, cfg):
-    report = after_sync(db, root, cfg, SyncReport("drained", "on charger (current)"),
+def test_after_sync_processes_a_drain(root, db, cfg, tmp_path):
+    report = after_sync(db, root, cfg, SyncReport("drained", "on charger (current)", capture=tmp_path / "c.bin"),
                         FakeTranscriber({}, unavailable="test"), now_ms=0)
     assert report is not None and report.transcribed == 0
+
+
+def test_after_sync_skips_a_drain_that_brought_nothing(root, db, cfg):
+    assert after_sync(db, root, cfg, SyncReport("drained", "on charger (usb-cdc)"), FakeTranscriber({}), now_ms=0) is None
+
+
+async def test_pending_flag_cleared_when_pendant_is_already_listening(sync_env, db, caplog):
+    caplog.set_level(logging.INFO, logger="lavalier.sync")
+    db.set_status("unmute_pending_since_ms", "1"); db.set_status("muted_by_recorder_since_ms", "1")
+    p = FakePendant(state="LISTENING", pages=(0, 9))
+    r = await sync_env(p)
+    assert r.outcome == "skipped" and "start" not in p.log and "unmute pending since" not in r.reason
+    assert db.get_status("unmute_pending_since_ms") is None and db.get_status("muted_by_recorder_since_ms") is None
+    assert "unmute pending cleared: pendant is LISTENING" in caplog.text
+
+
+async def test_confirmed_restore_clears_a_pending_flag(sync_env, db, storage_payloads):
+    db.set_status("unmute_pending_since_ms", "1")
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    r = await sync_env(p)
+    assert (r.muted_by, r.unmute) == ("recorder", "confirmed")
+    assert db.get_status("unmute_pending_since_ms") is None and db.get_status("muted_by_recorder_since_ms") is None
+
+
+@pytest.mark.parametrize("start_result,unmute", [("LISTENING", "confirmed"), ("RECORDING", "confirmed-recording")])
+async def test_confirmed_restore_clears_a_flag_set_during_the_drain(sync_env, db, storage_payloads, start_result, unmute):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, start_result=start_result)
+    p.on_ack = lambda index: db.set_status("unmute_pending_since_ms", "1")  # step 3 cannot see this one
+    r = await sync_env(p)
+    assert r.unmute == unmute and db.get_status("unmute_pending_since_ms") is None
+    assert db.get_status("muted_by_recorder_since_ms") is None
+
+
+async def test_drained_run_leaves_one_canonical_capture(sync_env, db, storage_payloads):
+    r = await sync_env(FakePendant(pages=(0, 999), messages=storage_payloads))
+    files = list((sync_env.root / "captures").iterdir())
+    assert files == [r.capture]
+    assert db.capture_by_sha(hashlib.sha256(r.capture.read_bytes()).hexdigest()) is not None
+
+
+async def test_failed_import_keeps_the_sink_file_and_restores(sync_env, db, storage_payloads, monkeypatch):
+    def boom(*a, **kw):
+        raise OSError("disk full")
+    monkeypatch.setattr("lavalier.sync.import_and_decode", boom)
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    r = await sync_env(p)
+    assert (r.outcome, r.error, r.unmute) == ("error", "disk full", "confirmed")
+    assert r.capture.exists() and list((sync_env.root / "captures").iterdir()) == [r.capture]

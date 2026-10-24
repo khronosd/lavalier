@@ -340,6 +340,9 @@ class Database:
         r = self._conn.execute("SELECT id FROM captures WHERE sha256 = ?", (sha256,)).fetchone()
         return r["id"] if r else None
 
+    def capture_path(self, capture_id: int) -> str:
+        return self._conn.execute("SELECT path FROM captures WHERE id = ?", (capture_id,)).fetchone()["path"]
+
     def mark_capture_decoded(self, capture_id: int) -> None:
         with self._write_scope():
             self._conn.execute("UPDATE captures SET decoded = 1 WHERE id = ?", (capture_id,))

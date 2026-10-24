@@ -93,3 +93,12 @@ def test_import_records_storage_instance(root, db, capture_file):
     r = import_capture(db, root, capture_file, storage_instance=42)
     row = db._conn.execute("SELECT DISTINCT storage_instance FROM pages").fetchall()
     assert [tuple(x) for x in row] == [(42,)] and r.pages_new > 0
+
+
+def test_import_result_path_is_the_stored_capture_path(root, db, capture_file):
+    r = import_capture(db, root, capture_file)
+    stored = db._conn.execute("SELECT path FROM captures WHERE id = ?", (r.capture_id,)).fetchone()["path"]
+    assert r.path == stored and (root.root / r.path).exists()
+    renamed = capture_file.with_name("other-name.bin")
+    renamed.write_bytes(capture_file.read_bytes())
+    assert import_capture(db, root, renamed).path == stored  # a re-import reports the row's copy
