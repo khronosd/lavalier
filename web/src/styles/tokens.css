@@ -1,0 +1,25 @@
+/* Colour and type tokens, from web/reference/gui-v2b.html. Light by default; theme.ts sets data-theme. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F5F5F7; --sidebar: #F0F0F3; --surface: #FFFFFF; --hairline: #E3E3E8; --hair2: #EDEDF1;
+  --text: #1D1D1F; --text-2: #6E6E73; --text-3: #9B9BA1; --select: #DFDFE6; --field: #FFFFFF; --field-b: #D4D4D9;
+  --slate: #1C1C1E; --slate-2: #A1A1A6; --star: #B7791F; --accent: #2F6FDE; --accent-soft: #E8F0FD;
+  --chip: #F0F0F3; --ok: #2E8B57; --warn: #C6771B;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1E1E20; --sidebar: #242427; --surface: #1C1C1E; --hairline: #343437; --hair2: #2C2C2F;
+  --text: #F2F2F4; --text-2: #A7A7AD; --text-3: #6F6F76; --select: #3A3A3F; --field: #2A2A2E; --field-b: #3E3E44;
+  --slate: #0E0E10; --slate-2: #8F8F96; --star: #D9A441; --accent: #5B93F0; --accent-soft: #233454;
+  --chip: #2E2E33; --ok: #4FBF7B; --warn: #E29A3C;
+}
+
+:root {
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --reading: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
+  --radius-s: 7px;
+  --radius-m: 9px;
+  --radius-l: 12px;
+}

@@ -1,0 +1,66 @@
+/* Base rules and the shell. Hairlines, 7-12px radii, no gradients, no decorative animation. */
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+button { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* what people said, as opposed to what the app says */
+.reading { font-family: var(--reading); font-size: 15.5px; line-height: 1.6; max-width: 66ch; }
+.time { font-variant-numeric: tabular-nums; color: var(--text-3); }
+
+/* shell */
+.shell { display: flex; height: 100%; }
+.main { flex: 1; min-width: 0; overflow-y: auto; background: var(--surface); }
+.page { padding: 28px 40px 40px; }
+.page-title { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+.page-lead { margin: 6px 0 0; color: var(--text-2); font-size: 14px; max-width: 70ch; }
+
+/* sidebar */
+.sidebar {
+  width: 236px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--sidebar); border-right: 1px solid var(--hairline); padding: 12px 10px;
+}
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.nav { list-style: none; margin: 0; padding: 0; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: var(--radius-s); color: var(--text);
+}
+.nav-item svg { width: 15px; height: 15px; flex: none; color: var(--text-2); }
+.nav-item[aria-current="page"] { background: var(--select); font-weight: 600; }
+.nav-item[aria-current="page"] svg { color: var(--text); }
+.nav-count { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.nav-count .stars { color: var(--star); margin-left: 4px; }
+.nav-heading { margin: 16px 0 5px 9px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.nav-item.day { padding-left: 33px; }
+.nav-note { padding: 4px 9px 4px 33px; color: var(--text-3); font-size: 12px; }
+
+.sidebar-foot { margin-top: 10px; border-top: 1px solid var(--hairline); padding-top: 10px; }
+.pendant-slot:empty { display: none; }
+.pendant-slot { margin-bottom: 6px; }
+.sidebar-foot .nav-item { color: var(--text-2); }
+
+/* empty states */
+.empty { margin: 48px auto 0; max-width: 46ch; text-align: center; color: var(--text-2); }
+.empty-title { margin: 0; color: var(--text); font-size: 15px; font-weight: 600; }
+.empty-text { margin: 6px 0 0; font-size: 13px; }
+
+.notice {
+  margin: 0 0 18px; padding: 10px 12px; border-radius: var(--radius-m);
+  background: var(--accent-soft); color: var(--text); font-size: 12.5px; max-width: 66ch;
+}
+.page-notice { padding-bottom: 0; }

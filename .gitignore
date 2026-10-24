@@ -7,8 +7,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 !tests/data/packet.bin
-dist/
-# the window: only the placeholder index is tracked until the web build decides what ships
-!src/lavalier/web/dist/
-src/lavalier/web/dist/*
-!src/lavalier/web/dist/index.html
+# the bundle builder's output; the window's build (src/lavalier/web/dist/) is tracked in full
+/dist/
+web/node_modules/

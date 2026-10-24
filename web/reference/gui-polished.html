@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recorder window</title>
+<style>
+  :root {
+    --bg: #ECECEF;
+    --sidebar: #F5F5F7;
+    --surface: #FFFFFF;
+    --hairline: #E2E2E7;
+    --text: #1D1D1F;
+    --text-2: #6E6E73;
+    --text-3: #9A9AA0;
+    --slate: #1C1C1E;
+    --slate-2: #A1A1A6;
+    --star: #B7791F;
+    --select: #E1E1E7;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --reading: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--ui); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  .stage { padding: 36px 24px 48px; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .caption { max-width: 760px; color: var(--text-2); font-size: 14px; text-align: center; }
+  .caption strong { color: var(--text); font-weight: 600; }
+
+  .window { width: 1120px; max-width: 100%; height: 720px; background: var(--surface); border-radius: 11px; overflow: hidden;
+            box-shadow: 0 1px 0 rgba(0,0,0,.08), 0 24px 60px rgba(0,0,0,.22); display: flex; flex-direction: column; }
+  .titlebar { height: 38px; display: flex; align-items: center; padding: 0 14px; background: var(--sidebar); border-bottom: 1px solid var(--hairline); flex: none; }
+  .lights { display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .lights i:nth-child(1) { background: #FF5F57; } .lights i:nth-child(2) { background: #FEBC2E; } .lights i:nth-child(3) { background: #28C840; }
+  .titlebar .title { flex: 1; text-align: center; color: var(--text-2); font-weight: 500; margin-right: 52px; }
+
+  .body { display: flex; flex: 1; min-height: 0; }
+
+  /* sidebar */
+  .sidebar { width: 280px; flex: none; background: var(--sidebar); border-right: 1px solid var(--hairline); padding: 16px 14px; display: flex; flex-direction: column; gap: 16px; }
+  .pendant { background: var(--slate); color: #F5F5F7; border-radius: 12px; padding: 16px 16px 14px; }
+  .pendant .state { display: flex; align-items: center; gap: 12px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .lamp { width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; flex: none;
+          box-shadow: 0 0 0 3px rgba(255,255,255,.18), 0 0 14px 2px rgba(255,255,255,.55); }
+  .pendant .facts { margin: 12px 0 0; padding: 0; list-style: none; color: var(--slate-2); font-size: 12.5px; line-height: 1.5; }
+  .pendant .facts li strong { color: #F5F5F7; font-weight: 500; }
+  .pendant .actions { display: flex; gap: 8px; margin-top: 14px; }
+  .pendant button { font: inherit; font-size: 12.5px; font-weight: 500; color: #F5F5F7; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); border-radius: 7px; padding: 6px 11px; cursor: default; }
+  .pendant button.primary { background: #F5F5F7; color: var(--slate); border-color: #F5F5F7; }
+
+  .search { display: flex; align-items: center; gap: 8px; background: #FFFFFF; border: 1px solid #D2D2D7; border-radius: 8px; padding: 7px 10px; color: var(--text-3); }
+  .search svg { width: 13px; height: 13px; flex: none; }
+
+  .days h4 { margin: 0 0 6px 8px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+  .days ul { list-style: none; margin: 0; padding: 0; }
+  .days li { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 8px; border-radius: 7px; color: var(--text); }
+  .days li.selected { background: var(--select); font-weight: 600; }
+  .days li .meta { color: var(--text-2); font-size: 12px; font-weight: 400; }
+  .days li .meta .s { color: var(--star); }
+  .days .hint { margin: 10px 8px 0; color: var(--text-3); font-size: 12px; line-height: 1.45; }
+
+  /* main */
+  .main { flex: 1; min-width: 0; overflow: hidden; padding: 40px 56px 0; }
+  .day-title { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+  .day-summary { margin: 8px 0 0; color: var(--text-2); font-size: 14px; max-width: 62ch; }
+
+  .starred { margin: 30px 0 0; padding: 0 0 22px; border-bottom: 1px solid var(--hairline); }
+  .starred h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .starred h3 .glyph { color: var(--star); }
+  .line { display: grid; grid-template-columns: 68px 1fr; column-gap: 14px; align-items: baseline; padding: 3px 0; }
+  .line time { font-variant-numeric: tabular-nums; color: var(--text-3); font-size: 12px; }
+  .starred .line p { margin: 0; font-family: var(--reading); font-size: 15px; }
+  .starred .line p a { color: var(--text-2); font-family: var(--ui); font-size: 12.5px; text-decoration: none; margin-left: 10px; }
+
+  .conv { padding: 22px 0 6px; }
+  .conv + .conv { border-top: 1px solid var(--hairline); }
+  .conv header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .conv header h3 { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .conv header .dur { color: var(--text-2); }
+  .conv header .stars { color: var(--star); font-size: 12px; }
+  .conv header .tools { margin-left: auto; display: flex; gap: 6px; }
+  .conv header .tools button { font: inherit; font-size: 12px; color: var(--text-2); background: transparent; border: 1px solid var(--hairline); border-radius: 6px; padding: 3px 9px; cursor: default; }
+  .conv .line p { margin: 0; font-family: var(--reading); font-size: 15.5px; line-height: 1.6; max-width: 66ch; }
+  .conv .line.star p { font-family: var(--ui); font-size: 12.5px; color: var(--star); }
+  .conv .sample p { color: var(--text-3); }
+  .fade { height: 70px; margin-top: -70px; background: linear-gradient(to bottom, rgba(255,255,255,0), #fff); position: relative; }
+
+  @media (max-width: 1000px) { .window { height: auto; } .body { flex-direction: column; } .sidebar { width: auto; border-right: 0; border-bottom: 1px solid var(--hairline); } .main { padding: 28px 24px 0; } }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <p class="caption"><strong>The journal layout, drawn the way the app would actually look.</strong> Native Mac type and spacing, one dark element (the pendant, showing its own LED), and the transcript set in a reading face so what people said looks different from what the app says.</p>
+
+  <div class="window" role="img" aria-label="Mockup of the recorder window">
+    <div class="titlebar">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="title">Pendant</div>
+    </div>
+    <div class="body">
+
+      <aside class="sidebar">
+        <section class="pendant" aria-label="Pendant status">
+          <div class="state"><span class="lamp" aria-hidden="true"></span> Listening</div>
+          <ul class="facts">
+            <li><strong>Battery 100%</strong>, charging</li>
+            <li><strong>787 pages waiting</strong>, about 20 minutes of speech</li>
+            <li>Last sync yesterday at 23:08</li>
+          </ul>
+          <div class="actions">
+            <button class="primary">Sync now</button>
+            <button>Mute</button>
+          </div>
+        </section>
+
+        <div class="search" role="search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+          <span>Search every day</span>
+        </div>
+
+        <nav class="days" aria-label="Days">
+          <h4>October 2026</h4>
+          <ul>
+            <li><span>Friday 24</span><span class="meta">today</span></li>
+            <li class="selected"><span>Thursday 23</span><span class="meta">3 h 16 min <span class="s">★2</span></span></li>
+          </ul>
+          <p class="hint">Earlier days appear here as the pendant is synced. Audio is kept for 14 days, text for good.</p>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <h1 class="day-title">Thursday, 23 October</h1>
+        <p class="day-summary">3 h 16 min of speech in 41 conversations. 67 noise clips were dropped. The audio is kept until 6 November.</p>
+
+        <section class="starred">
+          <h3><span class="glyph">★</span> Starred</h3>
+          <div class="line"><time>22:56:07</time><p>test test test one two three <a href="#">in the 22:56 conversation</a></p></div>
+          <div class="line"><time>22:56:12</time><p>test test test one two three <a href="#">in the 22:56 conversation</a></p></div>
+        </section>
+
+        <section class="conv">
+          <header>
+            <h3>17:33 to 17:49</h3><span class="dur">16 minutes</span>
+            <div class="tools"><button>Play</button><button>Pin</button></div>
+          </header>
+          <div class="line sample"><time>17:33:14</time><p>Sample text standing in for the real transcript, which appears here once the day is processed. Each paragraph is one stretch of speech with the time it started in the margin.</p></div>
+          <div class="line sample"><time>17:34:02</time><p>Lines wrap at a comfortable reading width. Pauses longer than a couple of minutes start a new conversation below.</p></div>
+        </section>
+
+        <section class="conv">
+          <header>
+            <h3>22:56</h3><span class="dur">16 seconds</span><span class="stars">★★</span>
+            <div class="tools"><button>Play</button><button>Pin</button></div>
+          </header>
+          <div class="line"><time>22:56:09</time><p>test test test one two three</p></div>
+          <div class="line star"><time>22:56:12</time><p>★ Starred</p></div>
+          <div class="line"><time>22:56:13</time><p>test test test one two three</p></div>
+        </section>
+
+        <section class="conv">
+          <header>
+            <h3>23:01</h3><span class="dur">6 seconds</span>
+            <div class="tools"><button>Play</button><button>Pin</button></div>
+          </header>
+          <div class="line sample"><time>23:01:25</time><p>Sample text for a short exchange.</p></div>
+        </section>
+        <div class="fade"></div>
+      </main>
+
+    </div>
+  </div>
+
+  <p class="caption">The lamp in the dark card mirrors the pendant's LED: lit while listening, pulsing while it records, dark when muted. The same page is what the menu-bar icon opens later.</p>
+
+</div>
+</body>
+</html>
