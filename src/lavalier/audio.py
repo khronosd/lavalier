@@ -22,9 +22,11 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+# Force the Ogg demuxer (-f ogg) below: with a stream serial ending in 0x47 and uniform page sizes,
+# ffmpeg's probe mistakes the file for MPEG-TS (sync byte every 192 bytes) and rejects it.
 def to_wav16k(src: Path, dst: Path) -> None:
     r = subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-ac", "1", "-ar", "16000", str(dst)],
+        ["ffmpeg", "-v", "error", "-y", "-f", "ogg", "-i", str(src), "-ac", "1", "-ar", "16000", str(dst)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -33,7 +35,7 @@ def to_wav16k(src: Path, dst: Path) -> None:
 
 def loudness(path: Path) -> tuple[float, float]:
     r = subprocess.run(
-        ["ffmpeg", "-v", "info", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+        ["ffmpeg", "-v", "info", "-f", "ogg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
         capture_output=True, text=True,
     )
     mean, peak = _MEAN.search(r.stderr), _MAX.search(r.stderr)

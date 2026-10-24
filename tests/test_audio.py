@@ -1,5 +1,8 @@
 import shutil
+import struct
 import subprocess
+from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -10,10 +13,10 @@ needs_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg mis
 
 @needs_ffmpeg
 def test_loudness_of_silence_and_tone(tmp_path):
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "1", str(tmp_path / "s.wav")], check=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000", "-af", "volume=18dB", "-t", "1", str(tmp_path / "t.wav")], check=True)
-    mean_s, _ = loudness(tmp_path / "s.wav")
-    mean_t, max_t = loudness(tmp_path / "t.wav")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "1", "-c:a", "libopus", str(tmp_path / "s.opus")], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000", "-af", "volume=18dB", "-t", "1", "-c:a", "libopus", str(tmp_path / "t.opus")], check=True)
+    mean_s, _ = loudness(tmp_path / "s.opus")
+    mean_t, max_t = loudness(tmp_path / "t.opus")
     assert mean_s < -80 and -4 < mean_t < -2 and max_t <= 0
 
 
@@ -22,6 +25,21 @@ def test_to_wav16k_produces_mono_16k(tmp_path, opus_clip):
     to_wav16k(opus_clip, tmp_path / "x.wav")
     info = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=sample_rate,channels", "-of", "csv=p=0", str(tmp_path / "x.wav")], capture_output=True, text=True).stdout
     assert info.strip() == "16000,1"
+
+
+@needs_ffmpeg
+def test_ffmpeg_is_not_fooled_by_a_serial_that_looks_like_mpegts_sync(tmp_path):
+    from pendant_client.decode import OggOpusWriter
+    packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
+    clip = tmp_path / "clip.opus"
+    with mock.patch("os.urandom", return_value=struct.pack("<I", 0xdb227647)):
+        w = OggOpusWriter(clip)
+    for _ in range(50):
+        w.add_packet(packet)
+    w.close()
+    to_wav16k(clip, tmp_path / "x.wav")
+    mean_db, peak_db = loudness(clip)
+    assert isinstance(mean_db, float) and isinstance(peak_db, float)
 
 
 @needs_ffmpeg

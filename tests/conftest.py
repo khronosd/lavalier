@@ -1,5 +1,7 @@
 import os
+import struct
 import time
+from unittest import mock
 
 import pytest
 
@@ -138,7 +140,9 @@ from pendant_client.decode import OggOpusWriter
 def _write_opus(path: Path) -> Path:
     packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
     path.parent.mkdir(parents=True, exist_ok=True)
-    w = OggOpusWriter(path)
+    # fixed stream serial (low byte not 0x47) so the suite never depends on a random draw
+    with mock.patch("os.urandom", return_value=struct.pack("<I", 0x0000a5e7)):
+        w = OggOpusWriter(path)
     for _ in range(50):
         w.add_packet(packet)
     w.close()
