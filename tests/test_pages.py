@@ -87,3 +87,9 @@ def test_capture_path_is_stored_relative_to_the_state_root(root, db, capture_fil
     db.mark_capture_decoded(r.capture_id)
     sha = hashlib.sha256(capture_file.read_bytes()).hexdigest()
     assert db.captures_decoded_before(2**62) == [(r.capture_id, f"captures/{sha[:12]}-{capture_file.name}")]
+
+
+def test_import_records_storage_instance(root, db, capture_file):
+    r = import_capture(db, root, capture_file, storage_instance=42)
+    row = db._conn.execute("SELECT DISTINCT storage_instance FROM pages").fetchall()
+    assert [tuple(x) for x in row] == [(42,)] and r.pages_new > 0

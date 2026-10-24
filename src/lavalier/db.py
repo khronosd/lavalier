@@ -12,12 +12,23 @@ from lavalier.models import (
     MIN_VALID_MS,
     ClipRecord,
     Conversation,
+    DeviceSnapshot,
     EventRecord,
     PageKey,
     Segment,
+    SyncRun,
     Transcript,
     Word,
 )
+
+
+def _u64_to_db(v: int) -> int:
+    """SQLite integers are signed 64-bit; storage_instance is an unsigned 64-bit device value."""
+    return v - (1 << 64) if v >= (1 << 63) else v
+
+
+def _u64_from_db(v: int) -> int:
+    return v + (1 << 64) if v < 0 else v
 
 
 def now_ms() -> int:
@@ -185,7 +196,29 @@ def _migrate_3(c: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3]
+def _migrate_4(c: sqlite3.Connection) -> None:
+    """Device state: the page key gains storage_instance; poll snapshots and sync runs."""
+    _run_script(
+        c,
+        """
+        ALTER TABLE pages ADD COLUMN storage_instance INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE device_status (
+            id INTEGER PRIMARY KEY, read_at_ms INTEGER NOT NULL, source TEXT NOT NULL,
+            has_all_fields INTEGER NOT NULL, recording_state TEXT NOT NULL,
+            oldest_page INTEGER NOT NULL, newest_page INTEGER NOT NULL,
+            soc INTEGER NOT NULL, current_ma INTEGER NOT NULL, usb_state TEXT NOT NULL,
+            firmware_ver TEXT NOT NULL, storage_instance INTEGER NOT NULL, charger_signal TEXT NOT NULL);
+        CREATE INDEX device_status_read_at ON device_status(read_at_ms);
+        CREATE TABLE sync_runs (
+            id INTEGER PRIMARY KEY, started_ms INTEGER NOT NULL, ended_ms INTEGER,
+            outcome TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', pages INTEGER NOT NULL DEFAULT 0,
+            messages INTEGER NOT NULL DEFAULT 0, capture_id INTEGER REFERENCES captures(id),
+            muted_by TEXT, unmute TEXT NOT NULL DEFAULT 'n/a', error TEXT);
+        """,
+    )
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -318,24 +351,25 @@ class Database:
 
     def page_seen(self, key: PageKey) -> bool:
         r = self._conn.execute(
-            'SELECT 1 FROM pages WHERE run = ? AND "index" = ? AND sha256 = ?',
-            (key.run, key.index, key.sha256),
+            'SELECT 1 FROM pages WHERE run = ? AND "index" = ? AND sha256 = ? AND storage_instance = ?',
+            (key.run, key.index, key.sha256, _u64_to_db(key.storage_instance)),
         ).fetchone()
         return r is not None
 
     def pages_for_capture(self, capture_id: int) -> list[PageKey]:
         """The pages this capture registered first, in stream (insertion) order."""
         rows = self._conn.execute(
-            'SELECT run, "index", sha256 FROM pages WHERE capture_id = ? ORDER BY rowid', (capture_id,)
+            'SELECT run, "index", sha256, storage_instance FROM pages WHERE capture_id = ? ORDER BY rowid',
+            (capture_id,),
         ).fetchall()
-        return [PageKey(r["run"], r["index"], r["sha256"]) for r in rows]
+        return [PageKey(r["run"], r["index"], r["sha256"], _u64_from_db(r["storage_instance"])) for r in rows]
 
     def add_page(self, key: PageKey, capture_id: int, session: int, ingest_type: int, absolute_ms: int) -> None:
         with self._write_scope():
             self._conn.execute(
-                'INSERT INTO pages (run, "index", sha256, capture_id, session, ingest_type, absolute_ms) '
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (key.run, key.index, key.sha256, capture_id, session, ingest_type, absolute_ms),
+                'INSERT INTO pages (run, "index", sha256, storage_instance, capture_id, session, ingest_type, absolute_ms) '
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (key.run, key.index, key.sha256, _u64_to_db(key.storage_instance), capture_id, session, ingest_type, absolute_ms),
             )
 
     # clips
@@ -538,6 +572,72 @@ class Database:
                 "ON CONFLICT(day) DO UPDATE SET dirty = excluded.dirty",
                 (day.isoformat(), dirty),
             )
+
+    # device status and sync runs
+
+    def record_device_status(self, snap: DeviceSnapshot, *, source: str, charger_signal: str) -> int:
+        with self._write_scope():
+            cur = self._conn.execute(
+                "INSERT INTO device_status (read_at_ms, source, has_all_fields, recording_state, oldest_page, "
+                "newest_page, soc, current_ma, usb_state, firmware_ver, storage_instance, charger_signal) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    snap.read_at_ms, source, int(snap.has_all_fields), snap.recording_state, snap.oldest_page,
+                    snap.newest_page, snap.soc, snap.current_ma, snap.usb_state, snap.firmware_ver,
+                    _u64_to_db(snap.storage_instance), charger_signal,
+                ),
+            )
+            return int(cur.lastrowid)
+
+    def latest_device_status(self) -> Optional[tuple[DeviceSnapshot, str, str]]:
+        r = self._conn.execute("SELECT * FROM device_status ORDER BY read_at_ms DESC, id DESC LIMIT 1").fetchone()
+        if r is None:
+            return None
+        snap = DeviceSnapshot(
+            read_at_ms=r["read_at_ms"],
+            has_all_fields=bool(r["has_all_fields"]),
+            recording_state=r["recording_state"],
+            oldest_page=r["oldest_page"],
+            newest_page=r["newest_page"],
+            soc=r["soc"],
+            current_ma=r["current_ma"],
+            usb_state=r["usb_state"],
+            firmware_ver=r["firmware_ver"],
+            storage_instance=_u64_from_db(r["storage_instance"]),
+        )
+        return snap, r["source"], r["charger_signal"]
+
+    def start_sync_run(self, started_ms: int) -> int:
+        with self._write_scope():
+            cur = self._conn.execute(
+                "INSERT INTO sync_runs (started_ms, outcome) VALUES (?, 'running')", (started_ms,)
+            )
+            return int(cur.lastrowid)
+
+    def finish_sync_run(
+        self, run_id: int, *, ended_ms: int, outcome: str, reason: str, pages: int, messages: int,
+        capture_id: Optional[int], muted_by: Optional[str], unmute: str, error: Optional[str],
+    ) -> None:
+        with self._write_scope():
+            self._conn.execute(
+                "UPDATE sync_runs SET ended_ms = ?, outcome = ?, reason = ?, pages = ?, messages = ?, "
+                "capture_id = ?, muted_by = ?, unmute = ?, error = ? WHERE id = ?",
+                (ended_ms, outcome, reason, pages, messages, capture_id, muted_by, unmute, error, run_id),
+            )
+
+    def last_sync_run(self) -> Optional[SyncRun]:
+        r = self._conn.execute("SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
+        if r is None:
+            return None
+        return SyncRun(
+            id=r["id"], started_ms=r["started_ms"], ended_ms=r["ended_ms"], outcome=r["outcome"],
+            reason=r["reason"], pages=r["pages"], messages=r["messages"], capture_id=r["capture_id"],
+            muted_by=r["muted_by"], unmute=r["unmute"], error=r["error"],
+        )
+
+    def last_drain_ok_ms(self) -> Optional[int]:
+        r = self._conn.execute("SELECT MAX(ended_ms) AS m FROM sync_runs WHERE outcome = 'drained'").fetchone()
+        return r["m"]
 
     # status
 

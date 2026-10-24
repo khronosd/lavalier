@@ -17,8 +17,8 @@ from lavalier.paths import Paths
 log = logging.getLogger(__name__)
 
 
-def page_key(sp: StoragePage) -> PageKey:
-    return PageKey(sp.run, sp.index, hashlib.sha256(sp.flash_page).hexdigest())
+def page_key(sp: StoragePage, *, storage_instance: int = 0) -> PageKey:
+    return PageKey(sp.run, sp.index, hashlib.sha256(sp.flash_page).hexdigest(), storage_instance)
 
 
 @dataclass
@@ -48,7 +48,7 @@ def _install_copy(src: Path, dest: Path, sha: str) -> None:
     os.replace(part, dest)
 
 
-def _owned_payloads(db: Database, capture_id: int, messages: list[bytes]) -> list[bytes]:
+def _owned_payloads(db: Database, capture_id: int, messages: list[bytes], storage_instance: int) -> list[bytes]:
     """The payloads a decode of this capture needs: its own storage pages, once each, and
     every non-storage message, in stream order (re-read from the stored copy)."""
     owned = set(db.pages_for_capture(capture_id))
@@ -59,14 +59,16 @@ def _owned_payloads(db: Database, capture_id: int, messages: list[bytes]) -> lis
         if sp is None:
             out.append(payload)
             continue
-        key = page_key(sp)
+        key = page_key(sp, storage_instance=storage_instance)
         if key in owned and key not in taken:
             taken.add(key)
             out.append(payload)
     return out
 
 
-def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = True) -> ImportResult:
+def import_capture(
+    db: Database, paths: Paths, src: Path, *, complete: bool = True, storage_instance: int = 0,
+) -> ImportResult:
     src = Path(src)
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
     dest = paths.captures / f"{sha[:12]}-{src.name}"
@@ -89,7 +91,7 @@ def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = Tr
                 if not already_imported:
                     new_payloads.append(payload)
                 continue
-            key = page_key(sp)
+            key = page_key(sp, storage_instance=storage_instance)
             if key in seen_here or db.page_seen(key):
                 pages_duplicate += 1
                 continue
@@ -100,6 +102,6 @@ def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = Tr
         if already_imported and not db.capture_decoded(capture_id):
             # An earlier decode failed after this import committed: hand back everything the
             # capture owns so the decode runs again instead of being skipped for good.
-            new_payloads = _owned_payloads(db, capture_id, messages)
+            new_payloads = _owned_payloads(db, capture_id, messages, storage_instance)
 
     return ImportResult(capture_id, len(messages), pages_new, pages_duplicate, new_payloads)

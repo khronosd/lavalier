@@ -7,6 +7,7 @@ from lavalier import db as db_module
 from lavalier.db import Database
 from lavalier.models import (
     Conversation,
+    DeviceSnapshot,
     EventRecord,
     PageKey,
     Segment,
@@ -30,7 +31,7 @@ def test_page_dedup_key(root):
         d.migrate()
         cid = d.add_capture("captures/a.bin", "ff" * 32, 10, True)
         assert not d.page_seen(k)
-        d.add_page(k, cid, 199, 2, 1792821367981)
+        _add_page_v3(d, k, cid, 199, 2, 1792821367981)
         assert d.page_seen(k)
         assert not d.page_seen(PageKey(run=2, index=7802, sha256="cd" * 32))
 
@@ -255,10 +256,53 @@ def test_migration_3_relaxes_confidence_not_null_and_keeps_rows(root, monkeypatc
         d._conn.commit()
         monkeypatch.undo()
         d.migrate()
-        assert d.get_status("schema_version") == "3"
+        assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS))
         assert tuple(d._conn.execute("SELECT avg_logprob, no_speech_prob FROM segments").fetchone()) == (-0.3, 0.1)
         assert tuple(d._conn.execute("SELECT probability FROM words").fetchone()) == (0.9,)
         d._conn.execute("INSERT INTO segments (clip_id, seq, start_s, end_s, text, avg_logprob, no_speech_prob) "
                         "VALUES ('c1', 1, 1.0, 2.0, 'x', NULL, NULL)")
         d._conn.execute("INSERT INTO words (clip_id, segment_seq, seq, start_s, end_s, word, probability) "
                         "VALUES ('c1', 1, 0, 1.0, 2.0, 'x', NULL)")
+
+
+def test_device_status_round_trip_and_latest(db):
+    snap = DeviceSnapshot(1000, True, "LISTENING", 0, 786, 94, 51, "USB_DISCONNECTED", "1.1.3", 11232415790841468546)
+    db.record_device_status(snap, source="sync", charger_signal="current")
+    db.record_device_status(replace(snap, read_at_ms=2000, recording_state="NOT_RECORDING"), source="live", charger_signal="none")
+    latest, source, signal = db.latest_device_status()
+    assert (latest.read_at_ms, latest.recording_state, source, signal) == (2000, "NOT_RECORDING", "live", "none")
+    assert snap.pages_waiting == 787
+    assert replace(snap, oldest_page=5, newest_page=4).pages_waiting == 0
+
+
+def test_sync_runs_and_last_drain(db):
+    assert db.last_drain_ok_ms() is None
+    r1 = db.start_sync_run(1000)
+    db.finish_sync_run(r1, ended_ms=1500, outcome="skipped", reason="not on charger", pages=0, messages=0, capture_id=None, muted_by=None, unmute="n/a", error=None)
+    r2 = db.start_sync_run(2000)
+    db.finish_sync_run(r2, ended_ms=2900, outcome="drained", reason="pages>=1000", pages=1200, messages=1210, capture_id=None, muted_by="recorder", unmute="confirmed", error=None)
+    assert db.last_drain_ok_ms() == 2900
+    assert db.last_sync_run().outcome == "drained"
+
+
+def test_migration_4_keeps_pages_and_defaults_storage_instance(root, monkeypatch):
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS[:3])
+    with Database(root.db) as d:
+        d.migrate()
+        cid = d.add_capture("captures/a.bin", "ff" * 32, 1, True)
+        _add_page_v3(d, PageKey(run=1, index=7, sha256="ab" * 32), cid, 100, 1, 1792821367981)
+        monkeypatch.undo()
+        d.migrate()
+        assert d.get_status("schema_version") == "4"
+        assert d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32))                       # storage_instance defaults to 0
+        assert not d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))
+
+
+def _add_page_v3(d, key, capture_id, session, ingest_type, absolute_ms):
+    """Insert a page the way schema 3 stored it (no storage_instance column yet)."""
+    d._conn.execute(
+        'INSERT INTO pages (run, "index", sha256, capture_id, session, ingest_type, absolute_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (key.run, key.index, key.sha256, capture_id, session, ingest_type, absolute_ms),
+    )
+    d._conn.commit()

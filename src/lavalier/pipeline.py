@@ -91,10 +91,11 @@ def retry_failed(db: Database) -> int:
 
 def import_and_decode(
     db: Database, paths: Paths, src: Path, *, complete: bool = True, capture_day: date,
+    storage_instance: int = 0,
 ) -> tuple[ImportResult, list[ClipRecord]]:
     """Import and decode in one step. Re-importing a decoded capture adds nothing; re-importing
     one whose decode failed decodes it again."""
-    imp = import_capture(db, paths, src, complete=complete)
+    imp = import_capture(db, paths, src, complete=complete, storage_instance=storage_instance)
     clips = decode_new_pages(db, paths, imp, capture_day=capture_day)
     db.set_status("last_import_iso", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     return imp, clips

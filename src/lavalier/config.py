@@ -23,6 +23,13 @@ class Config:
     noise_word_p: float = 0.5
     whisper_model: str = "mlx-community/whisper-large-v3-turbo"
     whisper_language: str = "en"
+    poll_interval_s: int = 600
+    scan_timeout_s: float = 8.0
+    drain_idle_timeout_s: float = 5.0
+    drain_pages_threshold: int = 1000
+    drain_after_hours: int = 24
+    fsync_every_pages: int = 100
+    require_firmware: str = ""
 
 
 def _type_ok(value: object, default: object) -> bool:

@@ -14,6 +14,7 @@ class PageKey:
     run: int
     index: int
     sha256: str
+    storage_instance: int = 0
 
 
 @dataclass
@@ -84,3 +85,36 @@ class Conversation:
     star_ms: list[int]
     pinned: bool = False
     label: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class DeviceSnapshot:
+    read_at_ms: int
+    has_all_fields: bool
+    recording_state: str      # "NOT_RECORDING" | "LISTENING" | "RECORDING"
+    oldest_page: int
+    newest_page: int
+    soc: int
+    current_ma: int
+    usb_state: str            # "USB_DISCONNECTED" | "USB_CONNECTED" (ignored on 1.1.3)
+    firmware_ver: str         # "" when GetDeviceInfo was not read
+    storage_instance: int     # 0 when not read
+
+    @property
+    def pages_waiting(self) -> int:
+        return max(0, self.newest_page - self.oldest_page + 1)
+
+
+@dataclass(frozen=True)
+class SyncRun:
+    id: int
+    started_ms: int
+    ended_ms: Optional[int]
+    outcome: str
+    reason: str
+    pages: int
+    messages: int
+    capture_id: Optional[int]
+    muted_by: Optional[str]
+    unmute: str
+    error: Optional[str]

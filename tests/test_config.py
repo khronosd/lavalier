@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from lavalier.config import Config, ConfigError, load_config, save_config
@@ -25,3 +27,12 @@ def test_wrong_type_raises(tmp_path):
 def test_paths_layout(tmp_path):
     ps = Paths(tmp_path / "Pendant"); ps.ensure()
     assert ps.db == tmp_path / "Pendant" / "state.sqlite" and ps.audio.is_dir() and ps.days.is_dir() and ps.captures.is_dir() and ps.logs.is_dir()
+
+
+def test_device_defaults_and_toml_round_trip(tmp_path):
+    cfg = Config()
+    assert (cfg.poll_interval_s, cfg.scan_timeout_s, cfg.drain_idle_timeout_s) == (600, 8.0, 5.0)
+    assert (cfg.drain_pages_threshold, cfg.drain_after_hours, cfg.fsync_every_pages, cfg.require_firmware) == (1000, 24, 100, "")
+    save_config(replace(cfg, require_firmware="1.1.3", poll_interval_s=300), tmp_path / "c.toml")
+    loaded = load_config(tmp_path / "c.toml")
+    assert (loaded.require_firmware, loaded.poll_interval_s) == ("1.1.3", 300)
