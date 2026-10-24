@@ -8,3 +8,7 @@ __pycache__/
 .pytest_cache/
 !tests/data/packet.bin
 dist/
+# the window: only the placeholder index is tracked until the web build decides what ships
+!src/lavalier/web/dist/
+src/lavalier/web/dist/*
+!src/lavalier/web/dist/index.html
