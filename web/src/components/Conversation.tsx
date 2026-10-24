@@ -41,7 +41,7 @@ export function Conversation({ conv, onPin, onPlay }: Props) {
     <section class="conv" id={`c-${conv.conversation_id}`} tabIndex={-1} aria-labelledby={`h-${conv.conversation_id}`}>
       <header class="conv-head">
         <h2 class="conv-title" id={`h-${conv.conversation_id}`}>{span(conv)}</h2>
-        <span class="conv-dur">{duration(conv.end_ms - conv.start_ms)}</span>
+        <span class="conv-dur">{`${duration(conv.speech_ms)} speech`}</span>
         {stars > 0 && <span class="conv-stars" aria-label={`${stars} starred`}>{"★".repeat(stars)}</span>}
         {conv.pinned && <span class="conv-pinned">pinned</span>}
         <div class="conv-tools">

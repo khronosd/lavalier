@@ -63,6 +63,9 @@ test("a day shows its summary, the starred moments, conversations, and stars in 
   const rows = [...section.querySelectorAll(".line")].map((el) => `${el.id || "star"} ${el.querySelector("time")!.textContent}`);
   expect(rows).toEqual(["star 22:56:07", "clip_b-0 22:56:09", "star 22:56:12", "clip_b-1 22:56:13"]);
   expect(section.querySelector(".conv-stars")!.textContent).toBe("★★");
+  // the heading shows the wall-clock range and, beside it, the speech total (not the span's length)
+  expect(section.querySelector(".conv-dur")!.textContent).toBe("16 s speech");
+  expect(container.querySelector("#c-conv_long .conv-dur")!.textContent).toBe("3 h 1 min speech");
 
   // previous is disabled at the oldest day; next goes to today's page
   expect(screen.getByText("Previous").getAttribute("aria-disabled")).toBe("true");
