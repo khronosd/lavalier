@@ -37,7 +37,7 @@ def format_line(snap: DeviceSnapshot) -> str:
 
 def _log(paths: Paths, line: str) -> None:
     paths.ensure()
-    with open(paths.logs / "probe.log", "a") as f:
+    with open(paths.logs / "probe.log", "a", encoding="utf-8") as f:
         f.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {line}\n")
 
 

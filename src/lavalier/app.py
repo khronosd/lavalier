@@ -8,8 +8,10 @@ in its own threads and hands everything to this process's loop.
 import argparse
 import asyncio
 import importlib.metadata
+import json
 import logging
 import os
+import platform
 import signal
 import sys
 from datetime import date
@@ -17,7 +19,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, Optional
 
-from lavalier import actions, client, journal, pipeline, playback, search, settings
+from lavalier import actions, audio, client, journal, pipeline, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, now_ms as _now_ms
@@ -233,6 +235,52 @@ class App:
         elif worker.result() is not None:
             self.last_process = worker.result()
 
+    # start-up: finish what an earlier run left pending
+
+    async def process_pending_if_any(self) -> bool:
+        """Clips an earlier run left pending (ffmpeg was missing, a crash mid-process) are finished at
+        start-up without waiting for the next drain. Under the process lock, never waiting for it:
+        a run in progress will cover them. True when a run was made."""
+        if not (self.db.clips_needing_transcript() or self.db.clips_needing_loudness()):
+            return False
+        if self._process_lock.locked():
+            return False
+        await self._process_lock.acquire()  # free: returns without yielding
+        try:
+            worker = asyncio.ensure_future(asyncio.to_thread(self._process_pending))
+        except BaseException:
+            self._process_lock.release()
+            raise
+        worker.add_done_callback(self._pending_finished)
+        try:
+            await asyncio.shield(worker)
+        except Exception:
+            pass  # logged by _pending_finished
+        return True
+
+    def _process_pending(self) -> ProcessReport:
+        """Runs in a worker thread, on its own connection, like _process."""
+        db = Database(self.paths.db)
+        try:
+            now = self._now_ms()
+            report = pipeline.process(db, self.paths, self.cfg, self._make_transcriber(), now_ms=now)
+            db.set_status("last_process", json.dumps({**report.to_json_dict(), "processed_ms": now}))
+            return report
+        finally:
+            db.close()
+
+    def _pending_finished(self, worker: asyncio.Future) -> None:
+        self._process_lock.release()
+        if worker.cancelled():
+            return
+        if worker.exception() is not None:
+            _log.error("start-up processing failed", exc_info=worker.exception())
+            return
+        r = worker.result()
+        self.last_process = r
+        _log.info("start-up processing: %d transcribed, %d failed, %d day file(s) written",
+                  r.transcribed, r.failed, len(r.days_written))
+
     def _retention(self) -> ProcessReport:
         """Runs in a worker thread, like _process, on its own connection."""
         db = Database(self.paths.db)
@@ -365,6 +413,10 @@ class App:
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
+            try:
+                await self.process_pending_if_any()
+            except Exception:
+                _log.exception("start-up processing failed")
             while not self._stopping:
                 try:
                     await self.retention_if_due()
@@ -434,6 +486,8 @@ def main(argv=None) -> int:
     paths.ensure()
     _configure_logging(paths)
     quiet_fork_chatter()
+    _log.info("python %s utf8_mode=%d ffmpeg=%s", platform.python_version(), sys.flags.utf8_mode,
+              audio.ensure_ffmpeg_on_path())
     if client.app_running(paths.root / SERVER_FILE):
         _log.error("the lavalier app is already running")
         return 1

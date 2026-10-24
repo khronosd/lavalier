@@ -14,6 +14,8 @@ from lavalier.paths import Paths
 LABEL = "io.github.khronosd.lavalier"
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 _BUNDLE_EXE = Path("Contents") / "MacOS" / "Lavalier"
+# launchd starts agents with a bare PATH; ffmpeg lives in Homebrew's bin.
+AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
 def plist_dict(*, program: list[str], log_dir: Path, env: Mapping[str, str] = os.environ) -> dict:
@@ -27,7 +29,7 @@ def plist_dict(*, program: list[str], log_dir: Path, env: Mapping[str, str] = os
         "StandardOutPath": str(log_dir / "app.out.log"),
         "StandardErrorPath": str(log_dir / "app.err.log"),
     }
-    d["EnvironmentVariables"] = {"PYTHONUTF8": "1"}
+    d["EnvironmentVariables"] = {"PATH": AGENT_PATH, "PYTHONUTF8": "1"}
     if env.get("PENDANT_ROOT"):
         d["EnvironmentVariables"]["PENDANT_ROOT"] = env["PENDANT_ROOT"]
     return d

@@ -23,7 +23,8 @@ class LockHeld(Exception):
 
 
 def _ps_processes() -> list[tuple[int, str]]:
-    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", check=True).stdout
     procs: list[tuple[int, str]] = []
     for line in out.splitlines():
         parts = line.strip().split(None, 1)
@@ -70,7 +71,7 @@ class SyncLock:
     def _read(self) -> tuple[int, int] | None:
         """(pid, heartbeat_ms) of the current lock file; None if absent or malformed."""
         try:
-            lines = self.path.read_text().split()
+            lines = self.path.read_text(encoding="utf-8").split()
             return int(lines[0]), int(lines[1])
         except (OSError, ValueError, IndexError):
             return None
@@ -78,13 +79,13 @@ class SyncLock:
     def _write(self) -> None:
         """Atomically replace the lock file with our PID and the current heartbeat."""
         tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
-        tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n")
+        tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n", encoding="utf-8")
         os.replace(tmp, self.path)
 
     def _create_exclusive(self) -> bool:
         """Take the lock only if no file exists; False if someone else's file is there."""
         tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.new")
-        tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n")
+        tmp.write_text(f"{os.getpid()}\n{self._now_ms()}\n", encoding="utf-8")
         try:
             os.link(tmp, self.path)
             return True

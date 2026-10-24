@@ -20,6 +20,12 @@ int main(int argc, char **argv) {
     char exe[4096]; uint32_t n = sizeof exe;
     if (_NSGetExecutablePath(exe, &n) != 0) return 70;
     char res[4200]; snprintf(res, sizeof res, "%s/../Resources/paths.txt", dirname(exe));
+    /* launchd gives the process no locale; without UTF-8 mode the isolated config would read and
+       write text files as ASCII (the day file's star once failed to write). */
+    PyPreConfig pre; PyPreConfig_InitIsolatedConfig(&pre);
+    pre.utf8_mode = 1;
+    PyStatus pst = Py_PreInitialize(&pre);
+    if (PyStatus_Exception(pst)) Py_ExitStatusException(pst);
     PyConfig cfg; PyConfig_InitIsolatedConfig(&cfg);
     cfg.module_search_paths_set = 1; cfg.parse_argv = 0;
     cfg.install_signal_handlers = 1;  /* KeyboardInterrupt and a clean SIGTERM for the long-running app */

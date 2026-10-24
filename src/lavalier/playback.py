@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from lavalier.audio import AudioToolError
+from lavalier.audio import AudioToolError, ffmpeg_path
 from lavalier.config import Config
 from lavalier.db import Database
 from lavalier.paths import Paths
@@ -37,9 +37,9 @@ def _transcode(src: Path, tmp: Path, encoder: str) -> subprocess.CompletedProces
     # -movflags +faststart: the index goes first, so the player can start before the last byte.
     # -f ipod: the temp file has no .m4a suffix, so name the muxer explicitly.
     return subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-f", "ogg", "-i", str(src), "-c:a", encoder, "-b:a", "64k",
+        [ffmpeg_path() or "ffmpeg", "-v", "error", "-y", "-f", "ogg", "-i", str(src), "-c:a", encoder, "-b:a", "64k",
          "-movflags", "+faststart", "-f", "ipod", str(tmp)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
 
 

@@ -30,7 +30,7 @@ def state_root_writable(paths: Paths) -> bool:
     probe = paths.root / ".write-test"
     try:
         paths.ensure()
-        probe.write_text("x")
+        probe.write_text("x", encoding="utf-8")
         probe.unlink()
         return True
     except OSError:
