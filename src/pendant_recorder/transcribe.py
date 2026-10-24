@@ -6,7 +6,10 @@ import time
 from pathlib import Path
 from typing import Callable, Optional, Protocol
 
-import mlx_whisper
+# huggingface_hub reads this at import time, so set it before mlx_whisper pulls it in.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+import mlx_whisper  # noqa: E402
 
 from pendant_recorder.audio import to_wav16k
 from pendant_recorder.db import Database

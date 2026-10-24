@@ -166,3 +166,21 @@ def two_clips_with_audio(root, db):
         db.add_clip(c)
         clips.append(c)
     return clips
+
+
+import dataclasses
+
+from pendant_recorder.config import Config
+
+
+@pytest.fixture
+def cfg():
+    return Config()
+
+
+@pytest.fixture
+def clip_at(clip_record):
+    def _make(**overrides):
+        return dataclasses.replace(clip_record, **overrides)
+
+    return _make
