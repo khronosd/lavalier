@@ -56,7 +56,7 @@ once to fetch the speech model.
 - `retry-failed`: put failed clips back in the queue; the next `process` retries them.
 - `retention --now`: apply the retention policy immediately (`--now` is required).
 
-The commands that talk to the pendant (`sync`, `status --live`, `mute`, `unmute`, `doctor`) need `pendant_address` in `config.toml`. If the background app is running, they ask it to do the work, so only one process ever holds the Bluetooth link.
+`sync`, `status --live`, `mute` and `unmute` need `pendant_address` in `config.toml`. When the background app is running, they go through it. `sync --dry-run` and `doctor` run in the CLI under the same lock, and skip or refuse when the app holds the pendant. The lock is what guarantees one Bluetooth link at a time.
 
 ## How syncing works
 
@@ -100,13 +100,18 @@ LED and the log before running it again.
 
 ### The 30-minute rule
 
-If the unmute was not confirmed (the link dropped, or the status did not show
-recording), the recorder keeps the unmute pending. The next sync retries it
-once, but only within 30 minutes of the mute. After that it stops trying,
-adds "unmute pending since <time>" to the sync's reason, and leaves the
-marker for you. `status` shows the marker as "Unmute pending since <time>: run
-'lavalier unmute' or hold the button". Either one clears it. A pendant that is
-seen recording or listening clears the marker by itself.
+If the recorder's unmute was not confirmed (the link dropped, or the status did
+not show recording), it marks the unmute as pending. The marker is set at the
+restore step, after the drain, so a long drain moves the start of the window.
+
+On every later sync (not `--dry-run`), within 30 minutes of that marker, the
+recorder retries while the pendant reports NOT_RECORDING with a complete
+status. It sends start recording at most once per sync and reads the status
+back. After 30 minutes it stops retrying, adds "unmute pending since <time>" to
+the sync's reason, and leaves the marker for you. `status` shows it as
+"Unmute pending since <time>: run 'lavalier unmute' or hold the button". Either
+one clears it. A pendant seen listening or recording clears the marker by
+itself, instead of a retry.
 
 ### What the recorder sends to the pendant
 
@@ -137,8 +142,8 @@ server writes its port, a random token and its PID to `~/Pendant/.server.json`
 
 `install-agent` writes `~/Library/LaunchAgents/io.github.khronosd.lavalier.plist`
 and loads it, so the app starts at login and is restarted if it exits. The
-program is `~/Applications/Lavalier.app` (or the `app_bundle` setting) if that
-exists, else this Python with `-m lavalier.app`. The bundle matters because
+program is the bundle named by the `app_bundle` setting, else
+`~/Applications/Lavalier.app`, whichever exists first in that order, else this Python with `-m lavalier.app`. The bundle matters because
 macOS gives the Bluetooth permission to the app that holds the link; see
 "Building the app bundle".
 
