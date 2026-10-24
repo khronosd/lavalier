@@ -222,7 +222,7 @@ Starred, pinned and failed clips are kept.
 
 `lavalier window` opens a native window on the background app. It shows the
 Journal (days and conversations), the Transcript for a conversation, Search,
-Starred clips, Audio, and the pendant card (its state and the last sync).
+Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights and Connectors are placeholders in this release.
 
 - It needs the background app. If the app is not running it prints how to start
   it and exits 1; it never starts one itself.

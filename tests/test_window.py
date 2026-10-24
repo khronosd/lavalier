@@ -21,6 +21,7 @@ class FakeWindow:
         self.width, self.height = size
         self.events = type("E", (), {})()
         self.events.closed = FakeEvents()
+        self.events.resized = FakeEvents()
 
 
 class FakeWebview:
@@ -40,7 +41,9 @@ class FakeWebview:
     def start(self, *a, **kw):
         self.started = True
         if self.final_size:
-            self.window.width, self.window.height = self.final_size
+            for h in self.window.events.resized.handlers:
+                h(*self.final_size)
+        self.window.width = self.window.height = None  # gone by `closed`, as on macOS
         for h in self.window.events.closed.handlers:
             h()
 
@@ -118,3 +121,19 @@ def test_cli_window_command_passes_the_resolved_config_and_token(cli_env, monkey
     assert r.exit_code == 0
     assert seen["token_path"] == cli_env.root.root / ".server.json"
     assert seen["config_path"] == cli_env.root.config and seen["cfg"].pendant_address == "FAKE"
+
+
+def test_an_unchanged_size_is_not_saved(window_server, config_file):
+    before = config_file.read_text()
+    assert main(webview=FakeWebview(), token_path=window_server.token_path, cfg=load_config(config_file),
+                config_path=config_file) == 0
+    assert config_file.read_text() == before
+
+
+@pytest.mark.parametrize("bad", ["big", "1120"])
+def test_a_malformed_window_size_falls_back_with_a_warning(window_server, capsys, bad):
+    fake = FakeWebview()
+    assert main(webview=fake, token_path=window_server.token_path, cfg=Config(window_size=bad)) == 0
+    (_, kwargs), = fake.created
+    assert (kwargs["width"], kwargs["height"]) == (1120, 720)
+    assert capsys.readouterr().err.count("window_size") == 1

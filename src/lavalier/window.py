@@ -21,6 +21,15 @@ def _size(text: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def _size_or_default(text: str) -> tuple[int, int]:
+    try:
+        return _size(text)
+    except ValueError:
+        print(f"window_size {text!r} in config.toml is not like 1120x720; using {Config().window_size}",
+              file=sys.stderr)
+        return _size(Config().window_size)
+
+
 def main(argv=None, *, webview=None, token_path: Optional[Path] = None, cfg: Optional[Config] = None,
          config_path: Optional[Path] = None) -> int:
     paths = Paths(default_root())
@@ -38,17 +47,25 @@ def main(argv=None, *, webview=None, token_path: Optional[Path] = None, cfg: Opt
             print(NO_WEBVIEW, file=sys.stderr)
             return 1
     info = client._token(token_path)
-    width, height = _size(cfg.window_size)
+    width, height = _size_or_default(cfg.window_size)
+    last = {"size": (width, height)}
     window = webview.create_window(
         "Lavalier", url=f"http://127.0.0.1:{int(info['port'])}/?token={info['token']}",
         width=width, height=height, min_size=MIN_SIZE, text_select=True)
 
+    def on_resized(w, h) -> None:
+        last["size"] = (int(w), int(h))
+
     def on_closed(*_args) -> None:
+        # Never read window.width/height here: on macOS the window is already gone when `closed` fires.
+        if last["size"] == (width, height):
+            return
         try:
-            settings.apply(cfg, {"window_size": f"{window.width}x{window.height}"}, config_path)
+            settings.apply(cfg, {"window_size": "%dx%d" % last["size"]}, config_path)
         except (settings.SettingsError, OSError) as e:
             print(f"could not save the window size: {e}", file=sys.stderr)
 
+    window.events.resized += on_resized
     window.events.closed += on_closed
     webview.start()
     return 0
