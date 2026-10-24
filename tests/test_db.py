@@ -133,3 +133,21 @@ def test_status(db):
     db.set_status("k", "1")
     db.set_status("k", "2")
     assert db.get_status("k") == "2"
+
+
+def test_set_loudness_rolls_back_with_transaction(db, clip_record):
+    db.add_clip(clip_record)
+    try:
+        with db.transaction():
+            db.set_loudness(clip_record.clip_id, -20.0, -3.0)
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert db.clip(clip_record.clip_id).mean_db is None
+
+
+def test_set_loudness_persists_outside_transaction(db, clip_record):
+    db.add_clip(clip_record)
+    db.set_loudness(clip_record.clip_id, -20.0, -3.0)
+    c = db.clip(clip_record.clip_id)
+    assert (c.mean_db, c.peak_db) == (-20.0, -3.0)

@@ -278,13 +278,13 @@ class Database:
         return self._clips("path != '' AND transcribed_at IS NULL AND classification IS NULL")
 
     def set_loudness(self, clip_id: str, mean_db: float, peak_db: float) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 "UPDATE clips SET mean_db = ?, peak_db = ? WHERE clip_id = ?", (mean_db, peak_db, clip_id)
             )
 
     def set_transcript(self, clip_id: str, t: Transcript, classification: str, transcribed_at_ms: int) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("DELETE FROM words WHERE clip_id = ?", (clip_id,))
             self._conn.execute("DELETE FROM segments WHERE clip_id = ?", (clip_id,))
             for i, s in enumerate(t.segments):
@@ -325,14 +325,14 @@ class Database:
         return Transcript(r["transcript_text"], r["language"], r["model"], segments)
 
     def set_classification(self, clip_id: str, classification: str) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("UPDATE clips SET classification = ? WHERE clip_id = ?", (classification, clip_id))
 
     def clips_with_audio_older_than(self, cutoff_ms: int) -> list[ClipRecord]:
         return self._clips("path != '' AND transcribed_at IS NOT NULL AND transcribed_at <= ?", (cutoff_ms,))
 
     def clear_clip_path(self, clip_id: str) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("UPDATE clips SET path = '' WHERE clip_id = ?", (clip_id,))
 
     # events
@@ -361,7 +361,7 @@ class Database:
 
     def replace_conversations(self, day: date, convs: list[Conversation]) -> None:
         iso = day.isoformat()
-        with self._conn:
+        with self._write_scope():
             self._conn.execute(
                 "DELETE FROM conversation_clips WHERE conversation_id IN "
                 "(SELECT conversation_id FROM conversations WHERE day = ?)",
@@ -403,11 +403,11 @@ class Database:
         return out
 
     def pin(self, conversation_id: str) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("INSERT OR IGNORE INTO pins (conversation_id) VALUES (?)", (conversation_id,))
 
     def unpin(self, conversation_id: str) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("DELETE FROM pins WHERE conversation_id = ?", (conversation_id,))
 
     def days_with_clips(self) -> list[date]:
@@ -435,7 +435,7 @@ class Database:
     # status
 
     def set_status(self, key: str, value: str) -> None:
-        with self._conn:
+        with self._write_scope():
             self._conn.execute("INSERT OR REPLACE INTO status (key, value) VALUES (?, ?)", (key, value))
 
     def get_status(self, key: str) -> Optional[str]:

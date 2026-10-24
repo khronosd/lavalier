@@ -129,3 +129,17 @@ def imported_status_only_capture(root, db, tmp_path):
 @pytest.fixture
 def imported_capture_with_zero_timestamps(root, db, make_capture):
     return import_capture(db, root, make_capture([1, 2], timestamps=[0, 0]))
+
+
+from pendant_client.decode import OggOpusWriter
+
+
+@pytest.fixture
+def opus_clip(tmp_path):
+    packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
+    path = tmp_path / "clip.opus"
+    w = OggOpusWriter(path)
+    for _ in range(50):
+        w.add_packet(packet)
+    w.close()
+    return path

@@ -6,3 +6,4 @@ __pycache__/
 *.wav
 *.egg-info/
 .pytest_cache/
+!tests/data/packet.bin
