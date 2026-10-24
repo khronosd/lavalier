@@ -33,6 +33,7 @@ LAST_SEEN = "last_seen_ms"
 LAST_FIRMWARE = "last_firmware_ver"
 MUTED_SINCE = "muted_by_recorder_since_ms"
 UNMUTE_PENDING = "unmute_pending_since_ms"
+OWNER_MUTED = "muted_by_owner_since_ms"
 
 _log = logging.getLogger("lavalier.sync")
 
@@ -94,9 +95,10 @@ class _Refused(Exception):
 class _Run:
     """One sync: the report being built plus the context every step needs."""
 
-    def __init__(self, db, paths, cfg, pendant, now_ms, lock, cdc_present, settle_s, log):
+    def __init__(self, db, paths, cfg, pendant, now_ms, lock, cdc_present, settle_s, log, scheduled=False):
         self.db, self.paths, self.cfg, self.pendant = db, paths, cfg, pendant
         self.now_ms, self.lock, self.cdc_present, self.settle_s, self.log = now_ms, lock, cdc_present, settle_s, log
+        self.scheduled = scheduled
         self.report = SyncReport(outcome="error", reason="")
         self.capture_id: Optional[int] = None
         self.suffixes: list[str] = []
@@ -122,8 +124,11 @@ class _Run:
         firmware, storage_instance = await self.pendant.info()
         snap = dataclasses.replace(await self.pendant.status(), firmware_ver=firmware,
                                    storage_instance=storage_instance)
-        quiet = (_int_status(self.db, QUIET_POLLS) or 0) + 1 if (
-            snap.has_all_fields and snap.recording_state == "LISTENING") else 0
+        quiet = _int_status(self.db, QUIET_POLLS) or 0
+        if not (snap.has_all_fields and snap.recording_state == "LISTENING"):
+            quiet = 0
+        elif self.scheduled:  # only the app's own ticks say "set down near the Mac"; a manual sync proves nothing
+            quiet += 1
         self.db.set_status(QUIET_POLLS, str(quiet))
         charger = charger_decision(snap, cdc=self.cdc_present(), quiet_polls=quiet)
         self.report.charger_signal = charger.signal
@@ -140,6 +145,7 @@ class _Run:
     def clear_mute_keys(self) -> None:
         self.db.clear_status(UNMUTE_PENDING)
         self.db.clear_status(MUTED_SINCE)
+        self.db.clear_status(OWNER_MUTED)
 
     def add_error(self, message: str) -> None:
         self.report.outcome = "error"
@@ -325,8 +331,8 @@ class _Run:
 
 async def run_sync(db: Database, paths: Paths, cfg: Config, pendant: Pendant, *, now_ms: Callable[[], int],
                    lock: SyncLock, cdc_present: Callable[[], bool], dry_run: bool = False,
-                   settle_s: float = 1.0, log: logging.Logger = _log) -> SyncReport:
-    run = _Run(db, paths, cfg, pendant, now_ms, lock, cdc_present, settle_s, log)
+                   settle_s: float = 1.0, log: logging.Logger = _log, scheduled: bool = False) -> SyncReport:
+    run = _Run(db, paths, cfg, pendant, now_ms, lock, cdc_present, settle_s, log, scheduled)
     report = run.report
     run_id = db.start_sync_run(now_ms())
     try:

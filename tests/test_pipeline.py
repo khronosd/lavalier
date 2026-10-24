@@ -177,3 +177,10 @@ def test_recovering_a_drain_that_holds_resent_pages_decodes_only_the_new_pages(r
     assert [tuple(r) for r in events_after[:len(events_before)]] == [tuple(r) for r in events_before]
     assert all(r["page_index"] > 3 for r in events_after[len(events_before):])     # nothing again for pages 1..3
     assert db.capture_decoded(cid_b) and installed.exists()
+
+
+def test_sweep_marks_a_capture_decoded_when_every_page_is_already_held(root, db, seeded_fully_duplicated_undecoded_capture):
+    from lavalier.capture import SINK_NAME
+    from lavalier.pipeline import sweep_orphan_captures
+    sweep_orphan_captures(db, root, min_age_s=0)
+    assert db.capture_decoded(seeded_fully_duplicated_undecoded_capture) and not list(p for p in root.captures.iterdir() if SINK_NAME.match(p.name))

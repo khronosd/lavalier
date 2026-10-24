@@ -40,13 +40,15 @@ def state_of(snap: DeviceSnapshot) -> str:
     return snap.recording_state if snap.has_all_fields else "partial status"
 
 
-async def _send_and_reread(pendant: Pendant, send: str, settle_s: float, now_ms: Callable[[], int]) -> DeviceSnapshot:
+async def _send_and_reread(pendant: Pendant, send: str, settle_s: float, now_ms: Callable[[], int],
+                           after_send: Callable[[], None] = lambda: None) -> DeviceSnapshot:
     """A mutating session: the clock is set first, as on every sync (the pendant does not record
     without a time sync, and its clock does not survive a flat battery)."""
     async with pendant as p:
         await p.set_time(now_ms())
         firmware_ver, storage_instance = await p.info()
         await getattr(p, send)()
+        after_send()  # the command has landed: bookkeeping that must survive a failed read-back
         await asyncio.sleep(settle_s)
         snap = await p.status()
     return dataclasses.replace(snap, read_at_ms=now_ms(), firmware_ver=firmware_ver,
@@ -80,8 +82,15 @@ async def mute(db: Database, cfg: Config, pendant_factory: PendantFactory, *, lo
                cdc_present: Callable[[], bool], now_ms: Callable[[], int]) -> dict:
     """The owner's mute. Once confirmed, no recorder mute marker survives it, so a pending
     recorder unmute can never be retried over the owner's mute."""
+    def stop_landed() -> None:
+        # the stop was sent: whatever happens to the read-back, the recorder's mute is over (the pendant
+        # is stopped, and by us on the owner's behalf), so no pending recorder unmute may restart it
+        with db.transaction():
+            db.clear_status(UNMUTE_PENDING)
+            db.clear_status(MUTED_SINCE)
+
     snap, err = await _session(db, cfg, pendant_factory, lock=lock, cdc_present=cdc_present, source="mute",
-                               op=lambda p: _send_and_reread(p, "stop_recording", 0, now_ms))
+                               op=lambda p: _send_and_reread(p, "stop_recording", 0, now_ms, stop_landed))
     if err is not None:
         return {"ok": False, "state": None, "error": err}
     state = state_of(snap)
@@ -89,8 +98,6 @@ async def mute(db: Database, cfg: Config, pendant_factory: PendantFactory, *, lo
         return {"ok": False, "state": state, "error": f"Mute not confirmed: {state}"}
     with db.transaction():
         db.set_status(OWNER_MUTE, str(now_ms()))
-        db.clear_status(UNMUTE_PENDING)
-        db.clear_status(MUTED_SINCE)
     return {"ok": True, "state": state, "error": None}
 
 

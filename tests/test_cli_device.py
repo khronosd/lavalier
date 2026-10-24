@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import pytest
@@ -165,3 +166,25 @@ def test_status_does_not_say_muted_by_you_unless_the_last_full_read_is_not_recor
     db_at_root.set_status("muted_by_owner_since_ms", "1792821367981")
     _record(db_at_root, state, partial=partial)
     assert "muted by you" not in cli_env.invoke(["status"]).output
+
+
+def test_mute_clears_recorder_keys_before_the_read_back(cli_env, db_at_root, monkeypatch):
+    db_at_root.set_status("unmute_pending_since_ms", "1000"); db_at_root.set_status("muted_by_recorder_since_ms", "900")
+    p = FakePendant(stop_result="NOT_RECORDING", fail_on={"status": DeviceError("timeout")})   # stop lands, read fails
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: p)
+    cli_env.invoke(["mute"])
+    assert db_at_root.get_status("unmute_pending_since_ms") is None and db_at_root.get_status("muted_by_recorder_since_ms") is None
+
+
+def test_cli_quiets_the_fork_connection_log(cli_env):
+    logging.getLogger("pendant_client").setLevel(logging.NOTSET)
+    cli_env.invoke(["status"])
+    assert logging.getLogger("pendant_client").level == logging.ERROR
+
+
+def test_status_prints_only_the_recorder_line_when_both_markers_are_set(cli_env, db_at_root):
+    from lavalier.device import DeviceError  # noqa: F401
+    db_at_root.set_status("muted_by_recorder_since_ms", "1792821367981")
+    db_at_root.set_status("muted_by_owner_since_ms", "1792821367981")
+    r = cli_env.invoke(["status"])
+    assert "muted by the recorder" in r.output and "muted by you" not in r.output

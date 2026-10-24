@@ -647,6 +647,14 @@ class Database:
             )
             return int(cur.lastrowid)
 
+    def close_running_sync_runs(self, now_ms: int) -> int:
+        """Rows still "running" belong to a process that died mid-sync; close them as interrupted."""
+        with self._write_scope():
+            cur = self._conn.execute(
+                "UPDATE sync_runs SET outcome = 'error', error = 'interrupted', ended_ms = ? WHERE outcome = 'running'",
+                (now_ms,))
+            return cur.rowcount
+
     def finish_sync_run(
         self, run_id: int, *, ended_ms: int, outcome: str, reason: str, pages: int, messages: int,
         capture_id: Optional[int], muted_by: Optional[str], unmute: str, error: Optional[str],

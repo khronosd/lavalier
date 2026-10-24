@@ -150,6 +150,7 @@ def _sync_line(r: dict, paths: Paths) -> str:
 def main() -> None:
     """Turn pendant captures into transcripts and day files."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger("pendant_client").setLevel(logging.ERROR)  # its connection INFO lines and .pair() warning
 
 
 def _import_line(name: str, result) -> str:
@@ -227,7 +228,7 @@ def _echo_summary(s: dict) -> None:
                    "run 'lavalier unmute' or hold the button")
     elif s.get("muted_by_recorder_since_ms") is not None:
         click.echo(f"Pendant muted by the recorder since {_local_time(s['muted_by_recorder_since_ms'])}")
-    if s.get("muted_by_owner_since_ms") is not None and d is not None and d["has_all_fields"] \
+    elif s.get("muted_by_owner_since_ms") is not None and d is not None and d["has_all_fields"] \
             and d["recording_state"] == "NOT_RECORDING":
         click.echo(f"Pendant muted by you since {_local_time(s['muted_by_owner_since_ms'])}")
     ls = s["last_sync"]
@@ -458,3 +459,7 @@ def retention_cmd(run_now: bool) -> None:
     with db:
         clips, caps = sweep(db, paths, cfg, now_ms=now_ms())
     click.echo(f"Retention: {clips} clips, {caps} captures deleted")
+
+
+if __name__ == "__main__":
+    main()

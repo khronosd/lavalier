@@ -105,3 +105,9 @@ Owner at the keyboard, pendant in range, nothing else connected.
 - [x] 4. System Settings > Privacy & Security > Bluetooth shows "Lavalier" with
   the switch on.
   Outcome: the list shows "Lavalier" once, switched on.
+
+## What the bundle runs
+
+The bundle runs whatever the checkout and the venv hold at its next restart: it
+does not carry a copy of the code. Switch branches with the agent stopped, or
+rebuild and restart it afterwards, so the running app never changes under itself.

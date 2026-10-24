@@ -28,6 +28,7 @@ class _SyncEnv:
             lock=SyncLock(self.root / ".lock", list_processes=lambda: []),
             cdc_present=lambda: False,
             dry_run=False,
+            scheduled=False,
         )
         unknown = set(overrides) - set(kw)
         assert not unknown, unknown
@@ -76,9 +77,21 @@ async def test_drain_after_24h_without_one(sync_env, db, storage_payloads):
 
 async def test_two_quiet_polls_count_as_on_charger(sync_env, storage_payloads):
     p = FakePendant(pages=(0, 9), messages=storage_payloads)
-    assert (await sync_env(p)).outcome == "skipped"
-    r = await sync_env(p)
+    assert (await sync_env(p, scheduled=True)).outcome == "skipped"
+    r = await sync_env(p, scheduled=True)
     assert r.outcome == "drained" and r.reason == "on charger (quiet-polls)"
+
+async def test_owner_mute_marker_clears_when_the_pendant_is_heard_listening(sync_env, db):
+    db.set_status("muted_by_owner_since_ms", "1000")
+    await sync_env(FakePendant(state="LISTENING", pages=(0, 9)))
+    assert db.get_status("muted_by_owner_since_ms") is None
+
+async def test_quiet_polls_count_only_scheduled_ticks(sync_env):
+    p = FakePendant(pages=(0, 9), messages=[])
+    await sync_env(p); await sync_env(p)                       # two manual syncs
+    assert (await sync_env(p)).outcome == "skipped"            # still not "set down near the Mac"
+    await sync_env(p, scheduled=True)
+    assert (await sync_env(p, scheduled=True)).reason == "on charger (quiet-polls)"
 
 async def test_mute_drain_restore_in_order(sync_env, db, storage_payloads):
     p = FakePendant(pages=(0, 999), messages=storage_payloads)
@@ -215,7 +228,7 @@ async def test_locked_run_is_recorded_with_the_holder(sync_env, db):
 
 
 async def test_not_in_range_resets_quiet_polls_and_keeps_last_seen(sync_env, db):
-    await sync_env(FakePendant(pages=(0, 9)))
+    await sync_env(FakePendant(pages=(0, 9)), scheduled=True)
     assert db.get_status("quiet_polls") == "1" and db.get_status("last_seen_ms") == "1000000"
     sync_env.clock = 2_000_000
     await sync_env(FakePendant(in_range=False))
@@ -225,7 +238,7 @@ async def test_not_in_range_resets_quiet_polls_and_keeps_last_seen(sync_env, db)
 async def test_quiet_polls_reset_after_a_drain_and_when_not_listening(sync_env, db, storage_payloads):
     await sync_env(FakePendant(pages=(0, 999), messages=storage_payloads))
     assert db.get_status("quiet_polls") == "0"
-    await sync_env(FakePendant(pages=(0, 9)))
+    await sync_env(FakePendant(pages=(0, 9)), scheduled=True)
     await sync_env(FakePendant(state="NOT_RECORDING", pages=(0, 9)))
     assert db.get_status("quiet_polls") == "0"
 

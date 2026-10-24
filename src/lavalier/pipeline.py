@@ -137,6 +137,10 @@ def sweep_orphan_captures(db: Database, paths: Paths, *, min_age_s: float = ORPH
                     imp, _ = import_and_decode(db, paths, installed, complete=False,
                                                capture_day=datetime.fromtimestamp(st.st_mtime).date(),
                                                storage_instance=storage_instance)
+                    if not db.capture_decoded(known) and not imp.new_payloads and all(
+                            db.page_owned_earlier(k, known) for k in db.pages_for_capture(known)):
+                        # every page was handed to an earlier capture: nothing is left to decode
+                        db.mark_capture_decoded(known)
                     if not db.capture_decoded(known):
                         log.warning("capture %s is still undecoded; sink %s left in place", known, f.name)
                         continue

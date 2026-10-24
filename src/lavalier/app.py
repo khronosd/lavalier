@@ -114,12 +114,12 @@ class App:
         finally:
             db.close()
 
-    async def _sync_device(self) -> SyncReport:
+    async def _sync_device(self, *, scheduled: bool = False) -> SyncReport:
         """The device half of a sync; the caller holds the device lock."""
         if not self.cfg.pendant_address:
             return SyncReport(outcome="error", reason=actions.ADDRESS_MISSING, error=actions.ADDRESS_MISSING)
         return await run_sync(self.db, self.paths, self.cfg, self._make_pendant(self.cfg), now_ms=self._now_ms,
-                              lock=self._lock, cdc_present=self._cdc_present, settle_s=self.settle_s, log=_log)
+                              lock=self._lock, cdc_present=self._cdc_present, settle_s=self.settle_s, log=_log, scheduled=scheduled)
 
     async def _process_capture(self, report: SyncReport) -> Optional[ProcessReport]:
         """Process what came in, whatever the outcome. No device involved, so the device lock is
@@ -171,7 +171,7 @@ class App:
             async with self._device_lock:
                 if self._stopping:  # stop() came while this waited: no new session during shutdown
                     return SyncReport(outcome="skipped", reason="stopping")
-                report = await self._sync_device()
+                report = await self._sync_device(scheduled=True)
         finally:
             self._ticking = False
         _log.info("sync: %s (%s)", report.outcome, report.reason)
@@ -224,9 +224,16 @@ class App:
         for task in list(self._action_tasks):
             task.cancel()
 
+    def _startup_housekeeping(self) -> None:
+        """A sync row still "running" belongs to a process that died: close it before the first tick."""
+        closed = self.db.close_running_sync_runs(self._now_ms())
+        if closed:
+            _log.warning("closed %d sync run(s) left running by an earlier process", closed)
+
     async def run(self) -> None:
         self._stopping = False
         self.db  # open it on this loop's thread
+        self._startup_housekeeping()
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
@@ -294,6 +301,7 @@ def main(argv=None) -> int:
     paths = Paths(default_root())
     paths.ensure()
     _configure_logging(paths)
+    logging.getLogger("pendant_client").setLevel(logging.ERROR)
     if client.app_running(paths.root / SERVER_FILE):
         _log.error("the lavalier app is already running")
         return 1

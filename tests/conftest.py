@@ -576,3 +576,46 @@ def app_env(root):
     yield make
     for a in apps:
         a.close()
+
+
+@pytest.fixture
+def seeded_fully_duplicated_undecoded_capture(root, db, tmp_path):
+    """The field's stuck case: capture A decoded pages 1..3; capture B (undecoded, sink file still in
+    captures/) holds exactly the same pages under the real instance, so nothing is left to decode."""
+    import hashlib
+    import shutil
+    from pendant_client.decode import iter_messages_from_bin, storage_page_of, write_batch_ingest_request
+    from lavalier.pages import page_key
+    from lavalier.pipeline import import_and_decode
+
+    def capture(path, ble="test"):
+        fps = [make_audio_flash_page(b"\xb8" + b"A" * 39, did_start_recording=i == 1,
+                                     absolute_timestamp_ms=T(10, 0, i)) for i in (1, 2, 3)]
+        msgs = [make_storage_buffer_msg(page_index=i, flash_page=fp, ingest_type=2, session=1, run=1)
+                for i, fp in zip((1, 2, 3), fps)]
+        write_batch_ingest_request(messages=msgs, ble_identifier=ble, path=path)
+        return path
+
+    import_and_decode(db, root, capture(tmp_path / "earlier.bin"), capture_day=date(2026, 10, 23))
+    src = capture(tmp_path / "20261024T055640Z.bin", ble="test-b")  # same pages, different bytes
+    root.captures.mkdir(parents=True, exist_ok=True)
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    installed = root.captures / f"{sha[:12]}-{src.name}"
+    shutil.copyfile(src, installed)
+    shutil.copyfile(src, root.captures / src.name)           # the sink the drain left behind
+    messages = list(iter_messages_from_bin(installed))
+    cid = db.add_capture(str(installed.relative_to(root.root)), sha, len(messages), False)
+    for m in messages:
+        sp = storage_page_of(m)
+        db.add_page(page_key(sp, storage_instance=0xA1B2C3D4E5F60718), cid, sp.session, sp.ingest_type, 0)
+    return cid
+
+
+@pytest.fixture(autouse=True)
+def _restore_fork_log_level():
+    """The CLI and app quiet the fork's logger for the whole process; a test must not leak that."""
+    import logging
+    logger = logging.getLogger("pendant_client")
+    level = logger.level
+    yield
+    logger.setLevel(level)

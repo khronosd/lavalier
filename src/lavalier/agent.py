@@ -27,8 +27,9 @@ def plist_dict(*, program: list[str], log_dir: Path, env: Mapping[str, str] = os
         "StandardOutPath": str(log_dir / "app.out.log"),
         "StandardErrorPath": str(log_dir / "app.err.log"),
     }
+    d["EnvironmentVariables"] = {"PYTHONUTF8": "1"}
     if env.get("PENDANT_ROOT"):
-        d["EnvironmentVariables"] = {"PENDANT_ROOT": env["PENDANT_ROOT"]}
+        d["EnvironmentVariables"]["PENDANT_ROOT"] = env["PENDANT_ROOT"]
     return d
 
 

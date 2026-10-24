@@ -15,8 +15,8 @@ def test_plist_matches_golden(tmp_path):
 
 def test_plist_carries_pendant_root_only_when_set():
     d = plist_dict(program=["x"], log_dir=Path("/l"), env={"PENDANT_ROOT": "/r"})
-    assert d["EnvironmentVariables"] == {"PENDANT_ROOT": "/r"}
-    assert "EnvironmentVariables" not in plist_dict(program=["x"], log_dir=Path("/l"), env={})
+    assert d["EnvironmentVariables"]["PENDANT_ROOT"] == "/r"
+    assert "PENDANT_ROOT" not in plist_dict(program=["x"], log_dir=Path("/l"), env={})["EnvironmentVariables"]
 
 
 def test_default_program_prefers_the_bundle(tmp_path):
@@ -54,3 +54,13 @@ def test_uninstall_is_idempotent(tmp_path):
     (tmp_path / f"{LABEL}.plist").write_bytes(b"x")
     assert uninstall(run=run, agents_dir=tmp_path) is True
     assert not (tmp_path / f"{LABEL}.plist").exists()
+
+
+def test_plist_sets_utf8_mode(tmp_path):
+    d = plist_dict(program=["/x"], log_dir=tmp_path, env={})
+    assert d["EnvironmentVariables"]["PYTHONUTF8"] == "1"
+
+
+def test_plist_keeps_the_root_beside_utf8_mode(tmp_path):
+    d = plist_dict(program=["/x"], log_dir=tmp_path, env={"PENDANT_ROOT": "/r"})
+    assert d["EnvironmentVariables"] == {"PENDANT_ROOT": "/r", "PYTHONUTF8": "1"}
