@@ -41,6 +41,7 @@ CONTENT_TYPES = {
 }
 
 _log = logging.getLogger("lavalier.server")
+_QUERY = re.compile(r"\?[^\s\"']*")
 
 
 class _Busy(Exception):
@@ -357,7 +358,8 @@ def _handler(srv: ControlServer):
         sys_version = ""
 
         def log_message(self, format, *args):  # noqa: A002 - the stdlib's signature
-            _log.debug("%s %s", self.address_string(), format % args)
+            # paths only: a query string can carry the launch token (/?token=...), which no log may keep
+            _log.debug("%s %s", self.address_string(), _QUERY.sub("", format % args))
 
         def _send(self, r: _Response) -> None:
             self.send_response(r.status)

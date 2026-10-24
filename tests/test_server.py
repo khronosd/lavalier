@@ -407,3 +407,12 @@ def test_data_routes_are_503_while_the_app_stops(server_with_fixture):
     assert post(server_with_fixture, f"/api/pin/{CONV}").status == 503
     assert get(server_with_fixture, f"/api/audio/{CLIP}.m4a").status == 503
     assert get(server_with_fixture, "/api/status").status == 200       # status still answers during shutdown
+
+
+def test_the_request_log_never_carries_the_query_string(server, caplog):
+    import logging
+    with caplog.at_level(logging.DEBUG, logger="lavalier.server"):
+        get(server, "/?token=secret-launch-token")
+        get(server, "/api/status?token=secret-launch-token")
+    assert caplog.records and "secret-launch-token" not in caplog.text and "token=" not in caplog.text
+    assert "/api/status" in caplog.text
