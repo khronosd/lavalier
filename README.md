@@ -7,16 +7,27 @@ and writes one Markdown file per day.
 
 Audio never leaves this Mac. This version makes no network connection at all except `doctor --download-model`.
 
+## The device
+
+The project talks to the pendant over the pendant's own BLE protocol. It does
+not modify the device or its firmware and does not alter the LED.
+
+Consent: the pendant's LED shows when it is recording, and that LED stays
+under the pendant's own control. Tell the people around you that you are
+recording, and follow the recording-consent law where you are.
+
 ## Install
 
 Requires macOS on Apple Silicon, Python 3.12 and ffmpeg.
 
-The decoder is the `pendant_client` package. The editable fork checkout is the
-development setup for now; a git URL will follow when it is published.
+The decoder is the `pendant_client` package from the `pendant-cli` fork. For
+development, check it out next to this repository (branch `plan-01-core` until
+it is merged) and install it editable; a git URL will follow when it is
+published.
 
 ```
 /opt/homebrew/bin/python3.12 -m venv .venv
-.venv/bin/pip install -e ".[dev]" -e /Users/khronos/Repos/pendant-cli/.worktrees/plan-01-core
+.venv/bin/pip install -e ".[dev]" -e ../pendant-cli
 .venv/bin/pytest -q
 ```
 
