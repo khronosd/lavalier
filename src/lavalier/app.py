@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 from lavalier import actions, client
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
-from lavalier.config import Config, load_config
+from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, now_ms as _now_ms
 from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
@@ -97,9 +97,15 @@ class App:
 
     # device work, always under self._device_lock
 
-    def reload_config(self) -> None:
-        """Re-read config.toml; the next tick and action use the new values."""
-        self.cfg = load_config(self.paths.config)
+    def reload_config(self) -> bool:
+        """Re-read config.toml; the next tick and action use the new values.
+        An unreadable file keeps the old config, is logged, and returns False."""
+        try:
+            self.cfg = load_config(self.paths.config)
+        except ConfigError as e:
+            _log.error("config reload failed, keeping the previous settings: %s", e)
+            return False
+        return True
 
     def _make_pendant(self, cfg: Config):
         self.pendant = self._pendant_factory(cfg)

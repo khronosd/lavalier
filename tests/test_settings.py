@@ -1,19 +1,22 @@
+from pathlib import Path
+
 import pytest
 
 from lavalier.config import Config, load_config, save_config
+from lavalier.paths import Paths
 from lavalier.settings import EDITABLE, SettingsError, apply, read_settings
 
 
 def test_read_settings_exposes_editable_fields_and_facts(cfg, root):
-    s = read_settings(cfg)
+    s = read_settings(cfg, root)
     assert s["retention_days"] == 14 and s["appearance"] == "system" and s["readonly"]["whisper_model"].startswith("mlx-community/")
     assert all(f in s for f in EDITABLE)
-    assert s["readonly"]["state_root"] and s["readonly"]["bundle_id"] == "io.github.khronosd.lavalier"
+    assert s["readonly"]["state_root"] == str(root.root) and s["readonly"]["bundle_id"] == "io.github.khronosd.lavalier"
 
 
 def test_bundle_id_matches_the_bundle_builder():
     build_app = pytest.importorskip("bundle.build_app")
-    assert read_settings(Config())["readonly"]["bundle_id"] == build_app.BUNDLE_ID
+    assert read_settings(Config(), Paths(Path("/x")))["readonly"]["bundle_id"] == build_app.BUNDLE_ID
 
 
 def test_apply_validates_and_saves(cfg, tmp_path):
@@ -58,3 +61,15 @@ def test_app_reload_config_picks_up_a_saved_setting(app_env):
     assert app.cfg.retention_days == 14
     app.reload_config()
     assert app.cfg.retention_days == 21
+
+
+def test_reload_config_survives_a_corrupt_file(app_env, caplog):
+    from tests.fake_pendant import FakePendant
+    app = app_env(FakePendant())
+    assert app.reload_config() is True
+    before = app.cfg
+    app.paths.config.write_text('retention_days = "x"\n')
+    with caplog.at_level("ERROR"):
+        assert app.reload_config() is False
+    assert app.cfg is before
+    assert "retention_days" in caplog.text

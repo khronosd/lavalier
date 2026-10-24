@@ -1,5 +1,7 @@
 """User configuration stored as TOML."""
 
+import os
+import tempfile
 import tomllib
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -68,5 +70,19 @@ def load_config(path: Path) -> Config:
 
 
 def save_config(cfg: Config, path: Path) -> None:
+    """Merge over the existing file so keys from a newer build survive; replace it atomically."""
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = tomllib.loads(path.read_text())
+        except tomllib.TOMLDecodeError as e:
+            raise ConfigError(f"{path}: invalid TOML: {e}") from e
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(asdict(cfg)))
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(tomli_w.dumps({**existing, **asdict(cfg)}))
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise

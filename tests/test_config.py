@@ -45,3 +45,21 @@ def test_appearance_and_window_size_defaults_and_type_check(tmp_path):
     p.write_text("appearance = 3\n")
     with pytest.raises(ConfigError, match="appearance"):
         load_config(p)
+
+
+def test_save_config_keeps_unknown_keys_and_leaves_no_temp_file(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text("future_key = 1\nretention_days = 3\n")
+    assert load_config(p).retention_days == 3
+    save_config(Config(retention_days=9), p)
+    assert load_config(p).retention_days == 9
+    assert "future_key = 1" in p.read_text()
+    assert [f.name for f in tmp_path.iterdir()] == ["config.toml"]
+
+
+def test_save_config_refuses_to_overwrite_an_unreadable_file(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text("not [valid")
+    with pytest.raises(ConfigError):
+        save_config(Config(), p)
+    assert p.read_text() == "not [valid"

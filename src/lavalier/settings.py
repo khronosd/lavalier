@@ -5,7 +5,7 @@ from dataclasses import fields, replace
 from pathlib import Path
 
 from lavalier.config import Config, _type_ok, save_config
-from lavalier.paths import default_root
+from lavalier.paths import Paths
 
 EDITABLE = ("pendant_address", "retention_days", "poll_interval_s", "drain_pages_threshold", "drain_after_hours",
             "require_firmware", "whisper_language", "appearance", "window_size")
@@ -21,9 +21,9 @@ class SettingsError(ValueError):
     """A settings patch was refused; the message names the field."""
 
 
-def read_settings(cfg: Config) -> dict:
+def read_settings(cfg: Config, paths: Paths) -> dict:
     out = {name: getattr(cfg, name) for name in EDITABLE}
-    out["readonly"] = {"state_root": str(default_root()), "whisper_model": cfg.whisper_model, "bundle_id": BUNDLE_ID}
+    out["readonly"] = {"state_root": str(paths.root), "whisper_model": cfg.whisper_model, "bundle_id": BUNDLE_ID}
     return out
 
 
