@@ -20,7 +20,7 @@ class AppBusy(Exception):
 
 def _token(token_path: Path) -> Optional[dict]:
     try:
-        info = json.loads(Path(token_path).read_text())
+        info = json.loads(Path(token_path).read_text(encoding="utf-8"))
         int(info["port"]), str(info["token"]), int(info["pid"])
         return info
     except (OSError, ValueError, KeyError, TypeError):

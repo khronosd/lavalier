@@ -97,3 +97,51 @@ def test_measure_loudness_without_ffmpeg_aborts_the_stage(root, db, clip_record,
     with pytest.raises(AudioToolError, match="ffmpeg not found"):
         measure_loudness(db, root)
     assert db.clip(clip_record.clip_id).classification is None
+
+
+def _fake_binary(path):
+    path.write_bytes(b"#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_ffmpeg_path_falls_back_to_the_homebrew_binary(monkeypatch, tmp_path):
+    from lavalier import audio
+    monkeypatch.setattr(audio.shutil, "which", lambda name: None)
+    monkeypatch.setattr(audio, "FFMPEG_FALLBACKS", (tmp_path / "ffmpeg",))
+    assert audio.ffmpeg_path() is None and not audio.ffmpeg_available()
+    _fake_binary(tmp_path / "ffmpeg")
+    assert audio.ffmpeg_path() == str(tmp_path / "ffmpeg") and audio.ffmpeg_available()
+
+
+def test_ensure_ffmpeg_on_path_prepends_its_directory(monkeypatch, tmp_path):
+    """launchd starts the app with a bare PATH; mlx-whisper runs `ffmpeg` by name, so the directory is added."""
+    import os
+    from lavalier import audio
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(audio.shutil, "which", lambda name: None)
+    monkeypatch.setattr(audio, "FFMPEG_FALLBACKS", (_fake_binary(tmp_path / "ffmpeg"),))
+    assert audio.ensure_ffmpeg_on_path() == str(tmp_path / "ffmpeg")
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(tmp_path)
+    audio.ensure_ffmpeg_on_path()
+    assert os.environ["PATH"].count(str(tmp_path)) == 1  # not added twice
+
+
+def test_ffmpeg_calls_use_the_resolved_binary(monkeypatch, tmp_path):
+    from lavalier import audio, playback
+    seen = []
+
+    class _Done:
+        returncode, stderr, stdout = 0, "mean_volume: -20.0 dB\nmax_volume: -3.0 dB", ""
+
+    def run(argv, **kw):
+        seen.append(argv[0])
+        return _Done()
+    monkeypatch.setattr(audio, "ffmpeg_path", lambda: "/x/ffmpeg")
+    monkeypatch.setattr(playback, "ffmpeg_path", lambda: "/x/ffmpeg")
+    monkeypatch.setattr(audio.subprocess, "run", run)
+    monkeypatch.setattr(playback.subprocess, "run", run)
+    audio.to_wav16k(tmp_path / "a.opus", tmp_path / "a.wav")
+    audio.loudness(tmp_path / "a.opus")
+    playback.transcode(tmp_path / "a.opus", tmp_path / "a.m4a")
+    assert seen == ["/x/ffmpeg"] * 3

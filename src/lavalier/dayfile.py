@@ -126,6 +126,6 @@ def write_day(db: Database, paths: Paths, day: date, cfg: Config, *, now_ms: int
     text = render_day(db, day, cfg, now_ms=now_ms)
     paths.days.mkdir(parents=True, exist_ok=True)
     out = paths.days / f"{day.isoformat()}.md"
-    out.write_text(text)
+    out.write_text(text, encoding="utf-8")
     db.mark_day_clean(day)
     return out

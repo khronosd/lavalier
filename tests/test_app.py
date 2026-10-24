@@ -515,3 +515,19 @@ async def test_each_processing_run_leaves_a_distinct_last_process(app_env, stora
     await app.tick()
     first = json.loads(app.db.get_status("last_process"))
     assert first["processed_ms"] == APP_CLOCK_MS
+
+
+async def test_pending_clips_are_processed_at_startup(app_env, db, imported_and_decoded_three_clips):
+    """Clips left pending by an earlier run (say, ffmpeg was missing) are finished without waiting for a drain."""
+    app = app_env(FakePendant())
+    assert db.clips_needing_transcript()
+    assert await app.process_pending_if_any() is True
+    assert not db.clips_needing_transcript() and app.last_process is not None
+    assert await app.process_pending_if_any() is False
+
+
+async def test_pending_clips_wait_while_a_process_holds_the_lock(app_env, db, imported_and_decoded_three_clips):
+    app = app_env(FakePendant())
+    await app._process_lock.acquire()
+    assert await app.process_pending_if_any() is False and db.clips_needing_transcript()
+    app._process_lock.release()

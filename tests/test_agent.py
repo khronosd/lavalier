@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from lavalier.agent import LABEL, default_program, install, plist_dict, uninstall
+from lavalier.agent import LABEL, default_program, install, plist_dict, uninstall, AGENT_PATH
 from lavalier.config import Config
 
 
@@ -63,4 +63,10 @@ def test_plist_sets_utf8_mode(tmp_path):
 
 def test_plist_keeps_the_root_beside_utf8_mode(tmp_path):
     d = plist_dict(program=["/x"], log_dir=tmp_path, env={"PENDANT_ROOT": "/r"})
-    assert d["EnvironmentVariables"] == {"PENDANT_ROOT": "/r", "PYTHONUTF8": "1"}
+    assert d["EnvironmentVariables"] == {"PATH": AGENT_PATH, "PENDANT_ROOT": "/r", "PYTHONUTF8": "1"}
+
+
+def test_plist_gives_the_agent_a_path_with_homebrew():
+    """launchd's default PATH has no /opt/homebrew/bin, where ffmpeg lives."""
+    d = plist_dict(program=["x"], log_dir=Path("/l"), env={})
+    assert d["EnvironmentVariables"]["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"

@@ -55,7 +55,7 @@ def load_config(path: Path) -> Config:
     if not path.exists():
         return Config()
     try:
-        data = tomllib.loads(path.read_text())
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path}: invalid TOML: {e}") from e
     defaults = Config()
@@ -84,7 +84,7 @@ def save_config(cfg: Config, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(tomli_w.dumps({**existing, **asdict(cfg)}))
         os.replace(tmp, path)
     except BaseException:

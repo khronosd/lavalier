@@ -129,7 +129,7 @@ class ControlServer:
 
     def _remove_token_file(self) -> None:
         try:
-            if json.loads(self.token_path.read_text()).get("token") != self.token:
+            if json.loads(self.token_path.read_text(encoding="utf-8")).get("token") != self.token:
                 return  # another app process owns it now
         except (OSError, ValueError):
             return
