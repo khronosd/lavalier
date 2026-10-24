@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from pendant_client.decode import decode_messages
 
@@ -26,6 +27,27 @@ def day_for(ms: int, *, fallback: date) -> tuple[date, bool]:
     if ms < MIN_VALID_MS:
         return fallback, True
     return datetime.fromtimestamp(ms / 1000).date(), False
+
+
+def _free_clip_id(db: Database, clip_id: str, first_page: int) -> Optional[str]:
+    """The id a new clip starting at first_page files under, or None when that clip is already
+    decoded. A re-sent page keeps its id; another page with the same first timestamp gets the
+    first-page suffix, so a collision never aborts the decode."""
+    existing = db.clip(clip_id)
+    if existing is None:
+        return clip_id
+    if existing.first_page == first_page:
+        log.info("clip %s already decoded from page %s (capture %s); skipping",
+                 clip_id, first_page, existing.capture_id)
+        return None
+    suffixed = f"{clip_id}-p{first_page}"
+    log.warning("clip id %s is taken by page %s (capture %s); filing page %s as %s",
+                clip_id, existing.first_page, existing.capture_id, first_page, suffixed)
+    again = db.clip(suffixed)
+    if again is not None and again.first_page == first_page:
+        log.info("clip %s already decoded (capture %s); skipping", suffixed, again.capture_id)
+        return None
+    return suffixed
 
 
 def decode_new_pages(db: Database, paths: Paths, imp: ImportResult, *, capture_day: date) -> list[ClipRecord]:
@@ -52,6 +74,9 @@ def decode_new_pages(db: Database, paths: Paths, imp: ImportResult, *, capture_d
                 clip_id = clip_id_for(first_ms)
                 if suspect:  # unset clocks repeat timestamps; the first page keeps ids apart
                     clip_id += f"-p{rec.first_page_index}"
+                clip_id = _free_clip_id(db, clip_id, rec.first_page_index)
+                if clip_id is None:
+                    continue
                 dest = paths.audio / day.isoformat() / f"{clip_id}.opus"
                 moves.append((rec.path, dest))
                 clip = ClipRecord(

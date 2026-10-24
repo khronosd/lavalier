@@ -106,3 +106,19 @@ def test_retry_failed_requeues_failed_clips(root, db, cfg, imported_and_decoded_
     assert (again.classification, again.transcribed_at, again.mean_db) == (None, None, None)
     r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 40, 0))
     assert (r.loudness_measured, r.transcribed, r.failed) == (1, 1, 0) and db.count_failed_clips() == 0
+
+
+# --- R47: a drain re-sending pages a CLI import (instance 0) already holds ---
+
+def test_drain_resending_pages_of_an_instance_zero_import_decodes_only_the_new_pages(root, db, make_capture):
+    from datetime import date as _date
+    from conftest import T
+    from lavalier.pipeline import import_and_decode
+    ts = [T(10, 0, s) for s in range(5)]
+    earlier = make_capture([1, 2, 3], timestamps=ts[:3])
+    imp0, clips0 = import_and_decode(db, root, earlier, capture_day=_date(2026, 10, 23))   # CLI: instance 0
+    drain = make_capture([1, 2, 3, 4, 5], timestamps=ts)
+    imp, clips = import_and_decode(db, root, drain, capture_day=_date(2026, 10, 24), storage_instance=0xA1B2C3D4E5F60718)
+    assert (imp.pages_new, imp.pages_duplicate) == (2, 3)
+    assert db.capture_decoded(imp.capture_id) and [c.first_page for c in clips] == [4]
+    assert len(clips0) == 1 and db.clip(clips0[0].clip_id).capture_id == imp0.capture_id

@@ -113,7 +113,8 @@ def sweep_orphan_captures(db: Database, paths: Paths, *, min_age_s: float = ORPH
     was cancelled, killed, or failed to close. The pendant already deleted those pages, so this is
     their only copy. Skips a sink this process still writes and any file modified within min_age_s
     (another process's live drain). Idempotent by sha: a sink left behind after its import committed
-    is removed, its installed copy being canonical."""
+    is removed, its installed copy being canonical; when that capture's decode had failed, the
+    installed copy is decoded again first and the sink is removed only once that succeeds."""
     latest = db.latest_device_status()
     storage_instance = latest[0].storage_instance if latest is not None else 0
     open_now = open_sink_paths()
@@ -127,8 +128,21 @@ def sweep_orphan_captures(db: Database, paths: Paths, *, min_age_s: float = ORPH
                 continue
             known = db.capture_by_sha(hashlib.sha256(f.read_bytes()).hexdigest())
             if known is not None:
-                if paths.root / db.capture_path(known) != f:
-                    f.unlink(missing_ok=True)
+                installed = paths.root / db.capture_path(known)
+                if installed == f:
+                    continue
+                if not db.capture_decoded(known):
+                    # Its decode failed after the import committed: decode the installed copy
+                    # again, and keep the sink until that succeeds.
+                    imp, _ = import_and_decode(db, paths, installed, complete=False,
+                                               capture_day=datetime.fromtimestamp(st.st_mtime).date(),
+                                               storage_instance=storage_instance)
+                    if not db.capture_decoded(known):
+                        log.warning("capture %s is still undecoded; sink %s left in place", known, f.name)
+                        continue
+                    log.warning("re-decoded undecoded capture %s from %s", known, installed.name)
+                    results.append(imp)
+                f.unlink(missing_ok=True)
                 continue
             imp, _ = import_and_decode(db, paths, f, complete=False,
                                        capture_day=datetime.fromtimestamp(st.st_mtime).date(),

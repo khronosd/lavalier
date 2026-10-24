@@ -52,17 +52,24 @@ def _install_copy(src: Path, dest: Path, sha: str) -> None:
 def _owned_payloads(db: Database, capture_id: int, messages: list[bytes], storage_instance: int) -> list[bytes]:
     """The payloads a decode of this capture needs: its own storage pages, once each, and
     every non-storage message, in stream order (re-read from the stored copy)."""
-    owned = set(db.pages_for_capture(capture_id))
+    # Matched as page_seen does: instance 0 on either side is "unknown" and matches any instance.
+    owned: dict[tuple[int, int, str], set[int]] = {}
+    for k in db.pages_for_capture(capture_id):
+        owned.setdefault((k.run, k.index, k.sha256), set()).add(k.storage_instance)
     out: list[bytes] = []
-    taken: set[PageKey] = set()
+    taken: set[tuple[int, int, str]] = set()
     for payload in messages:
         sp = storage_page_of(payload)
         if sp is None:
             out.append(payload)
             continue
         key = page_key(sp, storage_instance=storage_instance)
-        if key in owned and key not in taken:
-            taken.add(key)
+        ident = (key.run, key.index, key.sha256)
+        instances = owned.get(ident)
+        if not instances or ident in taken:
+            continue
+        if storage_instance == 0 or 0 in instances or storage_instance in instances:
+            taken.add(ident)
             out.append(payload)
     return out
 
@@ -72,8 +79,11 @@ def import_capture(
 ) -> ImportResult:
     src = Path(src)
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
-    dest = paths.captures / f"{sha[:12]}-{src.name}"
-    _install_copy(src, dest, sha)
+    if src.resolve().parent == paths.captures.resolve() and src.name.startswith(f"{sha[:12]}-"):
+        dest = paths.captures / src.name  # already the installed copy (a re-decode); never install it a second time
+    else:
+        dest = paths.captures / f"{sha[:12]}-{src.name}"
+        _install_copy(src, dest, sha)
     messages = list(iter_messages_from_bin(dest))
 
     pages_new = 0

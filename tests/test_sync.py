@@ -651,3 +651,41 @@ async def test_marker_only_mute_converted_by_the_poll_is_labelled_recorder(sync_
 async def test_owner_mute_without_recorder_keys_is_still_the_owners(sync_env, storage_payloads):
     r = await sync_env(FakePendant(state="NOT_RECORDING", pages=(0, 1500), messages=storage_payloads))
     assert (r.muted_by, r.unmute) == ("owner", "owner-mute-left")
+
+
+# --- R49: the sweep re-decodes a capture whose decode failed, then drops the sink ---
+
+def test_sweep_redecodes_an_undecoded_capture_before_removing_its_sink(root, db, make_capture):
+    import os
+    from datetime import date
+    from conftest import T
+    from lavalier.pages import import_capture
+    from lavalier.pipeline import sweep_orphan_captures
+    sink = root.captures / "20261024T055640Z.bin"
+    sink.write_bytes(make_capture([1, 2], timestamps=[T(10, 0, 0), T(10, 0, 1)]).read_bytes())
+    imp = import_capture(db, root, sink, storage_instance=7)          # the decode never ran
+    installed = root.root / imp.path
+    assert installed != sink and installed.exists() and not db.capture_decoded(imp.capture_id)
+    os.utime(sink, (sink.stat().st_atime, sink.stat().st_mtime - 120))
+    sweep_orphan_captures(db, root)
+    assert db.capture_decoded(imp.capture_id)
+    assert [c.capture_id for c in db.clips_for_day(date(2026, 10, 23))] == [imp.capture_id]
+    assert not sink.exists() and installed.exists()
+    assert sorted(p.name for p in root.captures.iterdir()) == [installed.name]
+
+
+def test_sweep_keeps_the_sink_when_the_redecode_fails(root, db, make_capture, monkeypatch):
+    import os
+    from conftest import T
+    from lavalier import clips as clips_mod
+    from lavalier.pages import import_capture
+    from lavalier.pipeline import sweep_orphan_captures
+    sink = root.captures / "20261024T055640Z.bin"
+    sink.write_bytes(make_capture([1, 2], timestamps=[T(10, 0, 0), T(10, 0, 1)]).read_bytes())
+    imp = import_capture(db, root, sink)
+    os.utime(sink, (sink.stat().st_atime, sink.stat().st_mtime - 120))
+    def boom(*a, **k):
+        raise RuntimeError("decode broke")
+    monkeypatch.setattr(clips_mod, "decode_messages", boom)
+    sweep_orphan_captures(db, root)
+    assert sink.exists() and not db.capture_decoded(imp.capture_id)

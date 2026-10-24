@@ -102,3 +102,13 @@ def test_import_result_path_is_the_stored_capture_path(root, db, capture_file):
     renamed = capture_file.with_name("other-name.bin")
     renamed.write_bytes(capture_file.read_bytes())
     assert import_capture(db, root, renamed).path == stored  # a re-import reports the row's copy
+
+
+# --- R47: a re-import may know the instance the first import did not, or the reverse ---
+
+@pytest.mark.parametrize("first,again", [(0, 42), (42, 0)])
+def test_reimport_of_undecoded_capture_with_another_instance_returns_its_pages(root, db, capture_file, first, again):
+    imp = import_capture(db, root, capture_file, storage_instance=first)
+    assert imp.pages_new > 0
+    again_imp = import_capture(db, root, capture_file, storage_instance=again)
+    assert again_imp.pages_new == 0 and again_imp.new_payloads == imp.new_payloads

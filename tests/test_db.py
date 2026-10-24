@@ -304,7 +304,7 @@ def test_migration_4_keeps_pages_and_defaults_storage_instance(root, monkeypatch
         d.migrate()
         assert d.get_status("schema_version") == "4"
         assert d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32))                       # storage_instance defaults to 0
-        assert not d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))
+        assert d.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))   # R47: 0 is unknown
 
 
 def _add_page_v3(d, key, capture_id, session, ingest_type, absolute_ms):
@@ -334,7 +334,7 @@ def test_u64_storage_instance_round_trips_on_both_tables(db, instance):
     key = PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=instance)
     db.add_page(key, cid, 100, 1, 1792821367981)
     assert db.page_seen(key)
-    assert not db.page_seen(PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=0))
+    assert db.page_seen(PageKey(run=1, index=3, sha256="cd" * 32, storage_instance=0))   # R47: 0 is unknown
     keys = db.pages_for_capture(cid)
     assert keys == [key] and keys[0].storage_instance == instance
 
@@ -347,3 +347,20 @@ def test_connections_wait_for_a_busy_database(root):
         assert d._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
     finally:
         d.close()
+
+
+# --- R47: storage_instance 0 means "unknown", never a different storage ---
+
+def test_page_seen_treats_instance_zero_as_unknown_on_either_side(db):
+    cid = db.add_capture("captures/z.bin", "ee" * 32, 2, True)
+    db.add_page(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=0), cid, 100, 1, 1792821367981)
+    db.add_page(PageKey(run=1, index=8, sha256="ab" * 32, storage_instance=2**64 - 1), cid, 100, 1, 1792821367981)
+    assert db.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=2**64 - 1))
+    assert db.page_seen(PageKey(run=1, index=8, sha256="ab" * 32, storage_instance=0))
+
+
+def test_page_seen_keeps_two_known_instances_apart(db):
+    cid = db.add_capture("captures/z.bin", "ee" * 32, 1, True)
+    db.add_page(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5), cid, 100, 1, 1792821367981)
+    assert db.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=5))
+    assert not db.page_seen(PageKey(run=1, index=7, sha256="ab" * 32, storage_instance=6))

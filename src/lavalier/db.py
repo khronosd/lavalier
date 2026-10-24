@@ -368,9 +368,13 @@ class Database:
     # pages
 
     def page_seen(self, key: PageKey) -> bool:
+        """Instance 0 means "unknown" (a CLI import has no device id), so it matches any instance
+        on either side; two known instances must be equal."""
+        instance = _u64_to_db(key.storage_instance)
         r = self._conn.execute(
-            'SELECT 1 FROM pages WHERE run = ? AND "index" = ? AND sha256 = ? AND storage_instance = ?',
-            (key.run, key.index, key.sha256, _u64_to_db(key.storage_instance)),
+            'SELECT 1 FROM pages WHERE run = ? AND "index" = ? AND sha256 = ? '
+            "AND (storage_instance = ? OR storage_instance = 0 OR ? = 0)",
+            (key.run, key.index, key.sha256, instance, instance),
         ).fetchone()
         return r is not None
 
