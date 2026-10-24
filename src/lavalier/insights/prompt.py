@@ -47,7 +47,7 @@ def _cut_front(text: str) -> str:
     """Keep the last MAX_CHARS characters, starting at a line boundary, behind the omitted note."""
     tail = text[-MAX_CHARS:]
     if text[-MAX_CHARS - 1] != "\n":
-        tail = tail.partition("\n")[2]
+        tail = tail.partition("\n")[2] or tail  # no line boundary in the kept text: keep the raw tail
     return OMITTED + tail
 
 

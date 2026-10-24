@@ -72,8 +72,23 @@ def test_ask_messages_carry_the_question_then_the_text(db, seeded_2026_10_23_sub
 
 
 def test_system_prompt_is_pinned():
-    assert SYSTEM_PROMPT.startswith("You read one day of a person's own transcribed conversations")
-    assert SYSTEM_PROMPT.endswith("when the text does not say, say so.")
+    assert SYSTEM_PROMPT == (
+        "You read one day of a person's own transcribed conversations, recorded by a microphone they wear. "
+        "Lines carry the time of day as [HH:MM:SS]; a line with \u2605 marks a moment the person starred. "
+        "Write for that person, in plain language, in their own words where you can. "
+        "Never invent names, events or decisions that are not in the text. "
+        "Keep the summary to one short paragraph. "
+        "A follow-up is something the person said they would do, decide, or look into; "
+        "give each one the time of the line it comes from. "
+        "People are names that appear in the text, as written. "
+        "Topics are two to four words each. "
+        "Answer only from the text; when the text does not say, say so.")
+
+
+def test_cut_front_without_a_newline_keeps_the_raw_tail(monkeypatch):
+    monkeypatch.setattr(prompt, "MAX_CHARS", 10)
+    out = prompt._cut_front("x" * 50)
+    assert out == prompt.OMITTED + "x" * 10
 
 
 @pytest.fixture

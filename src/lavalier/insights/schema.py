@@ -77,6 +77,7 @@ def _follow_up(item: object, i: int, day: date) -> Optional[FollowUp]:
         raise InsightError(f"{where}.time must look like HH:MM:SS, got {t!r}")
     if not text:
         return None
+    # a time in a repeated (fall-back) hour maps to its first occurrence (fold=0)
     local = datetime.combine(day, time(int(m[1]), int(m[2]), int(m[3]))).astimezone()
     return FollowUp(text, int(local.timestamp() * 1000), None)
 

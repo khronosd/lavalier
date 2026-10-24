@@ -53,6 +53,8 @@ def test_parse_reply_uses_the_local_wall_clock_on_a_dst_day():
     d = date(2026, 11, 1)
     i = parse_reply({"summary": "s", "follow_ups": [{"text": "a", "time": "12:00:00"}], "people": [], "topics": []}, d)
     assert i.follow_ups[0].at_ms == int(datetime(2026, 11, 1, 12, 0, 0).timestamp() * 1000)
+    midnight_ms = int(datetime(2026, 11, 1).timestamp() * 1000)
+    assert i.follow_ups[0].at_ms - midnight_ms == 13 * 3_600_000
 
 
 def test_times_are_ascii_digits_only():
