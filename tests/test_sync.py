@@ -41,16 +41,6 @@ def sync_env(root, db, cfg):
     return _SyncEnv(root, db, cfg)
 
 
-@pytest.fixture
-def storage_payloads():
-    return [
-        make_storage_buffer_msg(
-            page_index=i, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39),
-            ingest_type=2, session=1, run=1)
-        for i in (10, 11, 12)
-    ]
-
-
 # --- the brief's tests, verbatim ---
 
 async def test_not_in_range_sends_nothing(sync_env):
@@ -297,6 +287,20 @@ def test_after_sync_processes_a_drain(root, db, cfg, tmp_path):
     report = after_sync(db, root, cfg, SyncReport("drained", "on charger (current)", capture=tmp_path / "c.bin"),
                         FakeTranscriber({}, unavailable="test"), now_ms=0)
     assert report is not None and report.transcribed == 0
+
+
+def test_after_sync_processes_a_capture_even_when_the_outcome_is_error(root, db, cfg, tmp_path):
+    report = after_sync(db, root, cfg, SyncReport("error", "x", capture=tmp_path / "c.bin", error="timeout"),
+                        FakeTranscriber({}, unavailable="test"), now_ms=0)
+    assert report is not None
+
+
+async def test_unwrapped_exception_in_restore_leaves_the_pending_flag(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, fail_on={"start": ValueError("boom")})
+    r = await sync_env(p)
+    assert r.outcome == "error" and "boom" in r.error
+    assert db.get_status("unmute_pending_since_ms") == "1000000"
+    assert db.get_status("muted_by_recorder_since_ms") == "1000000"
 
 
 def test_after_sync_skips_a_drain_that_brought_nothing(root, db, cfg):

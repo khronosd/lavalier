@@ -1,25 +1,45 @@
 """Command-line entry point."""
 
+import asyncio
+import dataclasses
 import json
 import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
 import click
 
-from lavalier.audio import ffmpeg_available
+from lavalier import doctor
+from lavalier.charger import cdc_present, charger_decision, read_ioreg
 from lavalier.config import Config, load_config
 from lavalier.dayfile import render_day, write_day
 from lavalier.db import Database, SchemaTooNewError, now_ms
+from lavalier.device import BlePendant, DeviceError, Pendant, PendantNotInRange
+from lavalier.lock import LockHeld, SyncLock
+from lavalier.models import DeviceSnapshot
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import (
     ProcessReport, import_and_decode, process, refresh_day, retry_failed, status_summary,
 )
+from lavalier.probe import read_status
 from lavalier.retention import sweep
-from lavalier.transcribe import MlxWhisperTranscriber, model_cache_dir
+from lavalier.sync import SyncReport, after_sync, run_sync
+from lavalier.transcribe import MlxWhisperTranscriber
+
+UNMUTE_SETTLE_S = 1.0  # tests patch this to 0
+
+
+def _ble_pendant(cfg: Config) -> Pendant:
+    return BlePendant(cfg.pendant_address, scan_timeout_s=cfg.scan_timeout_s)
+
+
+# Tests monkeypatch this to hand back a FakePendant.
+pendant_factory: Callable[[Config], Pendant] = _ble_pendant
 
 
 def _setup() -> tuple[Paths, Config, Database]:
@@ -45,12 +65,96 @@ def _report_lines(r: ProcessReport) -> list[str]:
     ]
 
 
-def _run_process(db: Database, paths: Paths, cfg: Config) -> None:
-    transcriber = MlxWhisperTranscriber(cfg.whisper_model, cfg.whisper_language)
-    report = process(db, paths, cfg, transcriber, now_ms=now_ms())
+def _echo_process(db: Database, report: ProcessReport) -> None:
     db.set_status("last_process", json.dumps(report.to_json_dict()))
     for line in _report_lines(report):
         click.echo(line)
+
+
+def _run_process(db: Database, paths: Paths, cfg: Config) -> None:
+    transcriber = MlxWhisperTranscriber(cfg.whisper_model, cfg.whisper_language)
+    _echo_process(db, process(db, paths, cfg, transcriber, now_ms=now_ms()))
+
+
+def _require_address(cfg: Config) -> None:
+    if not cfg.pendant_address:
+        raise click.ClickException("set pendant_address in config.toml")
+
+
+def _lock(paths: Paths) -> SyncLock:
+    return SyncLock(paths.root / ".lock")
+
+
+def _another_process(holder: object) -> str:
+    return f"Another process is using the pendant: {holder}"
+
+
+@contextmanager
+def _pendant_under_lock(paths: Paths, cfg: Config):
+    """The pendant for one device command, with the device lock held for its whole duration."""
+    _require_address(cfg)
+    lock = _lock(paths)
+    try:
+        lock.acquire()
+    except LockHeld as e:
+        raise click.ClickException(_another_process(e)) from e
+    try:
+        yield pendant_factory(cfg)
+    finally:
+        lock.release()
+
+
+def _device_call(coro):
+    """Run one device coroutine; a failure is reported once, never retried."""
+    try:
+        return asyncio.run(coro)
+    except PendantNotInRange as e:
+        raise click.ClickException("Pendant not in range") from e
+    except DeviceError as e:
+        raise click.ClickException(f"Device error: {e}") from e
+
+
+def _charger_signal(snap: DeviceSnapshot) -> str:
+    return charger_decision(snap, cdc=cdc_present(read_ioreg()), quiet_polls=0).signal
+
+
+def _local_time(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M")
+
+
+def _state(snap: DeviceSnapshot) -> str:
+    return snap.recording_state if snap.has_all_fields else "partial status"
+
+
+_UNMUTE_TEXT = {
+    "confirmed": "unmute confirmed",
+    "confirmed-recording": "unmute confirmed (recording)",
+    "pending": "unmute pending",
+    "owner-mute-left": "left muted",
+    "retried": "pending unmute retried",
+}
+
+
+def _sync_line(r: SyncReport, paths: Paths) -> str:
+    line = f"Sync: {r.outcome} ({r.reason})"
+    if r.capture is not None:
+        try:
+            where = r.capture.relative_to(paths.root)
+        except ValueError:
+            where = r.capture
+        line += f"; {r.messages} messages, {r.pages} pages -> {where}"
+        if not r.capture_complete:
+            line += " (incomplete)"
+    extra = []
+    if r.muted_by:
+        extra.append(f"muted by {r.muted_by}")
+    if r.unmute != "n/a":
+        extra.append(_UNMUTE_TEXT.get(r.unmute, r.unmute))
+    if extra:
+        line += "; " + ", ".join(extra)
+    if r.error:
+        line += f"; error: {r.error}"
+    return line
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -94,10 +198,19 @@ def _human_bytes(n: int) -> str:
 
 
 @main.command("status")
-def status_cmd() -> None:
+@click.option("--live", is_flag=True, help="Read the pendant first (read-only, the clock is not set).")
+def status_cmd(live: bool) -> None:
     """Show what the state database holds."""
     paths, cfg, db = _setup()
     with db:
+        if live:
+            _require_address(cfg)
+            try:
+                with _pendant_under_lock(paths, cfg) as pendant:
+                    snap = _device_call(read_status(pendant, now_ms=now_ms()))
+                db.record_device_status(snap, source="live", charger_signal=_charger_signal(snap))
+            except click.ClickException as e:  # fall back to the last recorded read
+                click.echo(f"Live read failed: {e.message}", err=True)
         s = status_summary(db, paths, cfg, now_ms=now_ms())
     click.echo(f"Days with clips: {len(s['days_with_clips'])}")
     click.echo(f"Pending transcripts: {s['pending_transcripts']}")
@@ -114,22 +227,99 @@ def status_cmd() -> None:
         click.echo(f"Transcribed {r['transcribed']} ({r['failed']} failed)")
         click.echo(f"Day files written: {', '.join(r['days_written']) or 'none'}")
         click.echo(f"Retention: {r['clips_deleted']} clips, {r['captures_deleted']} captures deleted")
+    d = s["device"]
+    if d is None:
+        click.echo("Pendant: no status read yet")
+    else:
+        state = d["recording_state"] if d["has_all_fields"] else "partial status"
+        click.echo(
+            f"Pendant: {state} as of {d['age_s'] // 60} min ago ({d['source']}); battery {d['soc']}%, "
+            f"{d['pages_waiting']} pages waiting, charger: {d['charger_signal']}, firmware {d['firmware_ver']}")
+    if s["unmute_pending_since_ms"] is not None:
+        click.echo(f"Unmute pending since {_local_time(s['unmute_pending_since_ms'])}: "
+                   "run 'lavalier unmute' or hold the button")
+    ls = s["last_sync"]
+    if ls is not None:
+        click.echo(f"Last sync: {_local_time(ls['ended_ms'] or ls['started_ms'])} {ls['outcome']} ({ls['reason']})")
+
+
+@main.command("sync")
+@click.option("--dry-run", is_flag=True, help="Connect, read and decide, but change nothing on the pendant.")
+def sync_cmd(dry_run: bool) -> None:
+    """Drain the pendant now (the same run the background poll makes)."""
+    paths, cfg, db = _setup()
+    with db:
+        _require_address(cfg)
+        report = asyncio.run(run_sync(
+            db, paths, cfg, pendant_factory(cfg), now_ms=now_ms, lock=_lock(paths),
+            cdc_present=lambda: cdc_present(read_ioreg()), dry_run=dry_run))
+        if report.outcome == "locked":
+            raise click.ClickException(_another_process(report.reason))
+        click.echo(_sync_line(report, paths))
+        if report.capture is not None:
+            transcriber = MlxWhisperTranscriber(cfg.whisper_model, cfg.whisper_language)
+            processed = after_sync(db, paths, cfg, report, transcriber, now_ms=now_ms())
+            if processed is not None:
+                _echo_process(db, processed)
+    if report.outcome in ("error", "refused"):
+        raise SystemExit(1)
+
+
+async def _send_and_reread(pendant: Pendant, send: str, settle_s: float) -> DeviceSnapshot:
+    async with pendant as p:
+        firmware_ver, storage_instance = await p.info()
+        await getattr(p, send)()
+        await asyncio.sleep(settle_s)
+        snap = await p.status()
+    return dataclasses.replace(snap, read_at_ms=now_ms(), firmware_ver=firmware_ver,
+                               storage_instance=storage_instance)
+
+
+def _send(send: str, source: str, settle_s: float) -> tuple[Database, DeviceSnapshot]:
+    paths, cfg, db = _setup()
+    try:
+        with _pendant_under_lock(paths, cfg) as pendant:
+            snap = _device_call(_send_and_reread(pendant, send, settle_s))
+        db.record_device_status(snap, source=source, charger_signal=_charger_signal(snap))
+    except BaseException:
+        db.close()
+        raise
+    return db, snap
+
+
+@main.command("mute")
+def mute_cmd() -> None:
+    """Stop recording (the owner's mute; sync leaves it alone)."""
+    db, snap = _send("stop_recording", "mute", 0)
+    with db:
+        if not snap.has_all_fields or snap.recording_state != "NOT_RECORDING":
+            raise click.ClickException(f"Mute not confirmed: {_state(snap)}")
+        db.set_status("muted_by_owner_since_ms", str(now_ms()))
+    click.echo("Pendant muted (NOT_RECORDING)")
+
+
+@main.command("unmute")
+def unmute_cmd() -> None:
+    """Start recording again and clear every mute marker."""
+    db, snap = _send("start_recording", "unmute", UNMUTE_SETTLE_S)
+    with db:
+        state = _state(snap)
+        if state not in ("LISTENING", "RECORDING"):
+            still = f"still {state}" if state == "NOT_RECORDING" else state
+            raise click.ClickException(f"Unmute not confirmed: {still}")
+        for key in ("unmute_pending_since_ms", "muted_by_recorder_since_ms", "muted_by_owner_since_ms"):
+            db.clear_status(key)
+    click.echo(f"Pendant unmuted ({state})")
 
 
 @main.command("doctor")
 @click.option("--download-model", is_flag=True, help="Fetch the whisper model (the only networked action).")
-def doctor_cmd(download_model: bool) -> None:
+@click.option("--no-device", is_flag=True, help="Skip the connection to the pendant.")
+def doctor_cmd(download_model: bool, no_device: bool) -> None:
     """Check the environment."""
     paths = Paths(default_root())
     # Check the state root first: an unwritable root is a FAIL line, not a traceback.
-    probe = paths.root / ".write-test"
-    try:
-        paths.ensure()
-        probe.write_text("x")
-        probe.unlink()
-        writable = True
-    except OSError:
-        writable = False
+    writable = doctor.state_root_writable(paths)
     cfg = load_config(paths.config)
     if download_model:
         # huggingface_hub reads HF_HUB_OFFLINE at import, and this process already imported it
@@ -140,19 +330,24 @@ def doctor_cmd(download_model: bool) -> None:
             [sys.executable, "-c", "import huggingface_hub,sys; huggingface_hub.snapshot_download(sys.argv[1])",
              cfg.whisper_model],
             env=env, check=False)
-    ok = True
-
-    def check(label: str, good: bool, detail: str = "") -> None:
-        nonlocal ok
-        ok = ok and good
-        click.echo(f"{'ok  ' if good else 'FAIL'} {label}{': ' + detail if detail else ''}")
-
-    v = sys.version_info
-    check("python >= 3.12", v >= (3, 12), f"{v.major}.{v.minor}.{v.micro}")
-    check("ffmpeg", ffmpeg_available())
-    check("state root writable", writable, str(paths.root))
-    check("whisper model cached", model_cache_dir(cfg.whisper_model).exists(), cfg.whisper_model)
-    if not ok:
+    checks = doctor.local_checks(paths, cfg, writable=writable)
+    if not no_device and writable:
+        lock = _lock(paths)
+        try:
+            lock.acquire()
+        except LockHeld as e:
+            checks.append(doctor.Check("pendant reachable", True, f"skipped, in use by {e}"))
+        else:
+            try:
+                good, detail = doctor.bluetooth_check(cfg, pendant_factory)
+            finally:
+                lock.release()
+            checks.append(doctor.Check("pendant reachable", good, detail))
+    for c in checks:
+        click.echo(f"{'ok  ' if c.ok else 'FAIL'} {c.label}{': ' + c.detail if c.detail else ''}")
+    for label, plist in doctor.competing_agent_plists(doctor.LAUNCH_AGENTS_DIR):
+        click.echo(f"WARN another launch agent syncs this pendant: {label} ({plist}); unload it before the first drain")
+    if not all(c.ok for c in checks):
         raise SystemExit(1)
 
 

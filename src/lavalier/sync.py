@@ -267,6 +267,9 @@ class _Run:
         if self.link_gone:
             state = "link gone"
         else:
+            # mark the unmute pending before sending it: an exception nobody maps must not leave the
+            # recorder's mute set without the flag that makes the next sync retry
+            self.db.set_status(UNMUTE_PENDING, str(self.now_ms()))
             try:
                 await self.pendant.start_recording()
                 await asyncio.sleep(self.settle_s)
@@ -383,7 +386,7 @@ async def _mute_drain_restore(run: _Run) -> None:
 
 def after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport, transcriber: Transcriber, *,
                now_ms: int) -> Optional[ProcessReport]:
-    """Process what a drain brought in; any other outcome, or an empty drain, brought in nothing."""
-    if report.outcome != "drained" or report.capture is None:
+    """Process what a sync brought in, whatever its outcome; no capture means nothing came in."""
+    if report.capture is None:
         return None
     return process(db, paths, cfg, transcriber, now_ms=now_ms)

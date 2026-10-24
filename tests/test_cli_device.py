@@ -1,0 +1,114 @@
+from fake_pendant import FakePendant
+from lavalier import cli
+from lavalier.device import DeviceError
+
+
+def test_sync_dry_run_prints_the_decision(cli_env, monkeypatch):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 999)))
+    r = cli_env.invoke(["sync", "--dry-run"])
+    assert r.exit_code == 0 and "Sync: dry-run (would drain: pages waiting 1000 >= 1000)" in r.output
+
+
+def test_sync_requires_an_address(cli_env_no_address):
+    r = cli_env_no_address.invoke(["sync"])
+    assert r.exit_code == 1 and "set pendant_address" in r.output
+
+
+def test_sync_skipped_exits_0(cli_env, monkeypatch):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 9)))
+    r = cli_env.invoke(["sync"])
+    assert r.exit_code == 0 and "Sync: skipped (nothing to do)" in r.output
+
+
+def test_sync_refused_exits_1(cli_env, monkeypatch, db_at_root):
+    from lavalier.config import Config, save_config
+    save_config(Config(pendant_address="FAKE", require_firmware="9.9.9"), cli_env.root.config)
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant())
+    r = cli_env.invoke(["sync"])
+    assert r.exit_code == 1 and "Sync: refused" in r.output
+
+
+def test_sync_drains_and_processes_a_capture(cli_env, monkeypatch, storage_payloads):
+    from lavalier.transcribe import FakeTranscriber
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: p)
+    monkeypatch.setattr(cli, "MlxWhisperTranscriber", lambda m, l: FakeTranscriber({}, unavailable="test"))
+    r = cli_env.invoke(["sync"])
+    assert r.exit_code == 0, r.output
+    assert "Sync: drained (pages waiting 1000 >= 1000); 3 messages" in r.output
+    assert "muted by recorder, unmute confirmed" in r.output and "Transcribed 0" in r.output
+
+
+def test_sync_reports_another_process_holding_the_lock(cli_env, monkeypatch):
+    from lavalier.lock import SyncLock
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant())
+    monkeypatch.setattr(cli, "SyncLock", lambda path: SyncLock(path, list_processes=lambda: [(9, "/x/bin/pendant y")]))
+    r = cli_env.invoke(["sync"])
+    assert r.exit_code == 1 and "Another process is using the pendant: process: /x/bin/pendant y" in r.output
+
+
+def test_status_live_reads_without_setting_time(cli_env, monkeypatch):
+    p = FakePendant(pages=(0, 786), soc=94)
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: p)
+    r = cli_env.invoke(["status", "--live"])
+    assert "Pendant: LISTENING as of 0 min ago (live); battery 94%, 787 pages waiting" in r.output
+    assert "charger: none, firmware 1.1.3" in r.output
+    assert "set_time" not in " ".join(p.log)
+
+
+def test_status_without_a_read_says_so(cli_env):
+    assert "Pendant: no status read yet" in cli_env.invoke(["status"]).output
+
+
+def test_status_live_not_in_range_falls_back_to_the_last_read(cli_env, monkeypatch):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(in_range=False))
+    r = cli_env.invoke(["status", "--live"])
+    assert r.exit_code == 0 and "not in range" in r.output and "Pendant: no status read yet" in r.output
+
+
+def test_mute_and_unmute_round_trip(cli_env, monkeypatch, db_at_root):
+    p = FakePendant()
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: p)
+    assert "Pendant muted (NOT_RECORDING)" in cli_env.invoke(["mute"]).output
+    assert db_at_root.get_status("muted_by_owner_since_ms")
+    assert db_at_root.latest_device_status()[1] == "mute"
+    db_at_root.set_status("unmute_pending_since_ms", "5")
+    db_at_root.set_status("muted_by_recorder_since_ms", "5")
+    out = cli_env.invoke(["unmute"]).output
+    assert "LISTENING" in out and p.log.count("start") == 1
+    assert db_at_root.latest_device_status()[1] == "unmute"
+    for key in ("unmute_pending_since_ms", "muted_by_recorder_since_ms", "muted_by_owner_since_ms"):
+        assert db_at_root.get_status(key) is None
+
+
+def test_mute_not_confirmed_exits_1(cli_env, monkeypatch, db_at_root):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(stop_result="LISTENING"))
+    r = cli_env.invoke(["mute"])
+    assert r.exit_code == 1 and "Mute not confirmed: LISTENING" in r.output
+    assert db_at_root.get_status("muted_by_owner_since_ms") is None
+
+
+def test_unmute_failure_exits_1(cli_env, monkeypatch):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(state="NOT_RECORDING", start_result="NOT_RECORDING"))
+    r = cli_env.invoke(["unmute"])
+    assert r.exit_code == 1 and "still NOT_RECORDING" in r.output
+
+
+def test_device_error_is_reported_once_without_retry(cli_env, monkeypatch):
+    p = FakePendant(fail_on={"stop": DeviceError("timeout")})
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: p)
+    r = cli_env.invoke(["mute"])
+    assert r.exit_code == 1 and "timeout" in r.output and p.log.count("stop") == 1
+
+
+def test_status_shows_pending_unmute(cli_env, db_at_root):
+    db_at_root.set_status("unmute_pending_since_ms", "1792821367981")
+    assert "Unmute pending since" in cli_env.invoke(["status"]).output
+    assert "run 'lavalier unmute' or hold the button" in cli_env.invoke(["status"]).output
+
+
+def test_status_shows_the_last_sync(cli_env, monkeypatch):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 9)))
+    cli_env.invoke(["sync"])
+    out = cli_env.invoke(["status"]).output
+    assert "skipped (nothing to do)" in out and "Last sync: " in out and "(sync)" in out

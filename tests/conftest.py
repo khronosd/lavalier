@@ -362,3 +362,70 @@ def two_storage_payloads():
     ]
     assert [storage_page_of(p).index for p in payloads] == [10, 11]
     return payloads
+
+
+# --- CLI fixtures for the device commands ---
+
+from click.testing import CliRunner
+
+
+class CliEnv:
+    """CliRunner bound to a tmp state root; `invoke(args)` returns the click result."""
+
+    def __init__(self, root: Paths):
+        self.root = root
+        self._runner = CliRunner()
+
+    def invoke(self, args):
+        from lavalier.cli import main
+        return self._runner.invoke(main, args)
+
+
+def _make_cli_env(tmp_path, monkeypatch, address: str) -> CliEnv:
+    from lavalier import cli
+    from lavalier.config import Config, save_config
+
+    paths = Paths(tmp_path / "Pendant")
+    paths.ensure()
+    save_config(Config(pendant_address=address), paths.config)
+    monkeypatch.setenv("PENDANT_ROOT", str(paths.root))
+    # no real ioreg, no real unmute wait, and a whisper model that counts as cached
+    monkeypatch.setattr(cli, "read_ioreg", lambda: "")
+    monkeypatch.setattr(cli, "UNMUTE_SETTLE_S", 0)
+    hf = tmp_path / "hf"
+    (hf / ("models--" + Config().whisper_model.replace("/", "--"))).mkdir(parents=True)
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(hf))
+    return CliEnv(paths)
+
+
+@pytest.fixture
+def cli_env(tmp_path, monkeypatch):
+    return _make_cli_env(tmp_path, monkeypatch, "FAKE")
+
+
+@pytest.fixture
+def cli_env_no_address(tmp_path, monkeypatch):
+    return _make_cli_env(tmp_path, monkeypatch, "")
+
+
+@pytest.fixture
+def db_at_root(cli_env):
+    d = Database(cli_env.root.db)
+    d.migrate()
+    try:
+        yield d
+    finally:
+        d.close()
+
+
+from builders import make_audio_flash_page, make_storage_buffer_msg
+
+
+@pytest.fixture
+def storage_payloads():
+    return [
+        make_storage_buffer_msg(
+            page_index=i, flash_page=make_audio_flash_page(b"\xb8" + b"A" * 39),
+            ingest_type=2, session=1, run=1)
+        for i in (10, 11, 12)
+    ]

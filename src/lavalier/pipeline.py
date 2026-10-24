@@ -141,6 +141,14 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
     ]
     next_deletion = datetime.fromtimestamp(min(deadlines) / 1000).date().isoformat() if deadlines else None
     last_process = db.get_status("last_process")
+    latest = db.latest_device_status()
+    device = None
+    if latest is not None:
+        snap, source, charger_signal = latest
+        device = {**asdict(snap), "pages_waiting": snap.pages_waiting, "source": source,
+                  "charger_signal": charger_signal, "age_s": max(0, (now_ms - snap.read_at_ms) // 1000)}
+    last_sync = db.last_sync_run()
+    unmute_pending = db.get_status("unmute_pending_since_ms")
     return {
         "days_with_clips": [d.isoformat() for d in days],
         "pending_transcripts": pending,
@@ -153,4 +161,7 @@ def status_summary(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> d
         "long_presses": long_presses,
         "double_presses": double_presses,
         "last_process": last_process,
+        "device": device,
+        "last_sync": asdict(last_sync) if last_sync is not None else None,
+        "unmute_pending_since_ms": int(unmute_pending) if unmute_pending else None,
     }
