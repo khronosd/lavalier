@@ -144,3 +144,28 @@ test("a clip that arrives after the player moved on is revoked, never played", a
   expect(created).toEqual(["blob:1"]);
   expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
 });
+
+test("a refetched day equal to the one shown leaves the playing clip alone; a changed clip loads", async () => {
+  const { container, rerender } = render(<AudioTab view={view} conv="eve" />);
+  const audio = await waitFor(() => {
+    const a = container.querySelector("audio")!;
+    expect(a.getAttribute("src")).toBe("blob:1");
+    return a;
+  });
+  Object.defineProperty(audio, "currentTime", { configurable: true, value: 42 }); // mid-clip
+  const plays = vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
+
+  rerender(<AudioTab view={JSON.parse(JSON.stringify(view)) as DayView} conv="eve" />); // as a refetch delivers it
+  await act(async () => { await Promise.resolve(); });
+  expect(fetched).toEqual(["c1"]);
+  expect(audio.getAttribute("src")).toBe("blob:1");
+  expect(vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length).toBe(plays);
+  expect(audio.currentTime).toBe(42);
+
+  // the clip under the player changed: that one loads
+  const changed: DayView = { ...view, conversations: view.conversations.map((c) =>
+    c.conversation_id === "eve" ? { ...c, clip_ids: ["c1b", "c2"] } : c) };
+  rerender(<AudioTab view={changed} conv="eve" />);
+  await waitFor(() => expect(audio.getAttribute("src")).toBe("blob:2"));
+  expect(fetched).toEqual(["c1", "c1b"]);
+});

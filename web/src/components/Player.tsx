@@ -24,13 +24,15 @@ export function Player({ items, conversations }: Props) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState({ at: 0, of: 0 });
 
+  // keyed on the clip, not on the items array: a refetched day hands over an equal array with a new
+  // identity, and that must not restart what is playing
+  const clipId = items[index]?.clip_id;
   useEffect(() => {
     let live = true;
     setError(null);
     setTime({ at: 0, of: 0 });
-    const item = items[index];
-    if (!item) return;
-    fetchAudioBlobUrl(item.clip_id).then(
+    if (!clipId) return;
+    fetchAudioBlobUrl(clipId).then(
       (next) => {
         if (!live) { URL.revokeObjectURL(next); return; } // the clip changed while this was fetched
         const previous = url.current;
@@ -48,7 +50,7 @@ export function Player({ items, conversations }: Props) {
       },
     );
     return () => { live = false; };
-  }, [items, index]);
+  }, [clipId]);
 
   useEffect(() => () => {
     if (url.current) URL.revokeObjectURL(url.current);

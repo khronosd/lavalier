@@ -110,3 +110,36 @@ test("a failed refetch keeps what is on screen", async () => {
   expect(screen.getByText("test test test one two three")).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+test("a status-driven refetch of an equal day does not restart the audio that is playing", async () => {
+  window.location.hash = "#/day/2026-10-23?tab=audio&conv=conv_test";
+  const blobs: string[] = [];
+  vi.stubGlobal("URL", Object.assign(URL, {
+    createObjectURL: vi.fn(() => `blob:${blobs.length}`), revokeObjectURL: vi.fn(),
+  }));
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const base = vi.mocked(fetch).getMockImplementation()!;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/audio/")) {
+      blobs.push(url);
+      return new Response(new Blob(["aac"]), { status: 200 });
+    }
+    return base(url, init);
+  }));
+  const { container } = render(<App />);
+  await flush();
+  await flush();
+  const audio = container.querySelector("audio")!;
+  expect(blobs).toEqual(["/api/audio/clip_b.m4a"]);
+  const src = audio.getAttribute("src");
+  Object.defineProperty(audio, "currentTime", { configurable: true, value: 7 });
+  const plays = play.mock.calls.length;
+
+  current = { ...current, last_sync: run(8) }; // the scheduled sync's new row
+  await poll();
+  await flush();
+  expect(count("GET /api/day/2026-10-23")).toBe(2);
+  expect(blobs).toHaveLength(1);
+  expect(audio.getAttribute("src")).toBe(src);
+  expect(play.mock.calls.length).toBe(plays);
+});

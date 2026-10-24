@@ -25,7 +25,10 @@ export function AudioTab({ view, conv }: Props) {
     }
   }, [conv]);
 
-  const playlist = useMemo(() => (scope ? buildPlaylist(view, scope) : null), [view, scope]);
+  const built = scope ? buildPlaylist(view, scope) : null;
+  // the same clips keep the same arrays across a refetch of the day, so the player sees no change
+  const sameAs = built ? JSON.stringify([built.clips, built.unavailable]) : "";
+  const playlist = useMemo(() => built, [sameAs]);
   const anyKept = view.conversations.some((c) => c.audio_available && c.clip_ids.length > 0);
   const byId = new Map(view.conversations.map((c) => [c.conversation_id, c]));
   const gone = (playlist?.unavailable ?? []).map((id) => byId.get(id)).filter((c) => c !== undefined);
