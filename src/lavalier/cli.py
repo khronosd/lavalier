@@ -329,6 +329,14 @@ def app_cmd() -> None:
     raise SystemExit(app.main([]))
 
 
+@main.command("window")
+def window_cmd() -> None:
+    """Open the window on the running background app (journal, transcript, search, audio)."""
+    from lavalier import window
+    paths, cfg = _paths_cfg()
+    raise SystemExit(window.main([], token_path=paths.root / SERVER_FILE, cfg=cfg, config_path=paths.config))
+
+
 @main.command("install-agent")
 @click.option("--program", multiple=True, help="Override the program argv (repeat per argument).")
 def install_agent_cmd(program: tuple[str, ...]) -> None:

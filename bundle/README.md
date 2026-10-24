@@ -49,6 +49,10 @@ Step 3 exists because the launcher sets `site_import = 0`, so `site.py` never
 runs and `.pth` files are not processed (nor is any global site-packages added). Editable installs (`lavalier`, `pendant_client`) are
 only reachable through them.
 
+pywebview is a normal dependency in the same venv, so `paths.txt` already covers it. The
+window (`lavalier window`) is a separate process started from the CLI; it is not part of
+the bundle.
+
 ## Signing identity
 
 An ad hoc signature changes with every changed binary, and macOS ties the

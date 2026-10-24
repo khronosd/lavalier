@@ -48,6 +48,7 @@ once to fetch the speech model.
 - `status [--live]`: print days with clips, pending transcripts, failed clips, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts, the last process report, the last pendant status, who muted the pendant ("muted by the recorder" or "muted by you") and the last sync. `--live` reads the pendant first (read-only; it does not set the clock).
 - `mute` / `unmute`: set the pendant's clock, then stop or restart recording. `mute` is the owner's mute and sync leaves it alone; `unmute` also clears every mute marker the recorder holds.
 - `app`: run the background app in the foreground (scheduler plus the loopback control server).
+- `window`: open the window on the running background app (see "The window").
 - `install-agent [--program ...]` / `uninstall-agent`: install or remove the launch agent that keeps the app running from login. `--program` replaces the program argv; repeat it once per argument.
 - `import [<bin>] [--incomplete] [--orphans] [--process]`: import a capture file; `--incomplete` accepts a partial capture; `--orphans` imports any capture a cancelled or killed drain left in `captures/` without importing it (each sync also does this before it connects); `--process` runs the pipeline after.
 - `process`: measure loudness, transcribe, group and write day files for anything pending. Without ffmpeg or the cached model it skips those stages and leaves clips pending.
@@ -216,6 +217,23 @@ at the next one. Quit the desktop app too, or it may reconnect when opened.
 
 Audio is deleted after 14 days by default; transcripts and day files stay.
 Starred, pinned and failed clips are kept.
+
+## The window
+
+`lavalier window` opens a native window on the background app. It shows the
+Journal (days and conversations), the Transcript for a conversation, Search,
+Starred clips, Audio, and the pendant card (its state and the last sync).
+
+- It needs the background app. If the app is not running it prints how to start
+  it and exits 1; it never starts one itself.
+- It is a separate process from the app. A webview crash then closes only the
+  window; the recorder keeps running.
+- Appearance (System, Light or Dark) is a setting in the window and
+  is stored in `config.toml`.
+- Audio plays only while the clip is within retention; the transcript stays
+  after the audio is deleted.
+- Search covers every day, not only the one on screen.
+- The window's size is remembered: it is saved to `config.toml` when you close it.
 
 ## Building the app bundle
 
