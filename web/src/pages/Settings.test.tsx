@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Settings as SettingsData } from "../api";
 import { status } from "../pendant.fixtures";
@@ -130,4 +130,50 @@ test("the tab list names six tabs in order and marks the open one", async () => 
 test("Pendant shows the last read line", async () => {
   render(<Settings tab="pendant" />);
   expect(await screen.findByText("Listening just now, battery 94%")).toBeTruthy();
+});
+
+test("a save response does not overwrite text typed after the save began", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let release: (r: Response) => void = () => undefined;
+  const base = vi.mocked(fetch).getMockImplementation()!;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PUT") {
+      puts.push(JSON.parse(init.body as string));
+      return new Promise<Response>((res) => { release = res; });
+    }
+    return base(url, init);
+  }));
+  render(<Settings tab="pendant" />);
+  const input = (await screen.findByLabelText("Pendant address")) as HTMLInputElement;
+  fireEvent.input(input, { target: { value: "CC" } });
+  await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+  expect(puts).toEqual([{ pendant_address: "CC" }]);
+  fireEvent.input(input, { target: { value: "CCC" } });
+  await act(async () => { release(json({ ...saved, pendant_address: "CC" })); });
+  await screen.findByText("Saved");
+  expect(input.value).toBe("CCC");
+  vi.useRealTimers();
+});
+
+test("an unchanged value is not saved, and Enter then blur saves once", async () => {
+  render(<Settings tab="pendant" />);
+  const input = (await screen.findByLabelText("Pendant address")) as HTMLInputElement;
+  fireEvent.blur(input);
+  expect(puts).toEqual([]);
+  fireEvent.input(input, { target: { value: "DDDD" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  fireEvent.blur(input);
+  await screen.findByText("Saved");
+  expect(puts).toEqual([{ pendant_address: "DDDD" }]);
+});
+
+test("a field's error goes when the person edits it", async () => {
+  putReply = () => json({ error: "retention_days must be 0 or more", field: "retention_days" }, 400);
+  render(<Settings tab="retention" />);
+  const input = await screen.findByLabelText("Keep audio for (days)");
+  fireEvent.input(input, { target: { value: "30" } });
+  fireEvent.blur(input);
+  await screen.findByText("retention_days must be 0 or more");
+  fireEvent.input(input, { target: { value: "31" } });
+  await waitFor(() => expect(screen.queryByText("retention_days must be 0 or more")).toBeNull());
 });

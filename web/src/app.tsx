@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, type DaySummary, explainError, type Settings as SettingsData } from "./api";
+import { api, type DaySummary, explainError } from "./api";
 import { PendantCard } from "./components/PendantCard";
 import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
@@ -9,7 +9,6 @@ import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { StarredPage } from "./pages/Starred";
 import { type Route, useRoute } from "./router";
-import { applyAppearance } from "./theme";
 
 function Page({ route, today, days }: { route: Route; today: string; days: DaySummary[] | null }) {
   switch (route.name) {
@@ -46,8 +45,6 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // the stored appearance; until it arrives (or if it cannot), the window follows the system
-    api<SettingsData>("GET", "/api/settings").then((s) => applyAppearance(s.appearance), () => undefined);
     api<DaySummary[]>("GET", "/api/days").then(setDays, (e) => {
       setDays([]);
       setError(explainError(e, "The days"));

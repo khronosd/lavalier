@@ -78,12 +78,18 @@ function useSettings() {
     }
   }
 
-  return { settings, setSettings, status, loadError, errors, toast, save };
+  const clearError = (field: string) => setErrors((prev) => (field in prev ? Object.fromEntries(Object.entries(prev).filter(([k]) => k !== field)) : prev));
+
+  return { settings, setSettings, status, loadError, errors, toast, save, clearError };
 }
 
 export function Settings({ tab }: { tab: string }) {
-  const { settings, setSettings, status, loadError, errors, toast, save } = useSettings();
-  const [days, setDays] = useState<string | null>(null);
+  const { settings, setSettings, status, loadError, errors, toast, save, clearError } = useSettings();
+  // the live preview belongs to the field: it is ignored once the tab or the saved value has changed
+  const [preview, setPreview] = useState<{ key: string; text: string } | null>(null);
+  const previewKey = `${tab}:${settings?.retention_days}`;
+  const days = preview && preview.key === previewKey ? preview.text : null;
+  const setDays = (text: string | null) => setPreview(text === null ? null : { key: previewKey, text });
 
   let body;
   if (loadError) body = <p class="notice warn" role="alert">{loadError}</p>;
@@ -95,17 +101,17 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Pendant" />
-            <Field name="pendant_address" label="Pendant address" value={settings.pendant_address}
+            <Field name="pendant_address" onEdit={() => clearError("pendant_address")} label="Pendant address" value={settings.pendant_address}
               help="The address this Mac knows the pendant by. Leave it as it is unless the app cannot find the pendant."
               error={errors.pendant_address} onCommit={(t) => save({ pendant_address: t })} />
-            <Field name="require_firmware" label="Required firmware" value={settings.require_firmware}
+            <Field name="require_firmware" onEdit={() => clearError("require_firmware")} label="Required firmware" value={settings.require_firmware}
               help="The app only talks to a pendant on this firmware version. Leave blank to accept any."
               error={errors.require_firmware} onCommit={(t) => save({ require_firmware: t })} />
-            <Field name="drain_pages_threshold" label="Drain when this many pages are waiting" number
+            <Field name="drain_pages_threshold" onEdit={() => clearError("drain_pages_threshold")} label="Drain when this many pages are waiting" number
               value={String(settings.drain_pages_threshold)} help="Pages are about a second and a half of speech each."
               error={errors.drain_pages_threshold}
               onCommit={(t) => save({ drain_pages_threshold: t.trim() === "" ? Number.NaN : Number(t) })} />
-            <Field name="drain_after_hours" label="Drain at least every (hours)" number
+            <Field name="drain_after_hours" onEdit={() => clearError("drain_after_hours")} label="Drain at least every (hours)" number
               value={String(settings.drain_after_hours)} error={errors.drain_after_hours}
               onCommit={(t) => save({ drain_after_hours: t.trim() === "" ? Number.NaN : Number(t) })} />
             <p class="set-fact"><span class="set-fact-label">Last read</span>{lastReadLine(status)}</p>
@@ -116,7 +122,7 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Retention" />
-            <Field name="retention_days" label="Keep audio for (days)" number value={String(settings.retention_days)}
+            <Field name="retention_days" onEdit={() => clearError("retention_days")} label="Keep audio for (days)" number value={String(settings.retention_days)}
               help={`Audio is deleted ${n === "" ? "…" : n} days after it was recorded; starred and pinned conversations are kept. Text is kept for good.`}
               error={errors.retention_days} onInput={setDays}
               onCommit={async (t) => {
@@ -125,7 +131,7 @@ export function Settings({ tab }: { tab: string }) {
                 return ok;
               }} />
             <h2 class="set-sub">Transcription</h2>
-            <Field name="whisper_language" label="Language (two letters)" value={settings.whisper_language}
+            <Field name="whisper_language" onEdit={() => clearError("whisper_language")} label="Language (two letters)" value={settings.whisper_language}
               help="The language the speech is transcribed as, such as en or de."
               error={errors.whisper_language} onCommit={(t) => save({ whisper_language: t })} />
             <p class="set-fact"><span class="set-fact-label">Model</span>{settings.readonly.whisper_model}</p>
@@ -153,7 +159,7 @@ export function Settings({ tab }: { tab: string }) {
           <>
             <Heading title="Appearance" />
             <fieldset class="radios">
-              <legend>Colours</legend>
+              <legend>Colors</legend>
               {APPEARANCES.map((a) => (
                 <label key={a.id} class="radio" for={`a-${a.id}`}>
                   <input type="radio" id={`a-${a.id}`} name="appearance" checked={settings.appearance === a.id}
@@ -179,7 +185,7 @@ export function Settings({ tab }: { tab: string }) {
           <>
             <Heading title="General" />
             <p class="set-fact"><span class="set-fact-label">State folder</span><span class="path">{settings.readonly.state_root}</span></p>
-            <Field name="poll_interval_s" label="Check the pendant every (minutes)" number
+            <Field name="poll_interval_s" onEdit={() => clearError("poll_interval_s")} label="Check the pendant every (minutes)" number
               value={secondsToMinutes(settings.poll_interval_s)} help="At least 1 minute."
               error={errors.poll_interval_s} onCommit={(t) => save({ poll_interval_s: minutesToSeconds(t) })} />
             {status && <p class="set-fact"><span class="set-fact-label">App</span>

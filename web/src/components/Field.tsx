@@ -12,20 +12,25 @@ interface Props {
   onCommit: (text: string) => Promise<boolean> | void;
   /** Called on every keystroke, for text elsewhere on the page that follows the field. */
   onInput?: (text: string) => void;
+  /** Called on every keystroke, so a message about the previous value can go. */
+  onEdit?: () => void;
 }
 
 const DEBOUNCE_MS = 300;
 
 /** A labelled field that saves one value; the typed text stays until a save succeeds or the saved value changes. */
-export function Field({ name, label, value, help, error, number, onCommit, onInput }: Props) {
+export function Field({ name, label, value, help, error, number, onCommit, onInput, onEdit }: Props) {
   const [text, setText] = useState(value);
   const last = useRef(value);
   const timer = useRef<number | undefined>(undefined);
   const shown = useRef(value);
+  const typed = useRef(value);
   useEffect(() => {
     if (value === shown.current) return; // effects run late: do not undo text typed since the first render
     shown.current = value;
+    if (typed.current !== last.current) return; // the person typed past what was saved: keep their text
     setText(value);
+    typed.current = value;
     last.current = value;
   }, [value]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -48,6 +53,8 @@ export function Field({ name, label, value, help, error, number, onCommit, onInp
         onInput={(e) => {
           const t = (e.currentTarget as HTMLInputElement).value;
           setText(t);
+          typed.current = t;
+          onEdit?.();
           onInput?.(t);
           if (!number) {
             window.clearTimeout(timer.current);

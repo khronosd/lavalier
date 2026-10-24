@@ -37,3 +37,4 @@
   background: var(--slate); color: var(--on-slate); opacity: 0; transition: opacity 0.18s linear;
 }
 .toast.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
