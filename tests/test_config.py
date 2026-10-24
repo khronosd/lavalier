@@ -63,3 +63,11 @@ def test_save_config_refuses_to_overwrite_an_unreadable_file(tmp_path):
     with pytest.raises(ConfigError):
         save_config(Config(), p)
     assert p.read_text() == "not [valid"
+
+
+def test_save_config_refuses_an_existing_file_that_is_not_utf8(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_bytes(b"retention_days = 9\n\xff\xfe\n")
+    with pytest.raises(ConfigError, match="config.toml"):
+        save_config(Config(), p)
+    assert p.read_bytes() == b"retention_days = 9\n\xff\xfe\n"

@@ -80,3 +80,16 @@ def test_sweep_evicts_the_aac_cache(root, db, cfg, seeded_retention_day):
     assert cached.exists()
     sweep(db, root, cfg, now_ms=old.transcribed_at + 15 * 86_400_000)
     assert not cached.exists()
+
+
+def test_a_cache_eviction_failure_does_not_abort_the_sweep(root, db, cfg, seeded_retention_day, monkeypatch, caplog):
+    import logging
+    from lavalier import retention
+    old, *_ = seeded_retention_day
+
+    def broken(paths, clip_id):
+        raise PermissionError("cache is read-only")
+    monkeypatch.setattr(retention, "evict", broken)
+    with caplog.at_level(logging.WARNING, logger="lavalier.retention"):
+        assert sweep(db, root, cfg, now_ms=old.transcribed_at + 15 * 86_400_000) == (1, 0)
+    assert db.clip(old.clip_id).path == "" and "cache is read-only" in caplog.text

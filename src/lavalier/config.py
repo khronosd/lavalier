@@ -74,9 +74,9 @@ def save_config(cfg: Config, path: Path) -> None:
     existing: dict = {}
     if path.exists():
         try:
-            existing = tomllib.loads(path.read_text())
-        except tomllib.TOMLDecodeError as e:
-            raise ConfigError(f"{path}: invalid TOML: {e}") from e
+            existing = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+            raise ConfigError(f"{path}: cannot read the existing file: {e}") from e
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:

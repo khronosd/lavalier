@@ -54,7 +54,10 @@ def sweep(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> tuple[int,
         if not _inside_root(paths, file):
             continue
         file.unlink(missing_ok=True)
-        evict(paths, clip.clip_id)
+        try:
+            evict(paths, clip.clip_id)
+        except OSError as e:  # a stale cache entry must not stop the sweep; the next one retries it
+            log.warning("could not evict the cached AAC of %s: %s", clip.clip_id, e)
         with db.transaction():
             db.clear_clip_path(clip.clip_id)
             db.mark_day_dirty(clip.day)
