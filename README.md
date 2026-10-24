@@ -87,7 +87,9 @@ below happens in this order, and no device command is ever retried.
 6. Mute. If the pendant is recording, the recorder sends stop recording and
    reads the status back. It drains only once the mute is confirmed. If the
    pendant was already not recording, the recorder takes that as the owner's
-   mute, drains, and leaves it muted. If the status read was partial, it
+   mute, drains, and leaves it muted, unless its own unmute is still pending:
+   then the mute is reported as the recorder's, the drain goes ahead, and the
+   restore sends nothing (the pending unmute keeps the 30-minute rule below). If the status read was partial, it
    drains without muting and says so in the reason.
 7. Drain: download the pages into a capture file, writing a heartbeat to the
    lock every 100 messages. The download acknowledges each page by deleting it

@@ -620,3 +620,34 @@ async def test_swept_orphans_are_processed_after_the_sync(sync_env, db, root, cf
     r = await sync_env(FakePendant(pages=(0, 9)))
     assert r.outcome == "skipped" and r.orphans == 1 and r.capture is None
     assert after_sync(db, root, cfg, r, FakeTranscriber({}, unavailable="test"), now_ms=0) is not None
+
+
+# --- final review fixes: a pending recorder unmute is never the owner's mute (I2, ruling (b)) ---
+
+@pytest.mark.parametrize("age_min,start_result,starts", [(10, "NOT_RECORDING", 1), (45, "LISTENING", 0)])
+async def test_pending_recorder_unmute_is_labelled_recorder_and_restore_sends_nothing(
+        sync_env, db, storage_payloads, age_min, start_result, starts):
+    now = sync_env.clock = 10_000_000
+    db.set_status("muted_by_recorder_since_ms", str(now - age_min * MIN - 1000))
+    db.set_status("unmute_pending_since_ms", str(now - age_min * MIN))
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 1500), messages=storage_payloads, start_result=start_result)
+    r = await sync_env(p)
+    assert r.outcome == "drained" and (r.muted_by, r.unmute) == ("recorder", "pending")
+    assert p.log.count("start") == starts and p.log.count("stop") == 0
+    if starts:
+        assert p.log.index("start") < p.log.index("drain")          # the retry step's, never a restore
+    assert db.get_status("unmute_pending_since_ms") == str(now - age_min * MIN)   # the window is not restarted
+    assert db.last_sync_run().muted_by == "recorder"
+
+
+async def test_marker_only_mute_converted_by_the_poll_is_labelled_recorder(sync_env, db, storage_payloads):
+    now = sync_env.clock = 10_000_000
+    db.set_status("muted_by_recorder_since_ms", str(now - 45 * MIN))
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 1500), messages=storage_payloads)
+    r = await sync_env(p)
+    assert (r.muted_by, r.unmute) == ("recorder", "pending") and "start" not in p.log
+
+
+async def test_owner_mute_without_recorder_keys_is_still_the_owners(sync_env, storage_payloads):
+    r = await sync_env(FakePendant(state="NOT_RECORDING", pages=(0, 1500), messages=storage_payloads))
+    assert (r.muted_by, r.unmute) == ("owner", "owner-mute-left")

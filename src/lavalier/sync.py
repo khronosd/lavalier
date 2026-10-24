@@ -101,6 +101,7 @@ class _Run:
         self.capture_id: Optional[int] = None
         self.suffixes: list[str] = []
         self.link_gone = False
+        self.inherited_mute = False  # the pendant was already muted by an earlier, unrestored recorder session
 
     async def read_status(self) -> DeviceSnapshot:
         """status(), filled with the firmware and storage instance from the poll, and recorded."""
@@ -192,7 +193,13 @@ class _Run:
             self.suffixes.append("partial status, no mute")
             return True
         if snap.recording_state == "NOT_RECORDING":
-            self.report.muted_by = "owner"
+            if self.db.get_status(UNMUTE_PENDING) or self.db.get_status(MUTED_SINCE):
+                # an earlier recorder mute still pending: the recorder's, never the owner's. Drain as
+                # is; the restore sends nothing (at most one start per poll, none after 30 minutes)
+                self.report.muted_by = "recorder"
+                self.inherited_mute = True
+            else:
+                self.report.muted_by = "owner"
             return True
         # mark the mute before sending it, so a stop that lands and then fails is never taken for the owner's
         self.db.set_status(MUTED_SINCE, str(self.now_ms()))
@@ -274,6 +281,9 @@ class _Run:
             self.report.unmute = "owner-mute-left"
             return
         if self.report.muted_by != "recorder":
+            return
+        if self.inherited_mute:  # the pending flag stays as it is; the next poll's retry step owns it
+            self.report.unmute = "pending"
             return
         if self.link_gone:
             state = "link gone"
