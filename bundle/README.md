@@ -1,4 +1,4 @@
-# packaging
+# bundle
 
 `Lavalier.app` is a minimal, hand-built macOS app bundle. Its only executable,
 `Contents/MacOS/Lavalier`, is a small C launcher (`launcher.c`) that embeds the
@@ -14,7 +14,7 @@ it runs that module instead, for example `Lavalier -m lavalier.probe`.
 From the repo root, with the project venv:
 
 ```
-.venv/bin/python -m packaging.build_app --out dist
+.venv/bin/python -m bundle.build_app --out dist
 ```
 
 Options: `--out DIR` (default `dist`), `--identity NAME` (codesign identity,
@@ -28,8 +28,8 @@ top-level `Python` or `Versions/Current` links, so `-framework Python` cannot
 find it). It then signs the bundle with
 `codesign --force --deep --sign <identity> --identifier io.github.khronosd.lavalier`.
 
-Rebuild after moving the repo or recreating the venv: the bundle refers to both
-by absolute path.
+The bundle must be rebuilt if the repo, the venv or the Python framework moves: it refers to
+all three by absolute path.
 
 ## paths.txt
 
@@ -61,7 +61,7 @@ Owner at the keyboard, pendant in range, nothing else connected.
   Expected: no second prompt, a new line in `probe.log`. Afterwards
   `launchctl bootout gui/$(id -u)/io.github.khronosd.lavalier.probe`.
   Outcome: ______________________________________________
-- [ ] 3. Rebuild (`python -m packaging.build_app --out dist`) and repeat 1.
+- [ ] 3. Rebuild (`python -m bundle.build_app --out dist`) and repeat 1.
   A: no prompt, a new line (ad hoc signature is stable enough).
   B: a prompt again, or `probe.log` shows a Bluetooth denial: create a
   self-signed code-signing certificate `Lavalier Dev` in Keychain Access, rebuild

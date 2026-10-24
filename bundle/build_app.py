@@ -1,6 +1,6 @@
 """Build Lavalier.app by hand: Info.plist, an embedding launcher, search paths, ad hoc signature.
 
-    python -m packaging.build_app [--out dist] [--identity -] [--dry-run]
+    python -m bundle.build_app [--out dist] [--identity -] [--dry-run]
 """
 
 import argparse
@@ -104,7 +104,7 @@ def build(out_dir: Path, *, python_framework: Path, site_packages: list[Path], s
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m packaging.build_app", description="Build Lavalier.app")
+    ap = argparse.ArgumentParser(prog="python -m bundle.build_app", description="Build Lavalier.app")
     ap.add_argument("--out", type=Path, default=Path("dist"))
     ap.add_argument("--identity", default="-", help='codesign identity ("-" for ad hoc)')
     ap.add_argument("--dry-run", action="store_true", help="lay out the bundle without compiling or signing")

@@ -1,16 +1,7 @@
-import importlib.util
 import plistlib
 from pathlib import Path
 
-# The repo's top-level `packaging/` directory shares its name with the PyPI `packaging`
-# library, which pytest has already imported, so load build_app by path.
-_spec = importlib.util.spec_from_file_location(
-    "lavalier_build_app", Path(__file__).resolve().parents[1] / "packaging" / "build_app.py"
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-info_plist = _mod.info_plist
-build = _mod.build
+from bundle.build_app import build, info_plist
 
 
 def test_info_plist_has_the_bluetooth_description_and_identity():
