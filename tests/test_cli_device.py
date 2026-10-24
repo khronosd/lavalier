@@ -82,6 +82,8 @@ def test_mute_and_unmute_round_trip(cli_env, monkeypatch, db_at_root):
     db_at_root.set_status("muted_by_recorder_since_ms", "5")
     out = cli_env.invoke(["unmute"]).output
     assert "LISTENING" in out and p.log.count("start") == 1
+    sessions = " ".join(p.log).split("exit")
+    assert all(s.split()[1].startswith("set_time:") for s in sessions[:2])   # mute and unmute set the clock first
     assert db_at_root.latest_device_status()[1] == "unmute"
     for key in ("unmute_pending_since_ms", "muted_by_recorder_since_ms", "muted_by_owner_since_ms"):
         assert db_at_root.get_status(key) is None

@@ -41,7 +41,10 @@ def state_of(snap: DeviceSnapshot) -> str:
 
 
 async def _send_and_reread(pendant: Pendant, send: str, settle_s: float, now_ms: Callable[[], int]) -> DeviceSnapshot:
+    """A mutating session: the clock is set first, as on every sync (the pendant does not record
+    without a time sync, and its clock does not survive a flat battery)."""
     async with pendant as p:
+        await p.set_time(now_ms())
         firmware_ver, storage_instance = await p.info()
         await getattr(p, send)()
         await asyncio.sleep(settle_s)

@@ -68,13 +68,23 @@ async def test_owner_mute_action_clears_the_recorder_markers(app_env):
 
 
 async def test_unmute_and_status_live_actions(app_env):
+    from conftest import APP_CLOCK_MS
     app = app_env(FakePendant(state="NOT_RECORDING"))
     app.db.set_status("muted_by_owner_since_ms", "5")
     assert (await app.action("unmute"))["state"] == "LISTENING"
+    assert app.pendant.log[:2] == ["enter", f"set_time:{APP_CLOCK_MS}"]   # a mutating session sets the clock
     assert app.db.get_status("muted_by_owner_since_ms") is None
+    before = len(app.pendant.log)
     live = await app.action("status-live")
     assert live["ok"] is True and live["summary"]["device"]["source"] == "live"
-    assert "set_time" not in " ".join(app.pendant.log)
+    assert "set_time" not in " ".join(app.pendant.log[before:])           # the live read stays read-only
+
+
+async def test_mute_action_sets_the_clock_first(app_env):
+    from conftest import APP_CLOCK_MS
+    app = app_env(FakePendant())
+    await app.action("mute")
+    assert app.pendant.log[:4] == ["enter", f"set_time:{APP_CLOCK_MS}", "info", "stop"]
 
 
 async def test_sync_action_returns_the_report_and_the_process(app_env, storage_payloads):
