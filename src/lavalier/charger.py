@@ -27,7 +27,7 @@ def _device_blocks(ioreg_text: str):
     """Yield the property braces of each device: the `{ ... }` under one `+-o` line."""
     block = None
     for line in ioreg_text.splitlines():
-        stripped = line.strip().lstrip("|").strip()
+        stripped = line.lstrip(" |").strip()
         if "+-o" in line:
             block = None
             continue

@@ -37,3 +37,25 @@ def test_read_ioreg_never_opens_the_serial_port_and_tolerates_failure():
 
     assert read_ioreg(run=run) == ""
     assert seen[0][0] == "ioreg" and not any("/dev/" in a for a in seen[0])
+
+
+NESTED_IOREG = '''
+  | +-o Hub@01000000  <class IOUSBHostDevice>
+  | | {
+  | |   "USB Vendor Name" = "ZEPHYR"
+  | | }
+  | +-o Pendant@01100000  <class IOUSBHostDevice>
+  | | {
+  | |   "USB Product Name" = "Pendant"
+  | |   "USB Vendor Name" = "ZEPHYR"
+  | | }
+'''
+
+
+def test_cdc_present_handles_nested_pipe_prefixes_and_keeps_strings_in_one_block():
+    assert cdc_present(NESTED_IOREG)
+    split = NESTED_IOREG.replace('  | |   "USB Vendor Name" = "ZEPHYR"\n  | | }\n  | +-o Pendant',
+                                 '  | | }\n  | +-o Pendant')
+    assert split.count('"USB Vendor Name" = "ZEPHYR"') == 1
+    assert not cdc_present(split.replace('  | | {\n  | |   "USB Product Name" = "Pendant"\n  | |   "USB Vendor Name" = "ZEPHYR"\n',
+                                         '  | | {\n  | |   "USB Product Name" = "Pendant"\n'))
