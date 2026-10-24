@@ -4,8 +4,7 @@ import logging
 
 # the fork's connection chatter (INFO lines, the .pair() warning); its decode warnings, which mean
 # dropped audio, stay audible
-# built from parts: only device.py may name the fork's connection modules (tests/test_closed_command_set.py)
-_CHATTY = tuple(".".join(("pendant_client", m)) for m in ("ble", "session"))
+_CHATTY = ("pendant_client.ble", "pendant_client.session")
 
 
 def quiet_fork_chatter() -> None:
