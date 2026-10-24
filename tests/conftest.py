@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from lavalier.models import DeviceSnapshot
 from lavalier.paths import Paths
 
 
@@ -343,3 +344,8 @@ def speech_transcript() -> Transcript:
 def thank_you_transcript() -> Transcript:
     return Transcript("Thank you.", "en", "mlx-community/whisper-large-v3-turbo", [
         Segment(0, 1.88, " Thank you.", -0.953, 0.0, [Word(0, 0.28, "Thank", 0.05), Word(0.28, 1.88, "you.", 0.99)])])
+
+
+@pytest.fixture
+def snap():
+    return DeviceSnapshot(1000, True, "LISTENING", 0, 786, 94, -10, "USB_DISCONNECTED", "1.1.3", 7)
