@@ -162,6 +162,13 @@ def test_status(db):
     assert db.get_status("k") == "2"
 
 
+def test_clear_status_unsets_the_key(db):
+    db.set_status("k", "1")
+    db.clear_status("k")
+    db.clear_status("never-set")
+    assert db.get_status("k") is None
+
+
 def test_set_loudness_rolls_back_with_transaction(db, clip_record):
     db.add_clip(clip_record)
     try:

@@ -659,6 +659,10 @@ class Database:
         with self._write_scope():
             self._conn.execute("INSERT OR REPLACE INTO status (key, value) VALUES (?, ?)", (key, value))
 
+    def clear_status(self, key: str) -> None:
+        with self._write_scope():
+            self._conn.execute("DELETE FROM status WHERE key = ?", (key,))
+
     def get_status(self, key: str) -> Optional[str]:
         r = self._conn.execute("SELECT value FROM status WHERE key = ?", (key,)).fetchone()
         return r["value"] if r else None
