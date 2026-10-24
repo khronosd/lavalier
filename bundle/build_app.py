@@ -1,15 +1,17 @@
 """Build Lavalier.app by hand: Info.plist, an embedding launcher, search paths, ad hoc signature.
 
-    python -m bundle.build_app [--out dist] [--identity -] [--dry-run]
+    python -m bundle.build_app [--out dist] [--identity NAME] [--dry-run]
 """
 
 import argparse
 import plistlib
 import subprocess
+import sys
 import sysconfig
 from pathlib import Path
 
 BUNDLE_ID = "io.github.khronosd.lavalier"
+DEV_IDENTITY = "Lavalier Dev"
 VERSION = "0.2.0"
 PYTHON_FRAMEWORK = Path("/opt/homebrew/opt/python@3.12/Frameworks/Python.framework/Versions/3.12")
 HERE = Path(__file__).resolve().parent
@@ -32,6 +34,16 @@ def info_plist(*, version: str, ui_element: bool = True) -> dict:
             "Lavalier connects to your pendant to read its status and download its recordings."
         ),
     }
+
+
+def default_identity(run=subprocess.run) -> str:
+    """The self-signed "Lavalier Dev" identity when the keychain has it, else "-" (ad hoc).
+
+    A stable identity keeps the bundle's designated requirement, and so the Bluetooth grant,
+    across rebuilds; an ad hoc signature changes with every binary.
+    """
+    out = run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True).stdout
+    return DEV_IDENTITY if f'"{DEV_IDENTITY}"' in out else "-"
 
 
 def _pth_dirs(site_dir: Path) -> list[Path]:
@@ -106,15 +118,20 @@ def build(out_dir: Path, *, python_framework: Path, site_packages: list[Path], s
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m bundle.build_app", description="Build Lavalier.app")
     ap.add_argument("--out", type=Path, default=Path("dist"))
-    ap.add_argument("--identity", default="-", help='codesign identity ("-" for ad hoc)')
+    ap.add_argument("--identity", default=None,
+                    help=f'codesign identity ("-" for ad hoc; default "{DEV_IDENTITY}" when present, else "-")')
     ap.add_argument("--dry-run", action="store_true", help="lay out the bundle without compiling or signing")
     args = ap.parse_args(argv)
+    identity = args.identity if args.identity is not None else default_identity()
+    if identity == "-":
+        print(f'warning: no "{DEV_IDENTITY}" signing identity; signing ad hoc, '
+              "the Bluetooth grant will not survive a rebuild", file=sys.stderr)
     app = build(
         args.out,
         python_framework=PYTHON_FRAMEWORK,
         site_packages=[Path(sysconfig.get_paths()["purelib"])],
         src_dir=REPO / "src",
-        codesign_identity=args.identity,
+        codesign_identity=identity,
         dry_run=args.dry_run,
     )
     print(app)
