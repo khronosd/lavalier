@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from pendant_recorder.clips import clip_id_for, day_for, decode_new_pages
 
 
@@ -31,12 +33,45 @@ def test_bad_clock_pages_file_under_capture_day(root, db, imported_capture_with_
 
 def test_empty_import_marks_capture_decoded(root, db, make_capture):
     from pendant_recorder.pages import import_capture
-    path = make_capture([1, 2])
-    import_capture(db, root, path)
-    dup = import_capture(db, root, path)  # same file again: no new pages
-    assert dup.new_payloads == []
+    first = import_capture(db, root, make_capture([1, 2]))
+    decode_new_pages(db, root, first, capture_day=date(2026, 10, 24))
+    dup = import_capture(db, root, make_capture([2, 1]))  # another file, only pages already seen
+    assert dup.capture_id != first.capture_id and dup.new_payloads == []
     assert decode_new_pages(db, root, dup, capture_day=date(2026, 10, 24)) == []
     assert dup.capture_id in [c[0] for c in db.captures_decoded_before(2**62)]
+
+
+def test_empty_payloads_never_mark_a_capture_that_owns_pages(root, db, make_capture):
+    from pendant_recorder.pages import ImportResult, import_capture
+    imp = import_capture(db, root, make_capture([1, 2]))
+    decode_new_pages(db, root, ImportResult(imp.capture_id, imp.messages, 0, 0, []), capture_day=date(2026, 10, 24))
+    assert not db.capture_decoded(imp.capture_id)
+
+
+def test_failed_decode_is_rerun_by_the_next_import(root, db, make_capture, monkeypatch):
+    from pathlib import Path
+
+    from pendant_recorder.db import Database
+    from pendant_recorder.pipeline import import_and_decode
+    from conftest import T
+
+    packet = (Path(__file__).parent / "data" / "packet.bin").read_bytes()
+    path = make_capture([1, 2, 3], opus=packet, start_stop=True,
+                        timestamps=[T(10, 0, 0), T(10, 0, 1), T(10, 0, 2)])
+
+    def boom(self, c):
+        raise RuntimeError("crash in add_clip")
+
+    monkeypatch.setattr(Database, "add_clip", boom)
+    with pytest.raises(RuntimeError):
+        import_and_decode(db, root, path, capture_day=date(2026, 10, 24))
+    monkeypatch.undo()
+    assert db.captures_decoded_before(2**62) == [] and db.clips_for_day(date(2026, 10, 23)) == []
+
+    imp, clips = import_and_decode(db, root, path, capture_day=date(2026, 10, 24))
+    assert imp.pages_new == 0 and len(clips) == 1
+    assert db.clips_for_day(date(2026, 10, 23)) == clips and (root.root / clips[0].path).exists()
+    assert [c[0] for c in db.captures_decoded_before(2**62)] == [imp.capture_id]
 
 
 def test_failure_leaves_no_files_or_rows(root, db, imported_two_chunk_capture, monkeypatch):

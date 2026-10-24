@@ -220,6 +220,10 @@ class Database:
         with self._write_scope():
             self._conn.execute("UPDATE captures SET decoded = 1 WHERE id = ?", (capture_id,))
 
+    def capture_decoded(self, capture_id: int) -> bool:
+        r = self._conn.execute("SELECT decoded FROM captures WHERE id = ?", (capture_id,)).fetchone()
+        return bool(r and r["decoded"])
+
     def captures_decoded_before(self, cutoff_ms: int) -> list[tuple[int, str]]:
         rows = self._conn.execute(
             "SELECT id, path FROM captures WHERE decoded = 1 AND imported_at_ms <= ? ORDER BY id",
@@ -241,6 +245,13 @@ class Database:
             (key.run, key.index, key.sha256),
         ).fetchone()
         return r is not None
+
+    def pages_for_capture(self, capture_id: int) -> list[PageKey]:
+        """The pages this capture registered first, in stream (insertion) order."""
+        rows = self._conn.execute(
+            'SELECT run, "index", sha256 FROM pages WHERE capture_id = ? ORDER BY rowid', (capture_id,)
+        ).fetchall()
+        return [PageKey(r["run"], r["index"], r["sha256"]) for r in rows]
 
     def add_page(self, key: PageKey, capture_id: int, session: int, ingest_type: int, absolute_ms: int) -> None:
         with self._write_scope():

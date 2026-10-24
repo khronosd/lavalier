@@ -1,5 +1,6 @@
 """Decode newly imported pages into dated Ogg Opus clips and events."""
 
+import logging
 import shutil
 import tempfile
 from datetime import date, datetime, timezone
@@ -11,6 +12,8 @@ from pendant_recorder.db import Database
 from pendant_recorder.models import ClipRecord, EventRecord
 from pendant_recorder.pages import ImportResult
 from pendant_recorder.paths import Paths
+
+log = logging.getLogger(__name__)
 
 # 2025-01-01T00:00:00Z: earlier timestamps mean the pendant clock was not set.
 _MIN_VALID_MS = 1735689600000
@@ -29,7 +32,14 @@ def day_for(ms: int, *, fallback: date) -> tuple[date, bool]:
 
 def decode_new_pages(db: Database, paths: Paths, imp: ImportResult, *, capture_day: date) -> list[ClipRecord]:
     if not imp.new_payloads:
-        db.mark_capture_decoded(imp.capture_id)
+        # Nothing to decode is only "decoded" when the capture owns no pages (all duplicates
+        # or status only); otherwise the payloads were lost and retention must keep the file.
+        if db.pages_for_capture(imp.capture_id):
+            if not db.capture_decoded(imp.capture_id):
+                log.warning("capture %s owns pages but none were handed to decode; leaving it undecoded",
+                            imp.capture_id)
+        else:
+            db.mark_capture_decoded(imp.capture_id)
         return []
     clips: list[ClipRecord] = []
     moves: list[tuple[Path, Path]] = []

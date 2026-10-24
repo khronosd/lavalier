@@ -14,9 +14,17 @@ def test_page_key_hashes_flash_page_bytes():
 
 def test_import_twice_adds_nothing_new(root, db, capture_file):
     r1 = import_capture(db, root, capture_file)
+    db.mark_capture_decoded(r1.capture_id)
     r2 = import_capture(db, root, capture_file)
     assert (r1.pages_new, r1.pages_duplicate) == (3, 0) and (r2.pages_new, r2.pages_duplicate) == (0, 3)
     assert r2.capture_id == r1.capture_id and r2.new_payloads == []
+
+
+def test_reimport_of_undecoded_capture_returns_its_pages(root, db, capture_file):
+    r1 = import_capture(db, root, capture_file)
+    r2 = import_capture(db, root, capture_file)  # never decoded: decode must get another go
+    assert (r2.pages_new, r2.pages_duplicate) == (0, 3)
+    assert r2.capture_id == r1.capture_id and r2.new_payloads == r1.new_payloads
 
 
 def test_overlapping_captures_dedup_by_key(root, db, make_capture):

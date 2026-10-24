@@ -48,6 +48,24 @@ def _install_copy(src: Path, dest: Path, sha: str) -> None:
     os.replace(part, dest)
 
 
+def _owned_payloads(db: Database, capture_id: int, messages: list[bytes]) -> list[bytes]:
+    """The payloads a decode of this capture needs: its own storage pages, once each, and
+    every non-storage message, in stream order (re-read from the stored copy)."""
+    owned = set(db.pages_for_capture(capture_id))
+    out: list[bytes] = []
+    taken: set[PageKey] = set()
+    for payload in messages:
+        sp = storage_page_of(payload)
+        if sp is None:
+            out.append(payload)
+            continue
+        key = page_key(sp)
+        if key in owned and key not in taken:
+            taken.add(key)
+            out.append(payload)
+    return out
+
+
 def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = True) -> ImportResult:
     src = Path(src)
     sha = hashlib.sha256(src.read_bytes()).hexdigest()
@@ -79,5 +97,9 @@ def import_capture(db: Database, paths: Paths, src: Path, *, complete: bool = Tr
             pages_new += 1
             new_payloads.append(payload)
             db.add_page(key, capture_id, sp.session, sp.ingest_type, _absolute_ms(sp))
+        if already_imported and not db.capture_decoded(capture_id):
+            # An earlier decode failed after this import committed: hand back everything the
+            # capture owns so the decode runs again instead of being skipped for good.
+            new_payloads = _owned_payloads(db, capture_id, messages)
 
     return ImportResult(capture_id, len(messages), pages_new, pages_duplicate, new_payloads)
