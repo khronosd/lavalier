@@ -68,3 +68,9 @@ def test_download_model_runs_offline_free_subprocess(root, monkeypatch):
     CliRunner().invoke(main, ["doctor", "--download-model"])
     (argv,), kw = calls[0]
     assert "HF_HUB_OFFLINE" not in kw["env"] and Config().whisper_model in argv
+
+
+def test_day_open_with_keep_noise_is_a_usage_error(root, monkeypatch):
+    monkeypatch.setenv("PENDANT_ROOT", str(root.root))
+    r = CliRunner().invoke(main, ["day", "2026-10-23", "--open", "--keep-noise"])
+    assert r.exit_code == 2 and "--keep-noise only applies when printing" in r.output

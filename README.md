@@ -11,16 +11,11 @@ Audio never leaves this Mac. This version makes no network connection at all exc
 
 Requires macOS on Apple Silicon, Python 3.12 and ffmpeg.
 
-```
-/opt/homebrew/bin/python3.12 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-```
-
 The decoder is the `pendant_client` package. The editable fork checkout is the
 development setup for now; a git URL will follow when it is published.
 
 ```
-python3.12 -m venv .venv
+/opt/homebrew/bin/python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]" -e /Users/khronos/Repos/pendant-cli/.worktrees/plan-01-core
 .venv/bin/pytest -q
 ```
@@ -38,13 +33,13 @@ once to fetch the speech model.
 
 ## Commands
 
-- `doctor [--download-model]`: check ffmpeg, the model and the state root; optionally fetch the model.
-- `status`: show what is imported, pending, transcribed or failed.
+- `doctor [--download-model]`: check Python, ffmpeg, the state root and the cached model (exits 1 if a check fails); optionally fetch the model.
+- `status`: print days with clips, pending transcripts, audio and capture bytes on disk, next deletion, last import, pinned conversations, button-press counts and the last process report.
 - `import <bin> [--incomplete] [--process]`: import a capture file; `--incomplete` accepts a partial capture, `--process` runs the pipeline after.
 - `process`: decode, transcribe, group and write day files for anything pending.
-- `day <YYYY-MM-DD> [--open] [--keep-noise]`: rewrite that day's Markdown file; `--open` opens it, `--keep-noise` keeps noise clips.
-- `pin <id>` / `unpin <id>`: keep a clip's audio past retention, or release it.
-- `retention --now`: apply the retention policy immediately.
+- `day <YYYY-MM-DD> [--open] [--keep-noise]`: print that day's Markdown; `--open` writes the file and opens it; `--keep-noise` appends dropped noise clips (print mode only).
+- `pin <conversation-id>` / `unpin <conversation-id>`: keep that conversation's audio for good, or release it.
+- `retention --now`: apply the retention policy immediately (`--now` is required).
 
 ## State root
 

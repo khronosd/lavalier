@@ -158,6 +158,8 @@ def doctor_cmd(download_model: bool) -> None:
 @click.option("--keep-noise", is_flag=True, help="Append the dropped noise clips.")
 def day_cmd(day: datetime, open_file: bool, keep_noise: bool) -> None:
     """Print a day file."""
+    if open_file and keep_noise:
+        raise click.UsageError("--keep-noise only applies when printing")
     paths, cfg, db = _setup()
     d = day.date()
     with db:
