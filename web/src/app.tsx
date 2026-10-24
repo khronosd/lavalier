@@ -4,15 +4,17 @@ import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
 import { Journal } from "./pages/Journal";
 import { Placeholder } from "./pages/Placeholder";
+import { Search } from "./pages/Search";
+import { StarredPage } from "./pages/Starred";
 import { type Route, useRoute } from "./router";
 import { applyAppearance } from "./theme";
 
 function Page({ route, today, days }: { route: Route; today: string; days: DaySummary[] | null }) {
   switch (route.name) {
     case "starred":
-      return <Placeholder title="Starred" emptyTitle="Starred moments will be listed here" />;
+      return <StarredPage />;
     case "search":
-      return <Placeholder title="Search" emptyTitle="Search is not available here yet" />;
+      return <Search q={route.query.q ?? ""} />;
     case "insights":
       return <Placeholder title="Insights" emptyTitle="Insights are not available yet" />;
     case "settings":

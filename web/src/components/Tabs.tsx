@@ -21,7 +21,7 @@ export function Tabs({ route }: { route: Route }) {
     <nav class="segmented" aria-label="Day views">
       {DAY_TABS.map((t) => (
         <a key={t.id} class="segment" href={toHash({ ...route, query: { tab: t.id } })}
-          aria-current={t.id === active ? "true" : undefined}>{t.label}</a>
+          aria-current={t.id === active ? "page" : undefined}>{t.label}</a>
       ))}
     </nav>
   );

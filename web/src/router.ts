@@ -1,5 +1,6 @@
 // Hash routes: #/today, #/day/<date>, #/starred, #/search?q=, #/insights, #/settings/<tab>.
-// Today and a day keep ?tab= (transcript, insights, audio) and ?conv= (the conversation the Audio tab plays).
+// Today and a day keep ?tab= (transcript, insights, audio), ?conv= (the conversation the Audio tab plays)
+// and ?at= (an element id to scroll to once: a line "<clip_id>-<seq>" or a conversation "c-<conversation_id>").
 
 import { useEffect, useState } from "preact/hooks";
 
@@ -14,7 +15,7 @@ export interface Route {
 export const SETTINGS_TABS = ["general", "pendant", "retention", "appearance"] as const;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** The query keys a day page keeps; anything else in its hash is dropped. */
-const DAY_QUERY = ["tab", "conv"] as const;
+const DAY_QUERY = ["tab", "conv", "at"] as const;
 
 /** "2026-10-24" is a real calendar date; "9999-99-99" and "2026-02-30" are not. */
 export function isCalendarDate(text: string): boolean {
@@ -88,6 +89,13 @@ export function toHash(r: Route): string {
 
 export function navigate(r: Route | string): void {
   window.location.hash = typeof r === "string" ? r : toHash(r);
+}
+
+/** Swap the hash in place (no history entry) and let useRoute hear it, as it would a navigation. */
+export function replaceHash(hash: string): void {
+  const url = window.location.pathname + window.location.search + hash;
+  window.history.replaceState(window.history.state, "", url);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
 export function useRoute(): Route {

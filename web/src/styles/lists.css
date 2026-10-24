@@ -1,0 +1,46 @@
+/* Search and Starred: results grouped under day headings, on the transcript's margin-column grid.
+   No cards; the only motion is the fade of a jumped-to line, which answers the person's click. */
+
+/* the sidebar field, drawn as the mockup's search field */
+.search-box {
+  display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 5px 6px 5px 9px;
+  background: var(--field); border: 1px solid var(--field-b); border-radius: 8px; color: var(--text-3);
+}
+.search-box:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.search-box > svg { width: 13px; height: 13px; flex: none; }
+.search-input {
+  flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; outline: none;
+  font: inherit; font-size: 13px; color: var(--text); -webkit-appearance: none; appearance: none;
+}
+.search-input::placeholder { color: var(--text-3); }
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  flex: none; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--text-3); cursor: default;
+}
+.search-clear:hover { color: var(--text-2); }
+.search-clear svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+
+.list-page .loading { color: var(--text-3); }
+.list-page .page-lead + .day-group .group-title { margin-top: 18px; }
+
+.group-title { margin: 26px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+
+/* a result is one link: the time in the margin, the snippet in the reading face */
+a.hit { color: inherit; border-radius: 6px; }
+a.hit:hover { background: var(--hair2); box-shadow: 0 0 0 4px var(--hair2); }
+a.hit:hover .hit-conv { color: var(--accent); }
+.hit > p { max-width: 66ch; overflow-wrap: anywhere; }
+.hit-conv { margin-left: 10px; color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
+
+mark { background: var(--mark-bg); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+.star-row .quote { font-size: 15px; }
+.star-row .no-quote { color: var(--text-3); }
+
+/* a jump from search or a starred moment: highlighted at once, faded out when the class goes */
+.day-body .line, .day-body .conv { transition: background-color 600ms ease-out, box-shadow 600ms ease-out; }
+.day-body .flash { transition: none; background: var(--flash-bg); box-shadow: 0 0 0 4px var(--flash-bg); border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .day-body .line, .day-body .conv { transition: none; }
+}

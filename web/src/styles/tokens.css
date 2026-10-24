@@ -6,6 +6,8 @@
   --text: #1D1D1F; --text-2: #6E6E73; --text-3: #9B9BA1; --select: #DFDFE6; --field: #FFFFFF; --field-b: #D4D4D9;
   --slate: #1C1C1E; --slate-2: #A1A1A6; --star: #B7791F; --accent: #2F6FDE; --accent-soft: #E8F0FD;
   --chip: #F0F0F3; --ok: #2E8B57; --warn: #C6771B;
+  /* matched words in search results (--star at low alpha), and the moment a jump lands on */
+  --mark-bg: rgba(183, 121, 31, 0.2); --flash-bg: var(--accent-soft);
 }
 
 :root[data-theme="dark"] {
@@ -14,6 +16,7 @@
   --text: #F2F2F4; --text-2: #A7A7AD; --text-3: #6F6F76; --select: #3A3A3F; --field: #2A2A2E; --field-b: #3E3E44;
   --slate: #0E0E10; --slate-2: #8F8F96; --star: #D9A441; --accent: #5B93F0; --accent-soft: #233454;
   --chip: #2E2E33; --ok: #4FBF7B; --warn: #E29A3C;
+  --mark-bg: rgba(217, 164, 65, 0.28); --flash-bg: var(--accent-soft);
 }
 
 :root {

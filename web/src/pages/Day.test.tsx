@@ -51,11 +51,11 @@ test("a day shows its summary, the starred moments, conversations, and stars in 
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Friday, 23 October");
   expect(screen.getByRole("heading", { name: "17:33 to 20:40" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "22:56" })).toBeTruthy();
-  expect(screen.getByRole("link", { current: true }).textContent).toBe("Transcript");
+  expect(screen.getByRole("link", { current: "page" }).textContent).toBe("Transcript");
 
-  // starred moments link to their conversation's anchor
+  // starred moments link to their conversation as a route with ?at=, never a bare anchor
   const links = screen.getAllByRole("link", { name: "in the 22:56 conversation" });
-  expect(links.map((a) => a.getAttribute("href"))).toEqual(["#c-conv_test", "#c-conv_test"]);
+  expect(links.map((a) => a.getAttribute("href"))).toEqual(["#/day/2026-10-23?at=c-conv_test", "#/day/2026-10-23?at=c-conv_test"]);
   expect(container.querySelector("#c-conv_test")).toBeTruthy();
 
   // the line ids and the star lines in time order inside the 22:56 conversation
@@ -70,6 +70,59 @@ test("a day shows its summary, the starred moments, conversations, and stars in 
   // previous is disabled at the oldest day; next goes to today's page
   expect(screen.getByText("Previous").getAttribute("aria-disabled")).toBe("true");
   expect(screen.getByRole("link", { name: /^Next day/ }).getAttribute("href")).toBe("#/today");
+});
+
+test("Today in the day navigation keeps the open tab, and Starred on Today stays on Today", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+  render(<Journal route={parseHash("#/day/2026-10-23?tab=insights")} today="2026-10-24" days={days} />);
+  expect((await screen.findByRole("link", { name: "Today" })).getAttribute("href")).toBe("#/today?tab=insights");
+  cleanup();
+
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ ...day23, day: "2026-10-24" })));
+  render(<Journal route={parseHash("#/today")} today="2026-10-24" days={days} />);
+  const links = await screen.findAllByRole("link", { name: "in the 22:56 conversation" });
+  expect(links[0].getAttribute("href")).toBe("#/today?at=c-conv_test");
+});
+
+test("?at= scrolls to that line once the day loads, flashes it, then drops at from the hash", async () => {
+  const scrolled: { id: string; arg: unknown }[] = [];
+  const original = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element, arg?: unknown) { scrolled.push({ id: this.id, arg }); };
+  try {
+    window.location.hash = "#/day/2026-10-23?tab=transcript&at=clip_b-1";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+    const { container } = render(<Journal route={parseHash(window.location.hash)} today="2026-10-24" days={days} />);
+
+    await waitFor(() => expect(container.querySelector("#clip_b-1")!.classList.contains("flash")).toBe(true));
+    expect(scrolled).toEqual([{ id: "clip_b-1", arg: { block: "center" } }]);
+    expect(window.location.hash).toBe("#/day/2026-10-23?tab=transcript");
+    expect(container.querySelectorAll(".flash")).toHaveLength(1);
+    await waitFor(() => expect(container.querySelector(".flash")).toBeNull(), { timeout: 2500 });
+  } finally {
+    Element.prototype.scrollIntoView = original;
+  }
+});
+
+test("?at= naming a conversation scrolls to its block; an unknown target only drops at", async () => {
+  const scrolled: string[] = [];
+  const original = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+  try {
+    window.location.hash = "#/day/2026-10-23?at=c-conv_test";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+    const { container } = render(<Journal route={parseHash(window.location.hash)} today="2026-10-24" days={days} />);
+    await waitFor(() => expect(container.querySelector("#c-conv_test")!.classList.contains("flash")).toBe(true));
+    expect(scrolled).toEqual(["c-conv_test"]);
+    cleanup();
+
+    window.location.hash = "#/day/2026-10-23?at=clip_gone-9";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+    render(<Journal route={parseHash(window.location.hash)} today="2026-10-24" days={days} />);
+    await waitFor(() => expect(window.location.hash).toBe("#/day/2026-10-23"));
+    expect(scrolled).toEqual(["c-conv_test"]);
+  } finally {
+    Element.prototype.scrollIntoView = original;
+  }
 });
 
 test("Pin updates the conversation in place; a refusal is shown beside it", async () => {

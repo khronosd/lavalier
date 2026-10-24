@@ -23,10 +23,10 @@
 }
 .segment { padding: 3px 14px; border-radius: 6px; color: var(--text-2); font-size: 12.5px; }
 .segment:hover { color: var(--text); }
-.segment[aria-current="true"] {
+.segment[aria-current="page"] {
   background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px var(--hairline);
 }
-:root[data-theme="dark"] .segment[aria-current="true"] { background: var(--select); box-shadow: none; }
+:root[data-theme="dark"] .segment[aria-current="page"] { background: var(--select); box-shadow: none; }
 
 .day-body { padding-top: 8px; }
 

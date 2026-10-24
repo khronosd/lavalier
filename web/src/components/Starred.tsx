@@ -1,22 +1,16 @@
 import type { ConversationView, StarView } from "../api";
 import { hm, hms } from "../format";
+import { type Route, toHash } from "../router";
 
 interface Props {
   stars: StarView[];
   conversations: ConversationView[];
-}
-
-/** Bring a conversation into view without touching the hash (the hash is the route). */
-function jump(e: MouseEvent, conversationId: string) {
-  const target = document.getElementById(`c-${conversationId}`);
-  if (!target) return;
-  e.preventDefault();
-  target.scrollIntoView?.({ block: "start" });
-  target.focus({ preventScroll: true });
+  /** The today or day route being shown; each link is that route with ?at= naming the conversation. */
+  route: Route;
 }
 
 /** The day's starred moments, above the transcript, each linked to its conversation. */
-export function Starred({ stars, conversations }: Props) {
+export function Starred({ stars, conversations, route }: Props) {
   if (stars.length === 0) return null;
   const byId = new Map(conversations.map((c) => [c.conversation_id, c]));
   return (
@@ -30,7 +24,7 @@ export function Starred({ stars, conversations }: Props) {
             <p>
               {s.quote ? <span class="reading quote">{s.quote}</span> : <span class="no-quote">Nothing was said at this moment</span>}
               {conv && (
-                <a class="star-link" href={`#c-${conv.conversation_id}`} onClick={(e) => jump(e, conv.conversation_id)}>
+                <a class="star-link" href={toHash({ ...route, query: { at: `c-${conv.conversation_id}` } })}>
                   in the {hm(conv.start_ms)} conversation
                 </a>
               )}

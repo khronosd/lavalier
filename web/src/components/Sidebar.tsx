@@ -4,6 +4,7 @@ import type { Route } from "../router";
 import { DayList } from "./DayList";
 import { InsightsIcon, JournalIcon, SearchIcon, SettingsIcon, StarIcon, TodayIcon } from "./icons";
 import { NavLink } from "./NavLink";
+import { SearchBox } from "./SearchBox";
 
 interface Props {
   route: Route;
@@ -20,6 +21,7 @@ export function Sidebar({ route, days, today, pendant }: Props) {
   const journalCount = days && days.length > 0 ? `${days.length} ${days.length === 1 ? "day" : "days"}` : undefined;
   return (
     <aside class="sidebar" aria-label="Sections">
+      <SearchBox route={route} />
       <nav class="sidebar-scroll">
         <ul class="nav">
           <NavLink to={r("today")} current={page(route.name === "today")} icon={<TodayIcon />} label="Today" />

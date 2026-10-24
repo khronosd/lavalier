@@ -35,7 +35,7 @@ export function DayNav({ date, today, days, route }: Props) {
       <Step to={next} label="Next day" text="Next" route={route} today={today} />
       {date === today
         ? <span class="btn" aria-disabled="true">Today</span>
-        : <a class="btn" href="#/today">Today</a>}
+        : <a class="btn" href={toHash({ name: "today", params: {}, query: route.query.tab ? { tab: route.query.tab } : {} })}>Today</a>}
     </nav>
   );
 }

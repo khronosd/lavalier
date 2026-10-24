@@ -8,6 +8,7 @@ import { Starred } from "../components/Starred";
 import { Tabs, tabOf } from "../components/Tabs";
 import { pendingSentence, summarySentence } from "../day";
 import { navigate, type Route } from "../router";
+import { useJumpTo } from "../useJumpTo";
 
 interface Props {
   date: string;
@@ -30,7 +31,7 @@ function TabPanel({ route, view, onPin }: {
     default:
       return (
         <>
-          <Starred stars={view.stars} conversations={view.conversations} />
+          <Starred stars={view.stars} conversations={view.conversations} route={route} />
           {view.conversations.map((c) => (
             <Conversation key={c.conversation_id} conv={c} onPin={(p) => onPin(c.conversation_id, p)}
               onPlay={() => navigate({ ...route, query: { tab: "audio", conv: c.conversation_id } })} />
@@ -69,6 +70,7 @@ export function Day({ date, isToday, route, nav }: Props) {
 
   const view = load.date === date ? load.view : null;
   const error = load.date === date ? load.error : null;
+  useJumpTo(route.query.at, view !== null);
 
   if (error) {
     return (
