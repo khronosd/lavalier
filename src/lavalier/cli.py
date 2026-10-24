@@ -282,7 +282,9 @@ def sync_cmd(dry_run: bool) -> None:
         if r["sync"]["outcome"] == "locked":
             raise click.ClickException(_another_process(r["sync"]["reason"]))
         click.echo(_sync_line(r["sync"], paths))
-    if r["process"] is not None:
+    if r["process"] == "scheduled":
+        click.echo("Processing runs in the app; see 'lavalier status'")
+    elif r["process"] is not None:
         for line in _report_lines(r["process"]):
             click.echo(line)
     if r["sync"]["outcome"] in ("error", "refused"):

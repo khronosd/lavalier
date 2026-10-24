@@ -34,8 +34,9 @@ class AppStopping(Exception):
 
 class ControlServer:
     def __init__(self, app_like, *, token_path: Path, port: int = 0,
-                 loop: Optional[asyncio.AbstractEventLoop] = None):
+                 loop: Optional[asyncio.AbstractEventLoop] = None, action_timeout_s: float = ACTION_TIMEOUT_S):
         self.app_like = app_like
+        self.action_timeout_s = action_timeout_s
         self.token_path = Path(token_path)
         self.token = secrets.token_urlsafe(32)
         self._requested_port = port
@@ -129,10 +130,23 @@ class ControlServer:
             return await self.app_like.action(name)
         fut = asyncio.run_coroutine_threadsafe(run(), self._loop)
         try:
-            return fut.result(ACTION_TIMEOUT_S)
+            return fut.result(self.action_timeout_s)
         except FutureTimeout:
-            fut.cancel()
+            # only the HTTP wait gave up: the action keeps its device session (a drain cancelled
+            # here would strand acked pages) and runs to the end; its result goes to the log
+            _log.warning("%s still running after %ss; the reply is 504, the action continues", name,
+                         self.action_timeout_s)
+            fut.add_done_callback(lambda f: _log_late_result(name, f))
             raise
+
+
+def _log_late_result(name: str, fut) -> None:
+    if fut.cancelled():
+        _log.info("%s (answered 504) was cancelled", name)
+    elif fut.exception() is not None:
+        _log.error("%s (answered 504) failed: %s", name, fut.exception())
+    else:
+        _log.info("%s (answered 504) finished: %s", name, fut.result())
 
 
 def _handler(srv: ControlServer):

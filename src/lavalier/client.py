@@ -50,7 +50,10 @@ def app_running(token_path: Path) -> bool:
     return status == 200
 
 
-def call(token_path: Path, method: str, route: str, *, timeout_s: float = 900) -> dict:
+CALL_TIMEOUT_S = 930  # longer than the server's 900 s wait, so its 504 arrives first
+
+
+def call(token_path: Path, method: str, route: str, *, timeout_s: float = 930) -> dict:
     info = _token(token_path)
     if info is None:
         raise AppUnavailable(f"no usable token file at {token_path}")
@@ -60,6 +63,8 @@ def call(token_path: Path, method: str, route: str, *, timeout_s: float = 900) -
         raise AppUnavailable(str(e)) from e
     if status == 409:
         raise AppBusy()
+    if status == 504:
+        raise AppUnavailable("still running after 15 minutes; it continues in the app, see 'lavalier status'")
     try:
         data = json.loads(body)
     except ValueError as e:

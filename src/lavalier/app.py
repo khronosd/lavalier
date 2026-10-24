@@ -54,6 +54,7 @@ class App:
         self._device_lock = asyncio.Lock()   # one pendant session at a time, inside this process
         self._process_lock = asyncio.Lock()  # one processing run at a time; never held with the device
         self._action_tasks: set[asyncio.Task] = set()
+        self._process_tasks: set[asyncio.Task] = set()  # processing started by an action, never awaited by it
         self._ticking = False
         self._lock = lock or SyncLock(paths.root / ".lock")  # and across processes
         self._db: Optional[Database] = None
@@ -122,18 +123,46 @@ class App:
 
     async def _process_capture(self, report: SyncReport) -> Optional[ProcessReport]:
         """Process what came in, whatever the outcome. No device involved, so the device lock is
-        free meanwhile; the process lock keeps two processing runs from overlapping."""
+        free meanwhile; the process lock keeps two processing runs from overlapping. The lock is
+        released when the worker thread ends, not when this coroutine does: cancelling the wait
+        cannot stop the thread, so it must not let a second run start beside it."""
         if not brought_audio(report):
             return None
-        processed = None
-        async with self._process_lock:
-            try:
-                processed = await asyncio.to_thread(self._process, report)
-            except Exception:
-                _log.exception("processing after the sync failed")
-        if processed is not None:
-            self.last_process = processed
-        return processed
+        await self._process_lock.acquire()
+        try:
+            worker = asyncio.ensure_future(asyncio.to_thread(self._process, report))
+        except BaseException:
+            self._process_lock.release()
+            raise
+        worker.add_done_callback(self._process_finished)
+        try:
+            return await asyncio.shield(worker)
+        except Exception:
+            return None  # logged by _process_finished
+
+    def _process_finished(self, worker: asyncio.Future) -> None:
+        self._process_lock.release()
+        if worker.cancelled():
+            return
+        if worker.exception() is not None:
+            _log.error("processing after the sync failed", exc_info=worker.exception())
+        elif worker.result() is not None:
+            self.last_process = worker.result()
+
+    def _schedule_process(self, report: SyncReport) -> Optional[str]:
+        """Processing after an action runs as its own task: an action cancelled or timed out
+        afterwards can never interrupt it."""
+        if not brought_audio(report):
+            return None
+        task = asyncio.ensure_future(self._process_capture(report))
+        self._process_tasks.add(task)
+        task.add_done_callback(self._process_tasks.discard)
+        return "scheduled"
+
+    async def processing_done(self) -> None:
+        """Wait for every processing run an action scheduled."""
+        while self._process_tasks:
+            await asyncio.gather(*self._process_tasks, return_exceptions=True)
 
     async def tick(self) -> SyncReport:
         # marked before the wait, so a signal cancels a tick queued behind an action as well
@@ -164,7 +193,7 @@ class App:
                     report = await self._sync_device()
                 else:
                     return await self._device_action(name)
-            return actions.sync_result(report, await self._process_capture(report))
+            return {"sync": report.to_json_dict(), "process": self._schedule_process(report)}
         finally:
             self._action_tasks.discard(task)
 

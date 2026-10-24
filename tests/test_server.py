@@ -58,3 +58,32 @@ def test_a_stopping_app_is_503(server, fake_app):
     fake_app.action = refuse
     r = post(server, "/api/mute")
     assert r.status == 503 and json.loads(r.read()) == {"error": "stopping"}
+
+
+# --- final review fixes: an HTTP timeout never cancels the action (I1) ---
+
+def test_a_timed_out_wait_is_504_and_the_action_still_completes(fake_app, token_path):
+    import asyncio
+    import threading
+    from lavalier.server import ControlServer
+    done = threading.Event()
+
+    async def slow(name):
+        await asyncio.sleep(0.4)
+        done.set()
+        return {"did": name}
+    fake_app.action = slow
+    s = ControlServer(fake_app, token_path=token_path, action_timeout_s=0.05)
+    s.start()
+    try:
+        r = post(s, "/api/sync")
+        assert r.status == 504 and json.loads(r.read()) == {"error": "timeout"}
+        assert done.wait(5)                                  # not cancelled by the timed-out wait
+    finally:
+        s.stop()
+
+
+def test_the_client_waits_longer_than_the_server():
+    import inspect
+    from lavalier import client, server
+    assert inspect.signature(client.call).parameters["timeout_s"].default == 930 > server.ACTION_TIMEOUT_S

@@ -81,3 +81,20 @@ def test_mute_not_confirmed_through_the_app_exits_1(cli_env, app_env, monkeypatc
     with serve(app):
         r = cli_env.invoke(["mute"])
     assert r.exit_code == 1 and "Mute not confirmed: LISTENING" in r.output
+
+
+def test_a_drain_through_the_app_says_processing_is_scheduled(cli_env, app_env, monkeypatch, storage_payloads):
+    app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads))
+    monkeypatch.setattr(cli, "pendant_factory", _no_headless)
+    with serve(app):
+        r = cli_env.invoke(["sync"])
+    assert r.exit_code == 0, r.output
+    assert "Sync: drained" in r.output and "Processing runs in the app; see 'lavalier status'" in r.output
+
+
+def test_a_504_from_the_app_says_the_action_continues(cli_env, running_fake_server, monkeypatch):
+    from lavalier import client
+    monkeypatch.setattr(client, "_request", lambda *a, **kw: (504, b'{"error": "timeout"}'))
+    monkeypatch.setattr(client, "app_running", lambda token: True)
+    r = cli_env.invoke(["sync"])
+    assert r.exit_code == 1 and "it continues in the app" in r.output

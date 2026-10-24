@@ -80,8 +80,10 @@ async def test_unmute_and_status_live_actions(app_env):
 async def test_sync_action_returns_the_report_and_the_process(app_env, storage_payloads):
     app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads))
     r = await app.action("sync")
-    assert r["sync"]["outcome"] == "drained" and r["process"] is not None
+    assert r["sync"]["outcome"] == "drained" and r["process"] == "scheduled"
     json.dumps(r)                                                   # JSON-able as returned
+    await app.processing_done()
+    assert app.last_process is not None
 
 
 async def test_a_failed_action_is_reported_once(app_env):
@@ -289,3 +291,96 @@ async def test_a_second_stop_does_not_cancel_a_running_restore(app_env, storage_
         assert db.last_sync_run().unmute == "confirmed"
     finally:
         db.close()
+
+
+# --- final review fixes: timeouts and cancellation never cut processing short (I1) ---
+
+async def test_a_sync_action_past_the_server_timeout_still_lands_its_run(app_env, storage_payloads):
+    from conftest import post
+    holder = []
+    app = app_env(_SlowDrainPendant(holder, pages=(0, 999), messages=storage_payloads * 3))
+    holder.append(app)
+    srv = ControlServer(app, token_path=app.token_path, action_timeout_s=0.02)
+    srv.start()
+    try:
+        r = await asyncio.to_thread(post, srv, "/api/sync")
+        assert r.status == 504 and json.loads(r.read()) == {"error": "timeout"}
+        for _ in range(200):
+            if app.db.last_sync_run().outcome != "running":
+                break
+            await asyncio.sleep(0.01)
+        assert app.db.last_sync_run().outcome == "drained"
+        await app.processing_done()
+        assert app.last_process is not None
+    finally:
+        srv.stop()
+
+
+async def test_sync_action_schedules_processing_and_returns_before_it(app_env, storage_payloads):
+    import threading
+    from conftest import speech_transcript
+    from lavalier.transcribe import FakeTranscriber
+    entered, gate = threading.Event(), threading.Event()
+
+    def slow_transcriber(cfg):
+        entered.set()
+        gate.wait(10)
+        return FakeTranscriber({}, default=speech_transcript())
+
+    app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads), transcriber_factory=slow_transcriber)
+    try:
+        r = await asyncio.wait_for(app.action("sync"), 5)
+        assert r["sync"]["outcome"] == "drained" and r["process"] == "scheduled"
+        assert await asyncio.to_thread(entered.wait, 5) and app.last_process is None
+    finally:
+        gate.set()
+    await app.processing_done()
+    assert app.last_process is not None
+
+
+async def test_cancelling_the_wait_on_processing_keeps_the_process_lock_until_the_worker_ends(app_env, storage_payloads):
+    import threading
+    import time
+    from lavalier.sync import SyncReport
+    app = app_env(FakePendant())
+    active, overlaps, started = [0], [], threading.Event()
+    gate = threading.Event()
+
+    def fake_process(report):
+        active[0] += 1
+        overlaps.append(active[0])
+        started.set()
+        gate.wait(10) if report.reason == "first" else time.sleep(0.01)
+        active[0] -= 1
+        return None
+    app._process = fake_process
+    first = asyncio.create_task(app._process_capture(SyncReport("drained", "first", capture=app.paths.root / "a.bin")))
+    assert await asyncio.to_thread(started.wait, 5)
+    first.cancel()
+    await asyncio.sleep(0.01)
+    assert app._process_lock.locked()                           # the worker still runs: the lock stays held
+    second = asyncio.create_task(app._process_capture(SyncReport("drained", "second", capture=app.paths.root / "b.bin")))
+    await asyncio.sleep(0.05)
+    assert overlaps == [1]                                      # the second has not started
+    gate.set()
+    await asyncio.wait_for(second, 5)
+    assert overlaps == [1, 1] and not app._process_lock.locked()
+
+
+async def test_stopping_the_app_after_a_sync_action_does_not_cancel_its_processing(app_env, storage_payloads):
+    import threading
+    from conftest import speech_transcript
+    from lavalier.transcribe import FakeTranscriber
+    gate = threading.Event()
+
+    def slow_transcriber(cfg):
+        gate.wait(10)
+        return FakeTranscriber({}, default=speech_transcript())
+
+    app = app_env(FakePendant(pages=(0, 999), messages=storage_payloads), transcriber_factory=slow_transcriber)
+    r = await app.action("sync")
+    assert r["process"] == "scheduled"
+    app.stop()                                                     # cancels actions in flight, not processing
+    gate.set()
+    await app.processing_done()
+    assert app.last_process is not None
