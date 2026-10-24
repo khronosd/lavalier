@@ -429,3 +429,142 @@ def storage_payloads():
             ingest_type=2, session=1, run=1)
         for i in (10, 11, 12)
     ]
+
+
+# --- app process, control server and client fixtures ---
+
+import http.client
+import json
+import subprocess
+import sys
+
+APP_CLOCK_MS = 1_792_821_400_000  # 2026-10-23 evening, US Pacific
+
+_DEFAULT = object()
+
+
+class Reply:
+    """A fully read HTTP response: the connection is closed before the test sees it."""
+
+    def __init__(self, status: int, body: bytes):
+        self.status = status
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def _request(server, method: str, route: str, token, origin) -> Reply:
+    headers = {}
+    token = server.token if token is _DEFAULT else token
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    if origin is not None:
+        headers["Origin"] = origin
+    conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
+    try:
+        conn.request(method, route, body=b"" if method == "POST" else None, headers=headers)
+        resp = conn.getresponse()
+        return Reply(resp.status, resp.read())
+    finally:
+        conn.close()
+
+
+def get(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
+    return _request(server, "GET", route, token, origin)
+
+
+def post(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
+    return _request(server, "POST", route, token, origin)
+
+
+class FakeAppLike:
+    """What the control server forwards to: records every call it receives."""
+
+    def __init__(self, results: Optional[dict] = None):
+        self.busy = False
+        self.calls: list[tuple[str, str]] = []
+        self.results = dict(results or {})
+
+    def snapshot(self) -> dict:
+        self.calls.append(("GET", "/api/status"))
+        return {"x": 1}
+
+    async def action(self, name: str) -> dict:
+        self.calls.append(("POST", f"/api/{name}"))
+        return self.results.get(name, {"did": name})
+
+
+@pytest.fixture
+def fake_app():
+    return FakeAppLike()
+
+
+@pytest.fixture
+def token_path(tmp_path):
+    return tmp_path / ".server.json"
+
+
+@pytest.fixture
+def server(fake_app, token_path):
+    from lavalier.server import ControlServer
+    s = ControlServer(fake_app, token_path=token_path)
+    s.start()
+    try:
+        yield s
+    finally:
+        s.stop()
+
+
+@pytest.fixture
+def running_fake_server(cli_env):
+    """A real control server with a real token file at the CLI's state root, in front of a recording fake."""
+    from lavalier.server import ControlServer
+    app = FakeAppLike(results={
+        "mute": {"ok": True, "state": "NOT_RECORDING", "error": None},
+        "unmute": {"ok": True, "state": "LISTENING", "error": None},
+    })
+    s = ControlServer(app, token_path=cli_env.root.root / ".server.json")
+    s.start()
+    try:
+        yield app
+    finally:
+        s.stop()
+
+
+def _dead_pid() -> int:
+    p = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True,
+                       check=True)
+    return int(p.stdout)
+
+
+@pytest.fixture
+def stale_token_file(cli_env):
+    path = cli_env.root.root / ".server.json"
+    path.write_text(json.dumps({"port": 9, "token": "stale", "pid": _dead_pid()}))
+    path.chmod(0o600)
+    return path
+
+
+@pytest.fixture
+def app_env(root):
+    """Builds an App on the test root around a FakePendant; never touches Bluetooth or the model."""
+    from lavalier.app import App
+    from lavalier.config import save_config
+    from lavalier.transcribe import FakeTranscriber
+
+    root.ensure()
+    save_config(Config(pendant_address="FAKE"), root.config)
+    apps = []
+
+    def make(pendant, poll_interval_s: int = 600):
+        cfg = Config(pendant_address="FAKE", poll_interval_s=poll_interval_s)
+        app = App(root, cfg, pendant_factory=lambda cfg: pendant,
+                  transcriber_factory=lambda cfg: FakeTranscriber({}, default=speech_transcript()),
+                  now_ms=lambda: APP_CLOCK_MS, cdc_present=lambda: False, settle_s=0)
+        apps.append(app)
+        return app
+
+    yield make
+    for a in apps:
+        a.close()

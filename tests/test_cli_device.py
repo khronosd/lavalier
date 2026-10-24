@@ -112,3 +112,13 @@ def test_status_shows_the_last_sync(cli_env, monkeypatch):
     cli_env.invoke(["sync"])
     out = cli_env.invoke(["status"]).output
     assert "skipped (nothing to do)" in out and "Last sync: " in out and "(sync)" in out
+
+
+def test_owner_mute_clears_the_recorder_markers(cli_env, monkeypatch, db_at_root):
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant())
+    db_at_root.set_status("unmute_pending_since_ms", "5")
+    db_at_root.set_status("muted_by_recorder_since_ms", "5")
+    assert cli_env.invoke(["mute"]).exit_code == 0
+    assert db_at_root.get_status("muted_by_owner_since_ms")
+    assert db_at_root.get_status("unmute_pending_since_ms") is None
+    assert db_at_root.get_status("muted_by_recorder_since_ms") is None
