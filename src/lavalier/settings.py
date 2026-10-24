@@ -15,6 +15,8 @@ BUNDLE_ID = "io.github.khronosd.lavalier"
 
 APPEARANCES = {"system", "light", "dark"}
 _WINDOW_SIZE = re.compile(r"^\d{3,4}x\d{3,4}$")
+_LANGUAGE = re.compile(r"[a-z]{2,3}")  # a whisper language code; matched whole
+MAX_RETENTION_DAYS = 36500
 
 
 class SettingsError(ValueError):
@@ -34,11 +36,17 @@ def read_settings(cfg: Config, paths: Paths) -> dict:
 def _check_value(name: str, value) -> None:
     if name == "appearance" and value not in APPEARANCES:
         raise SettingsError(f"appearance must be one of {', '.join(sorted(APPEARANCES))}", name)
-    if name == "retention_days" and value < 0:
-        raise SettingsError("retention_days must be 0 or more", name)
+    if name == "retention_days" and not 0 <= value <= MAX_RETENTION_DAYS:
+        raise SettingsError(f"retention_days must be from 0 to {MAX_RETENTION_DAYS}", name)
+    if name == "drain_pages_threshold" and value < 1:
+        raise SettingsError("drain_pages_threshold must be at least 1", name)
+    if name == "drain_after_hours" and value < 0:
+        raise SettingsError("drain_after_hours must be 0 or more", name)
+    if name == "whisper_language" and not _LANGUAGE.fullmatch(value):
+        raise SettingsError("whisper_language must be a 2 or 3 letter code like en", name)
     if name == "poll_interval_s" and value < 60:
         raise SettingsError("poll_interval_s must be at least 60", name)
-    if name == "window_size" and not _WINDOW_SIZE.match(value):
+    if name == "window_size" and not _WINDOW_SIZE.fullmatch(value):
         raise SettingsError("window_size must look like 1120x720", name)
 
 

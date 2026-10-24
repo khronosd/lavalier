@@ -33,6 +33,13 @@ def test_apply_validates_and_saves(cfg, tmp_path):
     ({"retention_days": "14"}, "retention_days"),
     ({"retention_days": True}, "retention_days"),
     ({"require_firmware": 3}, "require_firmware"),
+    ({"retention_days": 36501}, "retention_days"),
+    ({"drain_pages_threshold": 0}, "drain_pages_threshold"),
+    ({"drain_after_hours": -1}, "drain_after_hours"),
+    ({"whisper_language": "english"}, "whisper_language"),
+    ({"whisper_language": "E"}, "whisper_language"),
+    ({"whisper_language": "en\n"}, "whisper_language"),
+    ({"whisper_language": ""}, "whisper_language"),
 ])
 def test_apply_rejects_bad_patches_naming_the_field(cfg, tmp_path, patch, field):
     with pytest.raises(SettingsError, match=field) as e:
@@ -93,3 +100,11 @@ def test_apply_refuses_to_overwrite_an_unreadable_file(tmp_path):
     with pytest.raises(ConfigError):
         apply(Config(), {"window_size": "1280x800"}, path)
     assert path.read_text() == 'retention_days = "x"\n'
+
+
+@pytest.mark.parametrize("patch", [
+    {"retention_days": 0}, {"retention_days": 36500}, {"drain_pages_threshold": 1}, {"drain_after_hours": 0},
+    {"whisper_language": "en"}, {"whisper_language": "yue"},
+])
+def test_apply_accepts_values_on_the_bounds(cfg, tmp_path, patch):
+    assert apply(cfg, patch, tmp_path / "c.toml")
