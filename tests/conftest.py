@@ -42,3 +42,38 @@ def db(root):
         yield d
     finally:
         d.close()
+
+
+from pathlib import Path
+
+from pendant_client.decode import write_batch_ingest_request
+
+from builders import make_audio_flash_page, make_storage_buffer_msg
+
+
+@pytest.fixture
+def make_capture(tmp_path):
+    counter = {"n": 0}
+
+    def _make(pages: list[int], opus: bytes = b"\xb8" + b"A" * 39) -> Path:
+        counter["n"] += 1
+        path = tmp_path / f"capture{counter['n']}.bin"
+        messages = [
+            make_storage_buffer_msg(
+                page_index=i,
+                flash_page=make_audio_flash_page(opus),
+                ingest_type=2,
+                session=1,
+                run=1,
+            )
+            for i in pages
+        ]
+        write_batch_ingest_request(messages=messages, ble_identifier="test", path=path)
+        return path
+
+    return _make
+
+
+@pytest.fixture
+def capture_file(make_capture):
+    return make_capture(pages=[1, 2, 3])
