@@ -52,7 +52,7 @@ def _check_value(name: str, value) -> None:
         raise SettingsError("window_size must look like 1120x720", name)
     if name == "insights_provider" and value not in PROVIDERS:
         raise SettingsError(f"insights_provider must be one of {', '.join(repr(p) for p in PROVIDERS)}", name)
-    if name == "insights_base_url" and value and not value.startswith(("http://", "https://")):
+    if name == "insights_base_url" and value and (value in ("http://", "https://") or not value.startswith(("http://", "https://"))):
         raise SettingsError("insights_base_url must be empty or start with http:// or https://", name)
 
 

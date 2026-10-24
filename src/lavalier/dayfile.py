@@ -56,14 +56,14 @@ def _starred(stars: list[StarView], convs: dict[str, ConversationView]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _conversation(conv: ConversationView) -> str:
+def render_conversation(conv: ConversationView, *, anchor: bool = True) -> str:
     stars = "★" * len(conv.star_ms)
     head = f"### {_hm(conv.start_ms)}–{_hm(conv.end_ms)} · {_duration(conv.speech_ms)} speech"
     if stars:
         head += f" {stars}"
     if conv.pinned:
         head += " (pinned)"
-    lines = [f"{head} {{#{conv.conversation_id}}}"]
+    lines = [f"{head} {{#{conv.conversation_id}}}" if anchor else head]
     events = [(ln.at_ms, 1, f"[{_hms(ln.at_ms)}] {ln.text}") for ln in conv.lines]
     # A star pressed shortly before the conversation began has no place in the
     # transcript; it still counts in the heading and the Starred section.
@@ -111,7 +111,7 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
         parts.append(_starred(view.stars, convs))
     if view.conversations:
         parts.append("## Conversations\n")
-        parts += [_conversation(c) for c in view.conversations]
+        parts += [render_conversation(c) for c in view.conversations]
 
     model = models[0] if models else cfg.whisper_model
     # A day that never had clips (stars only) says nothing about audio.

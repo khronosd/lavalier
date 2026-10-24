@@ -121,6 +121,10 @@ def test_settings_base_url_needs_a_scheme_or_nothing(tmp_path):
     with pytest.raises(SettingsError) as e:
         apply(Config(), {"insights_base_url": "localhost:8080"}, tmp_path / "c.toml")
     assert e.value.field == "insights_base_url"
+    for bare in ("http://", "https://"):
+        with pytest.raises(SettingsError) as e:
+            apply(Config(), {"insights_base_url": bare}, tmp_path / "c.toml")
+        assert e.value.field == "insights_base_url"
     for ok in ("", "http://localhost:8080/v1", "https://x.example"):
         assert apply(Config(), {"insights_base_url": ok}, tmp_path / "c.toml").insights_base_url == ok
 

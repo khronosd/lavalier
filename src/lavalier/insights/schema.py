@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, time
 from typing import Optional
 
 PROMPT_VERSION = 1
@@ -18,7 +19,7 @@ INSIGHT_SCHEMA: dict = {
                 "type": "object",
                 "additionalProperties": False,
                 "required": ["text", "time"],
-                "properties": {"text": {"type": "string"}, "time": {"type": "string", "pattern": "^\\d{2}:\\d{2}:\\d{2}$"}},
+                "properties": {"text": {"type": "string"}, "time": {"type": "string", "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$"}},
             },
         },
         "people": {"type": "array", "items": {"type": "string"}},
@@ -26,7 +27,7 @@ INSIGHT_SCHEMA: dict = {
     },
 }
 
-_TIME = re.compile(r"(\d{2}):(\d{2}):(\d{2})")
+_TIME = re.compile(r"([0-9]{2}):([0-9]{2}):([0-9]{2})")
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ def _strings(data: dict, name: str) -> list[str]:
     return list(dict.fromkeys(s for s in out if s))
 
 
-def _follow_up(item: object, i: int, day_start_ms: int) -> Optional[FollowUp]:
+def _follow_up(item: object, i: int, day: date) -> Optional[FollowUp]:
     where = f"follow_ups[{i}]"
     if not isinstance(item, dict):
         raise InsightError(f"{where} must be an object, got {type(item).__name__}")
@@ -76,10 +77,11 @@ def _follow_up(item: object, i: int, day_start_ms: int) -> Optional[FollowUp]:
         raise InsightError(f"{where}.time must look like HH:MM:SS, got {t!r}")
     if not text:
         return None
-    return FollowUp(text, day_start_ms + (int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])) * 1000, None)
+    local = datetime.combine(day, time(int(m[1]), int(m[2]), int(m[3]))).astimezone()
+    return FollowUp(text, int(local.timestamp() * 1000), None)
 
 
-def parse_reply(data: object, day_start_ms: int) -> Insight:
+def parse_reply(data: object, day: date) -> Insight:
     if not isinstance(data, dict):
         raise InsightError(f"reply must be an object, got {type(data).__name__}")
     for k in INSIGHT_SCHEMA["required"]:
@@ -89,5 +91,5 @@ def parse_reply(data: object, day_start_ms: int) -> Insight:
     raw = data["follow_ups"]
     if not isinstance(raw, list):
         raise InsightError(f"follow_ups must be an array, got {type(raw).__name__}")
-    ups = [f for i, item in enumerate(raw) if (f := _follow_up(item, i, day_start_ms))]
+    ups = [f for i, item in enumerate(raw) if (f := _follow_up(item, i, day))]
     return Insight(summary, ups, _strings(data, "people"), _strings(data, "topics"))

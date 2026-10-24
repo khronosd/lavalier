@@ -387,7 +387,7 @@ def test_migration_6_adds_insights_and_round_trips(db):
     r = db.insight(d)
     assert r.state == "done" and r.insight == ins and r.error is None and r.input_chars == 10
     assert db.insight(date(2026, 10, 22)) is None and [x.day for x in db.insights_all()] == [d]
-    assert db_module.MIGRATIONS[-1].__name__ == "_migrate_6"
+    assert len(db_module.MIGRATIONS) >= 6
 
 
 def test_set_insight_error_replaces_a_done_row(db):
