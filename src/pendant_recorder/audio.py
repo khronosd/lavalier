@@ -49,7 +49,12 @@ def measure_loudness(db: Database, paths: Paths) -> int:
         if not f.exists():
             log.warning("audio file missing for %s: %s", clip.clip_id, f)
             continue
-        mean_db, peak_db = loudness(f)
+        try:
+            mean_db, peak_db = loudness(f)
+        except AudioToolError:
+            log.exception("loudness failed for %s; marking it failed", clip.clip_id)
+            db.set_classification(clip.clip_id, "failed")
+            continue
         db.set_loudness(clip.clip_id, mean_db, peak_db)
         count += 1
     return count

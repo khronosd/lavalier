@@ -278,7 +278,7 @@ class Database:
         return self._clips("day = ?", (day.isoformat(),))
 
     def clips_needing_loudness(self) -> list[ClipRecord]:
-        return self._clips("path != '' AND mean_db IS NULL")
+        return self._clips("path != '' AND mean_db IS NULL AND (classification IS NULL OR classification != 'failed')")
 
     def clips_needing_transcript(self) -> list[ClipRecord]:
         return self._clips("path != '' AND transcribed_at IS NULL AND classification IS NULL")

@@ -307,3 +307,37 @@ def seeded_retention_day(root, db, cfg, clip_record):
     db.add_event(_press(1, T(10, 10, 0)))
     rebuild_day(db, day, cfg)
     return tuple(db.clip(i) for i in ids)
+
+
+@pytest.fixture
+def imported_and_decoded_three_clips(root, db):
+    """Three clips with real audio on 2026-10-23, 10 minutes apart; the day is dirty."""
+    day = date(2026, 10, 23)
+    clips = []
+    for name, first in (("a", T(10, 0, 0)), ("b", T(10, 10, 0)), ("c", T(10, 20, 0))):
+        clip_id = f"clip_{name}"
+        rel = f"audio/{day.isoformat()}/{clip_id}.opus"
+        _write_opus(root.audio / day.isoformat() / f"{clip_id}.opus")
+        c = ClipRecord(
+            clip_id=clip_id, path=rel, day=day, first_ms=first, last_ms=first + 15000,
+            chunk_count=750, first_page=1, last_page=2, run=1, capture_id=1,
+            opened_with_start_marker=True, closed_with_stop_marker=True, clock_suspect=False)
+        db.add_clip(c)
+        db.set_loudness(clip_id, -44.2 if name == "c" else -27.2, -10.0)  # the real rec0098 / rec0099 levels
+        clips.append(c)
+    db.mark_day_dirty(day)
+    return tuple(clips)
+
+
+@pytest.fixture
+def imported_status_only(imported_status_only_capture):
+    return imported_status_only_capture
+
+
+def speech_transcript() -> Transcript:
+    return _real_transcript()
+
+
+def thank_you_transcript() -> Transcript:
+    return Transcript("Thank you.", "en", "mlx-community/whisper-large-v3-turbo", [
+        Segment(0, 1.88, " Thank you.", -0.953, 0.0, [Word(0, 0.28, "Thank", 0.05), Word(0.28, 1.88, "you.", 0.99)])])

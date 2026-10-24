@@ -47,3 +47,19 @@ def test_measure_loudness_updates_clips_and_skips_missing(root, db, clip_record,
     c = db.clip(clip_record.clip_id)
     assert c.mean_db is not None and c.peak_db is not None
     assert db.clip("clip_gone").mean_db is None
+
+
+@needs_ffmpeg
+def test_measure_loudness_isolates_a_corrupt_clip(root, db, clip_record, opus_clip):
+    from dataclasses import replace
+    good = root.root / clip_record.path
+    good.parent.mkdir(parents=True)
+    shutil.copy(opus_clip, good)
+    db.add_clip(clip_record)
+    bad = replace(clip_record, clip_id="clip_bad", path="audio/2026-10-23/bad.opus", first_ms=clip_record.first_ms - 1000)
+    (root.root / bad.path).write_bytes(b"")
+    db.add_clip(bad)
+    assert measure_loudness(db, root) == 1
+    assert db.clip("clip_bad").classification == "failed"
+    assert db.clip(clip_record.clip_id).mean_db is not None
+    assert measure_loudness(db, root) == 0  # the failed clip is not retried
