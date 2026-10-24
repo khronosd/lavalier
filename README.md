@@ -6,7 +6,7 @@ configure a destination.
 
 ## Development
 
-The decoder is the `pendant_client` package (`limitless-pendant-client`).
+The decoder is the `pendant_client` package.
 The editable fork checkout is the development setup for now; a git URL will
 follow when it is published.
 
