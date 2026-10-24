@@ -63,7 +63,7 @@ def decide_drain(snap: DeviceSnapshot, charger: ChargerDecision, last_drain_ok_m
         return True, f"on charger ({charger.signal})"
     if snap.pages_waiting >= cfg.drain_pages_threshold:
         return True, f"pages waiting {snap.pages_waiting} >= {cfg.drain_pages_threshold}"
-    if last_drain_ok_ms is not None and now_ms - last_drain_ok_ms >= cfg.drain_after_hours * 3_600_000:
+    if last_drain_ok_ms is not None and now_ms - last_drain_ok_ms > cfg.drain_after_hours * 3_600_000:
         return True, f"last drain {(now_ms - last_drain_ok_ms) // 3_600_000}h ago"
     return False, "nothing to do"
 
@@ -75,6 +75,11 @@ def _int_status(db: Database, key: str) -> Optional[int]:
 
 def _iso(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat(timespec="seconds")
+
+
+def _state(snap: DeviceSnapshot) -> str:
+    """The recording state, or "partial status": a partial read decodes as NOT_RECORDING and proves nothing."""
+    return snap.recording_state if snap.has_all_fields else "partial status"
 
 
 def _local_day(ms: int) -> date:
@@ -94,6 +99,7 @@ class _Run:
         self.report = SyncReport(outcome="error", reason="")
         self.capture_id: Optional[int] = None
         self.suffixes: list[str] = []
+        self.link_gone = False
 
     async def read_status(self) -> DeviceSnapshot:
         """status(), filled with the firmware and storage instance from the poll, and recorded."""
@@ -121,9 +127,10 @@ class _Run:
         self.report.charger_signal = charger.signal
         self.record(snap)
         self.db.set_status(LAST_SEEN, str(self.now_ms()))
-        if (snap.has_all_fields and snap.recording_state in ("LISTENING", "RECORDING")
-                and self.db.get_status(UNMUTE_PENDING)):
-            self.log.info("unmute pending cleared: pendant is %s", snap.recording_state)
+        if _state(snap) in ("LISTENING", "RECORDING"):
+            # the pendant is not muted, whoever unmuted it: no mute marker can still be true
+            if self.db.get_status(UNMUTE_PENDING):
+                self.log.info("unmute pending cleared: pendant is %s", snap.recording_state)
             self.clear_mute_keys()
         self.check_firmware(firmware)
         return charger
@@ -131,6 +138,10 @@ class _Run:
     def clear_mute_keys(self) -> None:
         self.db.clear_status(UNMUTE_PENDING)
         self.db.clear_status(MUTED_SINCE)
+
+    def add_error(self, message: str) -> None:
+        self.report.outcome = "error"
+        self.report.error = message if self.report.error is None else f"{self.report.error}; {message}"
 
     def check_firmware(self, firmware: str) -> None:
         last = self.db.get_status(LAST_FIRMWARE)
@@ -155,13 +166,13 @@ class _Run:
             return
         await self.pendant.start_recording()
         await asyncio.sleep(self.settle_s)
-        snap = await self.read_status()
-        if snap.recording_state in ("LISTENING", "RECORDING"):
+        state = _state(await self.read_status())
+        if state in ("LISTENING", "RECORDING"):
             self.clear_mute_keys()
             self.report.unmute = "retried"
-            self.log.info("pending unmute retried: %s", snap.recording_state)
+            self.log.info("pending unmute retried: %s", state)
         else:
-            self.log.warning("pending unmute retried, still %s", snap.recording_state)
+            self.log.warning("pending unmute retried, still %s", state)
 
     # step 7: returns False when the mute was not confirmed and nothing may be drained
     async def mute(self) -> bool:
@@ -172,15 +183,26 @@ class _Run:
         if snap.recording_state == "NOT_RECORDING":
             self.report.muted_by = "owner"
             return True
-        await self.pendant.stop_recording()
-        snap = await self.read_status()
-        if snap.recording_state != "NOT_RECORDING":
-            self.report.outcome = "error"
-            self.report.error = f"mute not confirmed: {snap.recording_state}"
-            return False
+        # mark the mute before sending it, so a stop that lands and then fails is never taken for the owner's
         self.db.set_status(MUTED_SINCE, str(self.now_ms()))
         self.report.muted_by = "recorder"
-        return True
+        try:
+            await self.pendant.stop_recording()
+            state = _state(await self.read_status())
+        except LinkDropped as e:
+            self.link_gone = True
+            self.add_error(str(e))
+            return False
+        except DeviceError as e:
+            self.add_error(str(e))
+            return False
+        if state == "NOT_RECORDING":
+            return True
+        self.add_error(f"mute not confirmed: {state}")
+        if state in ("LISTENING", "RECORDING"):  # the stop did not take: nothing to restore
+            self.report.muted_by = None
+            self.db.clear_status(MUTED_SINCE)
+        return False
 
     # step 8: returns the capture file (or None) and the error that stopped the drain, if any
     async def drain(self) -> tuple[Optional[CaptureFile], Optional[str]]:
@@ -198,16 +220,29 @@ class _Run:
             complete = True
         except LinkDropped as e:
             self.log.warning("link dropped mid-drain: %s", e)
+            self.link_gone = True
         except DeviceError as e:
             self.log.error("device error mid-drain: %s", e)
             stopped_by = str(e)
         except LockHeld as e:
             self.log.error("lock lost mid-drain: %s", e)
             stopped_by = str(e)
+        except Exception as e:  # e.g. the disk filled: keep and import what is already written
+            self.log.exception("capture write failed mid-drain")
+            stopped_by = str(e)
         finally:
-            cf = sink.close(complete=complete)
+            cf, close_error = self._close_sink(sink, complete)
+        if close_error is not None:
+            stopped_by = close_error if stopped_by is None else f"{stopped_by}; {close_error}"
         self.report.capture_complete = complete
         return cf, stopped_by
+
+    def _close_sink(self, sink: CaptureSink, complete: bool) -> tuple[Optional[CaptureFile], Optional[str]]:
+        try:
+            return sink.close(complete=complete), None
+        except Exception as e:  # never let a failed close hide why the drain stopped
+            self.log.exception("closing the capture %s failed", sink.path)
+            return None, f"capture close failed: {e}"
 
     # step 9: the installed copy becomes canonical; the sink's file goes only once it is in
     def import_capture(self, cf: CaptureFile) -> None:
@@ -229,13 +264,19 @@ class _Run:
             return
         if self.report.muted_by != "recorder":
             return
-        state = "link gone"
-        try:
-            await self.pendant.start_recording()
-            await asyncio.sleep(self.settle_s)
-            state = (await self.read_status()).recording_state
-        except DeviceError as e:
-            state = f"link gone ({e})"
+        if self.link_gone:
+            state = "link gone"
+        else:
+            try:
+                await self.pendant.start_recording()
+                await asyncio.sleep(self.settle_s)
+                state = _state(await self.read_status())
+            except LinkDropped as e:
+                self.link_gone = True
+                state = f"link gone ({e})"
+            except DeviceError as e:
+                self.add_error(str(e))
+                state = f"device error ({e})"
         if state == "LISTENING":
             self.report.unmute = "confirmed"
             self.clear_mute_keys()
@@ -319,21 +360,21 @@ async def _connected(run: _Run, dry_run: bool) -> None:
 
 async def _mute_drain_restore(run: _Run) -> None:
     report = run.report
-    if not await run.mute():
-        return
     try:
+        if not await run.mute():
+            return
         cf, stopped_by = await run.drain()
         if cf is not None:
             try:
                 run.import_capture(cf)
             except Exception as e:  # the sink's file stays on disk: nothing is lost
                 run.log.exception("import of %s failed", cf.path)
-                report.outcome, report.error = "error", str(e)
+                run.add_error(str(e))
                 return
         if stopped_by is not None:
-            report.outcome, report.error = "error", stopped_by
+            run.add_error(stopped_by)
         elif cf is None and not report.capture_complete:
-            report.outcome, report.error = "error", "link dropped before any message"
+            run.add_error("link dropped before any message")
         else:
             report.outcome = "drained"
     finally:

@@ -7,7 +7,8 @@ import pytest
 from builders import make_audio_flash_page, make_storage_buffer_msg
 from fake_pendant import FakePendant
 from lavalier.charger import ChargerDecision
-from lavalier.device import DeviceError
+from lavalier.capture import CaptureSink
+from lavalier.device import DeviceError, LinkDropped
 from lavalier.lock import LockHeld, SyncLock
 from lavalier.models import DeviceSnapshot
 from lavalier.sync import UNMUTE_PENDING_MAX_MS, SyncReport, after_sync, decide_drain, run_sync
@@ -202,8 +203,8 @@ def _snap(**kw):
     ({}, ChargerDecision(True, "current"), None, 0, (True, "on charger (current)")),
     (dict(newest_page=998), ChargerDecision(False, "none"), None, 0, (False, "nothing to do")),
     (dict(newest_page=999), ChargerDecision(False, "none"), None, 0, (True, "pages waiting 1000 >= 1000")),
-    ({}, ChargerDecision(False, "none"), 0, 24 * 3600 * 1000 - 1, (False, "nothing to do")),
-    ({}, ChargerDecision(False, "none"), 0, 24 * 3600 * 1000, (True, "last drain 24h ago")),
+    ({}, ChargerDecision(False, "none"), 0, 24 * 3600 * 1000, (False, "nothing to do")),
+    ({}, ChargerDecision(False, "none"), 0, 24 * 3600 * 1000 + 1, (True, "last drain 24h ago")),
 ])
 def test_decide_drain_first_match_and_boundaries(cfg, snap_kw, charger, last, now, expected):
     assert decide_drain(_snap(**snap_kw), charger, last, now_ms=now, cfg=cfg) == expected
@@ -344,3 +345,114 @@ async def test_failed_import_keeps_the_sink_file_and_restores(sync_env, db, stor
     r = await sync_env(p)
     assert (r.outcome, r.error, r.unmute) == ("error", "disk full", "confirmed")
     assert r.capture.exists() and list((sync_env.root / "captures").iterdir()) == [r.capture]
+
+
+# --- review fix round 1 ---
+
+def _commands(p):
+    return [e for e in p.log if not e.startswith("ack")]
+
+
+async def _next_poll_retries_the_unmute(sync_env, db):
+    sync_env.clock = 1_000_000 + 60 * 1000
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 9))
+    r = await sync_env(p)
+    assert p.log.count("start") == 1 and r.unmute == "retried" and r.muted_by is None
+    assert db.get_status("unmute_pending_since_ms") is None
+
+
+async def test_stop_that_drops_the_link_leaves_a_pending_unmute(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, fail_on={"stop": LinkDropped("link dropped")})
+    r = await sync_env(p)
+    assert r.outcome == "error" and r.error == "link dropped" and r.unmute == "pending"
+    assert _commands(p) == ["enter", "set_time:1000000", "info", "status", "stop", "exit"]
+    assert db.get_status("unmute_pending_since_ms") == "1000000" and db.get_status("muted_by_recorder_since_ms") == "1000000"
+    await _next_poll_retries_the_unmute(sync_env, db)
+
+
+async def test_failed_read_after_stop_restores_while_the_link_is_alive(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, fail_on={"status#2": DeviceError("timeout")})
+    r = await sync_env(p)
+    assert r.outcome == "error" and r.error == "timeout" and r.unmute == "confirmed"
+    assert _commands(p) == ["enter", "set_time:1000000", "info", "status", "stop", "status", "start", "status", "exit"]
+    assert db.get_status("unmute_pending_since_ms") is None and db.get_status("muted_by_recorder_since_ms") is None
+
+
+async def test_failed_read_after_stop_then_lost_link_leaves_a_pending_unmute(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads,
+                    fail_on={"status#2": DeviceError("timeout"), "start": LinkDropped("link dropped")})
+    r = await sync_env(p)
+    assert r.outcome == "error" and r.error == "timeout" and r.unmute == "pending" and "drain" not in p.log
+    assert db.get_status("unmute_pending_since_ms") == "1000000"
+    await _next_poll_retries_the_unmute(sync_env, db)
+
+
+async def test_partial_status_after_stop_is_not_a_confirmed_mute(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, partial_after_stop=True)
+    r = await sync_env(p)
+    assert r.outcome == "error" and r.error == "mute not confirmed: partial status" and "drain" not in p.log
+    assert r.unmute == "pending" and db.get_status("unmute_pending_since_ms") == "1000000"
+
+
+async def test_partial_status_after_restore_is_pending(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    real_start = p.start_recording
+    async def start_then_partial():
+        await real_start()
+        p.partial = True
+    p.start_recording = start_then_partial
+    r = await sync_env(p)
+    assert r.outcome == "drained" and r.unmute == "pending" and db.get_status("unmute_pending_since_ms") == "1000000"
+
+
+async def test_partial_status_after_pending_retry_keeps_the_flag(sync_env, db):
+    db.set_status("unmute_pending_since_ms", "1000000")
+    p = FakePendant(state="NOT_RECORDING", pages=(0, 9), start_result="LISTENING")
+    real_start = p.start_recording
+    async def start_then_partial():
+        await real_start()
+        p.partial = True
+    p.start_recording = start_then_partial
+    r = await sync_env(p)
+    assert r.unmute == "n/a" and db.get_status("unmute_pending_since_ms") == "1000000"
+
+
+async def test_restore_device_error_is_recorded(sync_env, db, storage_payloads):
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, fail_on={"start": DeviceError("timeout")})
+    r = await sync_env(p)
+    assert (r.outcome, r.unmute) == ("error", "pending") and "timeout" in r.error
+    assert db.get_status("unmute_pending_since_ms") == "1000000" and db.last_sync_run().error == r.error
+
+
+async def test_full_listening_status_clears_a_stale_mute_marker(sync_env, db):
+    db.set_status("muted_by_recorder_since_ms", "5")
+    await sync_env(FakePendant(pages=(0, 9)))
+    assert db.get_status("muted_by_recorder_since_ms") is None
+
+
+async def test_sink_failure_mid_drain_imports_what_was_written(sync_env, db, storage_payloads, monkeypatch):
+    real_add = CaptureSink.add
+    calls = {"n": 0}
+    def add(self, payload):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("disk full")
+        real_add(self, payload)
+    monkeypatch.setattr(CaptureSink, "add", add)
+    p = FakePendant(pages=(0, 999), messages=storage_payloads)
+    r = await sync_env(p)
+    assert (r.outcome, r.error, r.unmute) == ("error", "disk full", "confirmed")
+    assert r.pages == 1 and r.capture_complete is False
+    assert db._conn.execute("SELECT COUNT(*) FROM captures").fetchone()[0] == 1
+
+
+async def test_sink_close_failure_does_not_hide_the_drain_error(sync_env, db, storage_payloads, monkeypatch):
+    real_close = CaptureSink.close
+    def close(self, *, complete):
+        real_close(self, complete=complete)  # the handle is released; the failure is reported after
+        raise OSError("close failed")
+    monkeypatch.setattr(CaptureSink, "close", close)
+    p = FakePendant(pages=(0, 999), messages=storage_payloads, disconnect_after=1)
+    r = await sync_env(p)
+    assert r.outcome == "error" and r.error == "capture close failed: close failed" and r.unmute == "pending"
+    assert len(list((sync_env.root / "captures").iterdir())) == 1  # left on disk, never deleted
