@@ -300,7 +300,8 @@ you choose. Under the switch Settings shows this sentence:
 Set up:
 
 1. In Notion, create an internal integration and copy its secret.
-2. Share your database with that integration (the database's menu, Connections).
+2. Use a dedicated database for the connector (a new, empty one is best) and
+   share it with that integration (the database's menu, Connections).
 3. In Settings › Connectors, paste the secret under "Integration token" and
    press Save token. It goes to the macOS Keychain under the service
    `io.github.khronosd.lavalier`, account `notion`, never to `config.toml`.
@@ -318,6 +319,8 @@ Insights, go inside one callout block the connector owns, marked:
 "Written by lavalier. Edits inside this block are overwritten; add your notes outside it."
 
 Anything else on the page is never touched. A day without speech gets no page.
+A page already in the database is taken as the day's page only when its title
+is that ISO date and its Date is that day; any other page is left alone.
 
 When it writes: after each processing run that wrote day files, and after each
 insight, when the switch is on, a database is chosen and a token is saved; a

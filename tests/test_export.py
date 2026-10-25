@@ -199,7 +199,8 @@ def test_a_lost_row_adopts_the_existing_page(db, ncfg, seeded_2026_10_23_subset,
 def test_a_dated_page_without_an_owned_block_gets_one_appended(db, ncfg, seeded_2026_10_23_subset, fake, client):
     client.ensure_properties(client.check(fn.DATABASE_ID))
     theirs = fake.pages.create(parent={"type": "data_source_id", "data_source_id": fn.DATA_SOURCE_ID},
-                               properties={"Date": {"date": {"start": "2026-10-23"}}},
+                               properties={"Name": {"title": [{"type": "text", "text": {"content": "2026-10-23"}}]},
+                                           "Date": {"date": {"start": "2026-10-23"}}},
                                children=[{"object": "block", "type": "paragraph",
                                           "paragraph": {"rich_text": [{"type": "text", "text": {"content": "mine"}}]}}])
     (mine,) = fake.page_children(theirs["id"])
@@ -221,6 +222,20 @@ def test_a_page_that_left_the_database_is_not_followed(db, ncfg, seeded_2026_10_
     assert _owned_text(fake, first.block_id) == before          # the page in the other database was not touched
     touched = {kw.get("page_id") or kw.get("block_id") for name, kw in fake.calls if name in fake.writes()}
     assert first.page_id not in touched and first.block_id not in touched
+
+
+def test_an_owner_page_on_the_same_date_with_another_title_is_never_touched(db, ncfg, seeded_2026_10_23_subset, fake,
+                                                                          client):
+    client.ensure_properties(client.check(fn.DATABASE_ID))
+    props = {"Name": {"title": [{"type": "text", "text": {"content": "Dentist"}}]},
+             "Date": {"date": {"start": "2026-10-23"}}, "Stars": {"number": 9}}
+    theirs = fake.pages.create(parent={"type": "data_source_id", "data_source_id": fn.DATA_SOURCE_ID},
+                               properties=props, children=[])
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    assert rec.state == "done" and rec.page_id != theirs["id"] and len(fake.page_store) == 2
+    assert fake.page_children(theirs["id"]) == []
+    assert fake.page_store[theirs["id"]]["properties"] == props
+    assert fake.page_store[rec.page_id]["properties"]["Name"]["title"][0]["text"]["content"] == "2026-10-23"
 
 
 # --- failures

@@ -175,12 +175,21 @@ class FakeNotionClient:
             self.properties[name] = {"id": self._new_id("prop"), "name": name, "type": kind, kind: spec[kind]}
         return {"object": "data_source", "id": data_source_id}
 
+    @staticmethod
+    def _matches(page: dict, flt: dict) -> bool:
+        """The filters the connector sends: `and`, a date `equals` and a title `equals`."""
+        if "and" in flt:
+            return all(FakeNotionClient._matches(page, f) for f in flt["and"])
+        value = page["properties"].get(flt["property"]) or {}
+        if "date" in flt:
+            return (value.get("date") or {}).get("start") == flt["date"]["equals"]
+        if "title" in flt:
+            return "".join(r["text"]["content"] for r in value.get("title") or []) == flt["title"]["equals"]
+        raise AssertionError(f"unexpected filter {flt}")
+
     def _ds_query(self, data_source_id=None, filter=None, page_size=100, start_cursor=None, **kw):
-        want = filter["date"]["equals"]
-        prop = filter["property"]
         hits = [p for p in self.page_store.values() if not p["in_trash"]
-                and p["parent"].get("data_source_id") == data_source_id
-                and (p["properties"].get(prop) or {}).get("date", {}).get("start") == want]
+                and p["parent"].get("data_source_id") == data_source_id and self._matches(p, filter)]
         return {"object": "list", "results": [{"object": "page", "id": p["id"]} for p in hits][:page_size],
                 "has_more": False, "next_cursor": None}
 

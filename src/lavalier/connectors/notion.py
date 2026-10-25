@@ -15,7 +15,7 @@ from datetime import date
 from enum import Enum
 from typing import Callable, Optional
 
-from lavalier.connectors.notion_render import BATCH, OWNED_MARKER, property_schema
+from lavalier.connectors.notion_render import BATCH, OWNED_MARKER, page_title, property_schema
 
 NOTION_VERSION = "2025-09-03"
 NO_TOKEN = "No token saved. Add one in Settings › Connectors."
@@ -228,8 +228,12 @@ class Notion:
             self._call("data_sources.update", data_source_id=info.data_source_id, properties=absent)
 
     def find_day_page(self, info: DatabaseInfo, day: date) -> Optional[str]:
+        """The day's page: Date equal to the day and titled with its ISO date, so a page of the owner's that
+        only shares the date is never adopted."""
+        iso = day.isoformat()
         res = self._call("data_sources.query", data_source_id=info.data_source_id, page_size=1,
-                         filter={"property": "Date", "date": {"equals": day.isoformat()}})
+                         filter={"and": [{"property": "Date", "date": {"equals": iso}},
+                                         {"property": info.title_property, "title": {"equals": page_title(day)}}]})
         results = res.get("results") or []
         return results[0]["id"] if results else None
 

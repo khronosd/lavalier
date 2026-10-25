@@ -164,7 +164,21 @@ def test_find_day_page_filters_on_date():
     assert n.find_day_page(i, date(2026, 10, 24)) is None
     (kw, *_) = [kw for name, kw in c.calls if name == "data_sources.query"]
     assert kw["data_source_id"] == fn.DATA_SOURCE_ID
-    assert kw["filter"] == {"property": "Date", "date": {"equals": "2026-10-23"}}
+    assert kw["filter"] == {"and": [{"property": "Date", "date": {"equals": "2026-10-23"}},
+                                    {"property": "Name", "title": {"equals": "2026-10-23"}}]}
+
+
+def test_find_day_page_needs_the_iso_date_as_the_title():
+    c = fn.FakeNotionClient(properties={"Day": {"id": "title", "name": "Day", "type": "title", "title": {}}})
+    n = notion(c)
+    i = n.check(fn.DATABASE_ID)
+    n.ensure_properties(i)
+    n.create_day_page(i, "Dentist", {"Date": {"date": {"start": "2026-10-23"}}}, nr.owned_block([]))
+    assert n.find_day_page(i, DAY) is None               # the owner's page on that date is not the day's page
+    pid, _ = n.create_day_page(i, "2026-10-23", {"Date": {"date": {"start": "2026-10-23"}}}, nr.owned_block([]))
+    assert n.find_day_page(i, DAY) == pid
+    (kw, *_) = [kw for name, kw in c.calls if name == "data_sources.query"]
+    assert kw["filter"]["and"][1] == {"property": "Day", "title": {"equals": "2026-10-23"}}
 
 
 def test_create_day_page_batches_a_long_day_into_the_owned_block():
