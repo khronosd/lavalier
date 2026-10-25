@@ -40,6 +40,7 @@ from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
 from lavalier.paths import Paths, default_root
 from lavalier.pipeline import ProcessReport, status_summary
+from lavalier.menubar import MenuBarChild
 from lavalier.server import AppStopping, ControlServer, NotFound
 from lavalier.sync import SyncReport, brought_audio, run_sync
 from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
@@ -85,8 +86,9 @@ class App:
     def __init__(self, paths: Paths, cfg: Config, *, pendant_factory, transcriber_factory,
                  now_ms: Callable[[], int] = _now_ms, sleep=asyncio.sleep,
                  cdc_present: Callable[[], bool] = _cdc_from_ioreg, settle_s: float = 1.0,
-                 lock: Optional[SyncLock] = None):
+                 lock: Optional[SyncLock] = None, menubar: Optional[MenuBarChild] = None):
         self.paths, self.cfg = paths, cfg
+        self._menubar = menubar  # the status item as this process's child; none in tests and headless runs
         self._pendant_factory = pendant_factory
         self._transcriber_factory = transcriber_factory
         self._transcriber: Optional[Transcriber] = None
@@ -1144,6 +1146,8 @@ class App:
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
+            if self._menubar is not None:
+                self._menubar.start()
             if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop, not awaited
                 self._fill_key_cache(self._key_account())
             if self.cfg.notion_enabled:
@@ -1153,6 +1157,8 @@ class App:
             except Exception:
                 _log.exception("start-up processing failed")
             while not self._stopping:
+                if self._menubar is not None:
+                    self._menubar.check()
                 try:
                     await self.retention_if_due()
                 except Exception:
@@ -1177,6 +1183,8 @@ class App:
                     self._sleep_task = None
         finally:
             self._stopping = True
+            if self._menubar is not None:
+                self._menubar.stop()
             if self._export_timer is not None:
                 self._export_timer.cancel()
                 self._export_timer = None
@@ -1262,7 +1270,8 @@ def main(argv=None) -> int:
         _log.error("the lavalier app is already running")
         return 1
     cfg = load_config(paths.config)
-    app = App(paths, cfg, pendant_factory=actions.ble_pendant, transcriber_factory=_whisper)
+    app = App(paths, cfg, pendant_factory=actions.ble_pendant, transcriber_factory=_whisper,
+              menubar=MenuBarChild(cfg, log_path=paths.logs / "menubar.log", log=_log))
     asyncio.run(_serve(app))
     _log.info("stopped")
     return 0

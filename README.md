@@ -237,6 +237,20 @@ Starred clips, Audio, and the pendant card (the lamp state and its age, battery 
 - Search covers every day, not only the one on screen.
 - The window's size is remembered: it is saved to `config.toml` when you close it.
 
+## The menu bar
+
+While the app runs, a status item in the menu bar shows the pendant's lamp state as
+its icon: listening, recording, muted, or no reading yet. Its menu lists the state
+with the reading's age, the battery, the pages waiting, the last sync and an unmute
+still pending, and offers Sync now, Mute or Unmute, and Open Lavalier, in the window's
+words. The status item reads the app's status every 15 s over the loopback port and
+never talks to the pendant itself.
+
+`lavalier menubar` is its own process, like the window: the app starts it once its
+server is up, starts it again if it dies (at most once every 30 s), and ends it when
+it stops. `menu_bar = false` in `config.toml` turns it off. Its output goes to
+`~/Pendant/logs/menubar.log`. Started by hand, it also offers Quit.
+
 ## Insights
 
 For each day the recorder can ask a language model for a summary, follow-ups

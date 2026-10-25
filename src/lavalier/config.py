@@ -35,6 +35,7 @@ class Config:
     app_bundle: str = ""
     appearance: str = "system"
     window_size: str = "1120x720"
+    menu_bar: bool = True  # the pendant as a status item while the app runs
     insights_provider: str = ""  # "" | ollama | anthropic | openai | google
     insights_model: str = ""  # "" means the provider's default
     insights_base_url: str = ""  # OpenAI-compatible endpoints only

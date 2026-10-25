@@ -9,7 +9,7 @@ from lavalier.config import Config, _type_ok, load_config, save_config
 from lavalier.paths import Paths
 
 EDITABLE = ("pendant_address", "retention_days", "poll_interval_s", "drain_pages_threshold", "drain_after_hours",
-            "require_firmware", "whisper_language", "appearance", "window_size",
+            "require_firmware", "whisper_language", "appearance", "window_size", "menu_bar",
             "insights_provider", "insights_model", "insights_base_url", "insights_auto",
             "notion_enabled", "notion_database_id", "calendar_enabled", "calendar_ids")
 

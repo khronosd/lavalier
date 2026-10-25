@@ -380,3 +380,99 @@ def test_api_returns_the_code_and_the_json_and_raises_when_the_app_is_away(monke
         api(token, "GET", "/api/status", 5.0)
     with pytest.raises(client.AppUnavailable):
         api(tmp_path / "missing.json", "GET", "/api/status", 5.0)
+
+
+
+# --- the app's side ---
+
+import subprocess
+
+from lavalier.menubar import RESPAWN_AFTER_S, MenuBarChild, menubar_program
+
+
+class FakeProc:
+    def __init__(self, argv, hang=False, **kw):
+        self.argv, self.kw, self.hang = argv, kw, hang
+        self.returncode = None
+        self.terminated = self.killed = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        if not self.hang:
+            self.returncode = -15
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired(self.argv, timeout)
+        return self.returncode
+
+
+def child(cfg=None, hang=False, log_path=None):
+    procs: list[FakeProc] = []
+    clock = {"t": 1000.0}
+
+    def popen(argv, **kw):
+        procs.append(FakeProc(argv, hang=hang, **kw))
+        return procs[-1]
+
+    c = MenuBarChild(cfg or Config(), log_path=log_path, popen=popen, now=lambda: clock["t"], pid=lambda: 77,
+                     program=lambda cfg, pid: ["prog", "--parent", str(pid)])
+    return c, procs, clock
+
+
+def test_menubar_program_is_the_agents_program_told_to_run_the_menubar_for_this_parent(tmp_path):
+    assert menubar_program(Config(), 77, bundle_default=tmp_path / "none") == \
+        [sys.executable, "-m", "lavalier.cli", "menubar", "--parent", "77"]
+    bundle = tmp_path / "Lavalier.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    assert menubar_program(Config(), 77, bundle_default=bundle)[:2] == [str(bundle / "Contents" / "MacOS" / "Lavalier"), "-m"]
+
+
+def test_the_app_starts_the_status_item_for_its_own_pid_with_its_output_in_a_log(tmp_path):
+    c, procs, _ = child(log_path=tmp_path / "logs" / "menubar.log")
+    c.start()
+    assert [p.argv for p in procs] == [["prog", "--parent", "77"]]
+    assert procs[0].kw["stdin"] is subprocess.DEVNULL and procs[0].kw["start_new_session"] is True
+    assert Path(procs[0].kw["stdout"].name) == tmp_path / "logs" / "menubar.log"
+    procs[0].kw["stdout"].close()
+
+
+def test_a_child_that_died_is_started_again_only_after_the_cooldown():
+    c, procs, clock = child()
+    c.start()
+    c.check()
+    assert len(procs) == 1  # alive: nothing to do
+    procs[0].returncode = 1
+    clock["t"] += RESPAWN_AFTER_S - 1
+    c.check()
+    assert len(procs) == 1
+    clock["t"] += 1
+    c.check()
+    assert len(procs) == 2
+
+
+def test_stop_ends_the_child_and_kills_one_that_will_not_end():
+    c, procs, _ = child()
+    c.start()
+    c.stop()
+    assert procs[0].terminated and not procs[0].killed and c.proc is None
+    c.stop()  # nothing to do twice
+    c, procs, _ = child(hang=True)
+    c.start()
+    c.stop()
+    assert procs[0].terminated and procs[0].killed
+
+
+def test_menu_bar_off_spawns_nothing():
+    c, procs, _ = child(cfg=Config(menu_bar=False))
+    c.start()
+    c.check()
+    c.stop()
+    assert procs == []

@@ -531,3 +531,28 @@ async def test_pending_clips_wait_while_a_process_holds_the_lock(app_env, db, im
     await app._process_lock.acquire()
     assert await app.process_pending_if_any() is False and db.clips_needing_transcript()
     app._process_lock.release()
+
+
+async def test_run_starts_the_menu_bar_once_the_server_is_up_checks_it_each_turn_and_ends_it_before_the_server(app_env):
+    app = app_env(FakePendant(pages=(0, 9)))
+    token = app.paths.root / ".server.json"
+
+    class Fake:
+        calls: list = []
+
+        def start(self):
+            self.calls.append(("start", token.exists()))
+
+        def check(self):
+            self.calls.append(("check",))
+
+        def stop(self):
+            self.calls.append(("stop", token.exists()))
+
+    app._menubar = Fake()
+
+    async def fake_sleep(s):
+        app.stop()
+    app._sleep = fake_sleep
+    await app.run()
+    assert Fake.calls[0] == ("start", True) and ("check",) in Fake.calls and Fake.calls[-1] == ("stop", True)

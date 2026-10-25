@@ -352,3 +352,72 @@ def main(*, token_path, cfg: Config, parent_pid: Optional[int] = None, bar: Opti
         bar = CocoaBar()
     MenuBar(bar, token_path, parent_pid=parent_pid, spawn_window=lambda: spawn_window(cfg)).start()
     return 0
+
+
+# --- the app's side: spawn, watch, end ---
+
+import os  # noqa: E402
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+MENUBAR_ARGS = ["-m", "lavalier.cli", "menubar"]
+RESPAWN_AFTER_S = 30.0
+END_WAIT_S = 2.0
+
+
+def menubar_program(cfg: Config, parent_pid: int, **kw) -> list[str]:
+    """How the app starts the status item: its own program (the agent's choice), told to run the CLI's
+    menubar command for this parent."""
+    program = agent.default_program(cfg, **kw)
+    base = program[:-2] if program[-2:] == ["-m", "lavalier.app"] else program
+    return base + MENUBAR_ARGS + ["--parent", str(parent_pid)]
+
+
+class MenuBarChild:
+    """The status item as the app's child: started once the server is up, started again if it dies (at
+    most once every 30 s), ended when the app stops. Off with `menu_bar = false`."""
+
+    def __init__(self, cfg: Config, *, log_path: Optional[Path] = None, popen=subprocess.Popen,
+                 now: Callable[[], float] = time.monotonic, pid: Callable[[], int] = os.getpid,
+                 program: Callable[[Config, int], list[str]] = menubar_program, log=None):
+        self.cfg = cfg
+        self.enabled = bool(cfg.menu_bar)
+        self.log_path = log_path
+        self.popen, self.now, self.pid, self.program = popen, now, pid, program
+        self.proc = None
+        self.spawned_at: Optional[float] = None
+        self._log = log
+
+    def start(self) -> None:
+        if self.enabled:
+            self._spawn()
+
+    def _spawn(self) -> None:
+        out = subprocess.DEVNULL
+        if self.log_path is not None:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            out = open(self.log_path, "ab")
+        self.proc = self.popen(self.program(self.cfg, self.pid()), stdin=subprocess.DEVNULL, stdout=out, stderr=out,
+                               start_new_session=True)
+        self.spawned_at = self.now()
+
+    def check(self) -> None:
+        """Each turn of the app's loop: a child that died is started again once the cooldown has passed."""
+        if not self.enabled or self.proc is None or self.proc.poll() is None:
+            return
+        if self.spawned_at is not None and self.now() - self.spawned_at < RESPAWN_AFTER_S:
+            return
+        if self._log is not None:
+            self._log.warning("menu bar ended (%s); starting it again", self.proc.returncode)
+        self._spawn()
+
+    def stop(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None or proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(END_WAIT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
