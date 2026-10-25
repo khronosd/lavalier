@@ -61,10 +61,14 @@ def _starred(stars: list[StarView], convs: dict[str, ConversationView]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def heading_text(conv: ConversationView, *, to: str = "–", sep: str = " · ") -> str:
+def heading_text(conv: ConversationView, *, to: str = "–", sep: str = " · ",
+                 collapse_same_minute: bool = False) -> str:
     """The conversation heading without its `### ` and anchor; `to` and `sep` let another renderer
     spell the range and the separators its own way without a second copy of the pieces."""
-    head = f"{hm(conv.start_ms)}{to}{hm(conv.end_ms)}{sep}{duration(conv.speech_ms)} speech"
+    span = hm(conv.start_ms)
+    if not (collapse_same_minute and hm(conv.end_ms) == span):
+        span += f"{to}{hm(conv.end_ms)}"
+    head = f"{span}{sep}{duration(conv.speech_ms)} speech"
     if conv.star_ms:
         head += f" {'★' * len(conv.star_ms)}"
     label = " ".join((conv.label or "").split())

@@ -41,7 +41,7 @@ def test_the_shape_and_order(db, cfg, seeded_2026_10_23_subset):
     texts = nr.plain_text(b).splitlines()
     assert texts.index("Insights") > texts.index("Starred")
     head = next(t for t in texts if "speech" in t)
-    assert " to " in head and "–" not in head and " · " not in head and "{#" not in head and not head.startswith("#")
+    assert "–" not in head and " · " not in head and "{#" not in head and not head.startswith("#")
     assert "Call back" in texts
     assert "People: Remy, Daddy" in texts and "Topics: pendant test, star button" in texts
     assert texts[-1] == "Insights by claude-opus-5-5 (Anthropic) at 04:12"
@@ -84,10 +84,10 @@ def test_split_runs_boundaries():
     assert nr.split_runs("a\nb") == ["a\nb"]
     line = "x" * 999
     runs = nr.split_runs("\n".join([line] * 5))
-    assert runs == ["\n".join([line] * 2), "\n".join([line] * 2), line]
+    assert runs == [(line + "\n") * 2, (line + "\n") * 2, line]
     assert nr.split_runs("y" * 2000) == ["y" * 2000]
     assert nr.split_runs("y" * 4500) == ["y" * 2000, "y" * 2000, "y" * 500]
-    assert nr.split_runs("\n".join(["z" * 1999] * 3)) == ["z" * 1999] * 3
+    assert nr.split_runs("\n".join(["z" * 1999] * 3)) == ["z" * 1999 + "\n"] * 2 + ["z" * 1999]
 
 
 def test_a_50k_conversation_fits_in_under_100_runs_uncut():
@@ -119,3 +119,26 @@ def test_properties(db, cfg, seeded_2026_10_23_subset):
     assert nr.property_schema() == {"Date": {"date": {}}, "Speech (min)": {"number": {"format": "number"}},
                                     "Conversations": {"number": {"format": "number"}}, "Stars": {"number": {"format": "number"}}}
     assert nr.page_title(DAY) == "2026-10-23"
+
+
+def test_runs_joined_are_the_text():
+    text = "\n".join(f"[00:00:{i % 60:02d}] {'v' * (i % 90)}" for i in range(300))
+    assert len(text) > 10_000
+    runs = nr.split_runs(text)
+    assert "".join(runs) == text and all(len(r) <= nr.RUN_CHARS for r in runs)
+    assert all(r.endswith("\n") for r in runs[:-1])
+    assert "".join(nr.split_runs("\nabc\n\nd\n")) == "\nabc\n\nd\n"
+    assert nr.split_runs("\nabc") == ["\nabc"]
+
+
+def test_same_minute_heading_is_the_start_alone_in_notion_only(db, cfg, seeded_2026_10_23_subset):
+    v = day_view(db, DAY, cfg, now_ms=0)
+    assert "22:56, 16 s speech ★★" in nr.plain_text(nr.day_blocks(v, None)).splitlines()
+
+
+def test_a_multiline_star_quote_stays_one_line(db, cfg, seeded_2026_10_23_subset):
+    import dataclasses
+    v = day_view(db, DAY, cfg, now_ms=0)
+    star = dataclasses.replace(v.stars[0], quote="one\ntwo")
+    b = nr.day_blocks(dataclasses.replace(v, stars=[star]), None)
+    assert b[1]["bulleted_list_item"]["rich_text"][0]["text"]["content"].endswith("— one two")

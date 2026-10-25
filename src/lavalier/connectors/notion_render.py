@@ -35,24 +35,25 @@ def property_schema() -> dict:
 
 
 def split_runs(text: str) -> list[str]:
-    """Cut `text` into runs of at most RUN_CHARS at newline boundaries (a longer single line is cut hard),
-    at most MAX_RUNS of them; when more would be needed the last kept run becomes "[… cut]"."""
+    """Cut `text` into runs of at most RUN_CHARS at line boundaries (a longer single line is cut hard); every
+    run that ends at a line boundary keeps its "\\n", so the runs joined with "" are the text. At most MAX_RUNS;
+    when more would be needed the last kept run becomes "[… cut]"."""
+    lines = text.split("\n")
+    pieces = [ln + "\n" for ln in lines[:-1]] + ([lines[-1]] if lines[-1] else [])
     runs: list[str] = []
     cur = ""
-    for line in text.split("\n") if text else []:
-        while len(line) > RUN_CHARS:  # a line too long for any run: fill the open run's turn, then cut hard
+    for piece in pieces:
+        while len(piece) > RUN_CHARS:
             if cur:
                 runs.append(cur)
                 cur = ""
-            runs.append(line[:RUN_CHARS])
-            line = line[RUN_CHARS:]
-        if cur and len(cur) + 1 + len(line) <= RUN_CHARS:
-            cur += "\n" + line
-        else:
-            if cur:
-                runs.append(cur)
-            cur = line
-    if cur or (text and not runs):
+            runs.append(piece[:RUN_CHARS])
+            piece = piece[RUN_CHARS:]
+        if len(cur) + len(piece) > RUN_CHARS:
+            runs.append(cur)
+            cur = ""
+        cur += piece
+    if cur:
         runs.append(cur)
     if len(runs) > MAX_RUNS:
         runs = runs[:MAX_RUNS - 1] + [CUT]
@@ -76,12 +77,12 @@ def owned_block(children: list[dict]) -> dict:
 def _starred(view: DayView) -> list[dict]:
     out = [_block("heading_3", "Starred")]
     for s in view.stars:
-        out.append(_block("bulleted_list_item", f"{hms(s.at_ms)} — {s.quote or 'no speech recorded nearby'}"))
+        out.append(_block("bulleted_list_item", f"{hms(s.at_ms)} — {one_line(s.quote) if s.quote else 'no speech recorded nearby'}"))
     return out
 
 
 def _conversation(conv: ConversationView) -> list[dict]:
-    return [_block("heading_3", heading_text(conv, to=" to ", sep=", ")),
+    return [_block("heading_3", heading_text(conv, to=" to ", sep=", ", collapse_same_minute=True)),
             _block("paragraph", "\n".join(conversation_lines(conv)))]
 
 
