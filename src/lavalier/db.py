@@ -493,6 +493,13 @@ class Database:
     def clips_needing_transcript(self) -> list[ClipRecord]:
         return self._clips("path != '' AND transcribed_at IS NULL AND classification IS NULL")
 
+    def days_needing_transcript(self) -> set[date]:
+        """The days that have a clip still waiting for its transcript (the same rule as above)."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT day FROM clips WHERE path != '' AND transcribed_at IS NULL AND classification IS NULL"
+        ).fetchall()
+        return {date.fromisoformat(r["day"]) for r in rows}
+
     def set_loudness(self, clip_id: str, mean_db: float, peak_db: float) -> None:
         with self._write_scope():
             self._conn.execute(

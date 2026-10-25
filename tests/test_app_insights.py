@@ -32,6 +32,13 @@ def insights_app(app_env, db, seeded_2026_10_23_subset):
 def _due(app):
     app._now_ms = lambda: AFTER_DAY
     app.db.set_status("insights_enabled_at_ms", str(ENABLED))
+    _drained(app.db, AFTER_DAY - 60_000)              # the day's audio came in after it completed
+
+
+def _drained(db, ended_ms):
+    run = db.start_sync_run(ended_ms - 1000)
+    db.finish_sync_run(run, ended_ms=ended_ms, outcome="drained", reason="charger", pages=10, messages=10,
+                       capture_id=None, muted_by=None, unmute="", error=None)
 
 
 # --- the job table
@@ -675,3 +682,20 @@ async def test_auto_for_ollama_needs_no_key(insights_app):
     _due(app)
     assert await app.insights_if_due() is True
     await app.jobs.wait(app._insights_job)
+
+
+async def test_the_loop_turn_drains_before_it_looks_for_due_days(app_env):
+    app = app_env(FakePendant())
+    order = []
+    async def fake_due():
+        order.append("insights")
+        return False
+    real_tick = app.tick
+    async def tick():
+        order.append("tick")
+        return await real_tick()
+    app.insights_if_due, app.tick = fake_due, tick
+    async def fake_sleep(s): app.stop()
+    app._sleep = fake_sleep
+    await app.run()
+    assert order == ["tick", "insights"]

@@ -56,6 +56,11 @@ def test_cli_insights_without_a_day_shows_what_auto_would_do(cli_env, served):
     assert "Due now: none" in r.output and f"Without insights: {DAY}" in r.output
     served.app.db.set_status("insights_enabled_at_ms", str(ENABLED))
     r = cli_env.invoke(["insights"])
+    assert "Due now: none" in r.output                # nothing drained since the day completed
+    run = served.app.db.start_sync_run(AFTER_DAY - 120_000)
+    served.app.db.finish_sync_run(run, ended_ms=AFTER_DAY - 60_000, outcome="drained", reason="charger", pages=1,
+                                  messages=1, capture_id=None, muted_by=None, unmute="", error=None)
+    r = cli_env.invoke(["insights"])
     assert f"Due now: {DAY}" in r.output
 
 

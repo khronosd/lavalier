@@ -14,6 +14,7 @@ from lavalier.insights.schema import PROMPT_VERSION, Insight
 from lavalier.insights.stage import (
     DAY_COMPLETE_HOUR, NO_SPEECH, ask_day, day_is_complete, due_days, estimate, generate_day,
 )
+from lavalier.models import Transcript
 from lavalier.pipeline import status_summary
 
 DAY = date(2026, 10, 23)
@@ -123,6 +124,7 @@ def test_a_day_without_speech_is_not_sent_and_stores_nothing(root, db, cfg, clip
     assert db.insight(DAY) is None and not (root.days / "2026-10-23.md").exists()
     # speech arrives later; once the day is complete the automatic send still picks it up
     _speech_day(db, clip_record, DAY, 0)
+    _drained(db, T_next(4, 0, 1))
     assert due_days(db, _cfg(cfg), now_ms=T_next(4, 0, 1), enabled_at_ms=0) == [DAY]
 
 
@@ -234,6 +236,13 @@ def _cfg(cfg, **kw):
     return dataclasses.replace(cfg, insights_provider="anthropic", **kw)
 
 
+def _drained(db, ended_ms: int) -> None:
+    """A successful drain that ended at `ended_ms`."""
+    run = db.start_sync_run(ended_ms - 1000)
+    db.finish_sync_run(run, ended_ms=ended_ms, outcome="drained", reason="charger", pages=10, messages=10,
+                       capture_id=None, muted_by=None, unmute="", error=None)
+
+
 def test_due_days_skips_today_done_error_and_days_before_enabling(db, cfg, clip_record, five_speech_days):
     d18, d19, d20, d21, d22 = five_speech_days
     today = date(2026, 10, 24)
@@ -245,8 +254,11 @@ def test_due_days_skips_today_done_error_and_days_before_enabling(db, cfg, clip_
                          error="timed out")
     enabled = int(datetime(2026, 10, 19, 4, 0).timestamp() * 1000)  # the 18th completed exactly then
     now = T_next(3, 0)
+    _drained(db, T_next(2, 0))
     assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=enabled) == [d18, d19, d22]
     assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=enabled + 1) == [d19, d22]
+    assert due_days(db, _cfg(cfg), now_ms=T_next(4, 0, 1), enabled_at_ms=enabled) == [d18, d19, d22]
+    _drained(db, T_next(4, 0, 1))
     assert due_days(db, _cfg(cfg), now_ms=T_next(4, 0, 1), enabled_at_ms=enabled) == [d18, d19, d22, DAY]
 
 
@@ -259,6 +271,7 @@ def test_due_days_ignores_days_without_speech(db, cfg, clip_record):
 
 def test_due_days_is_empty_when_auto_is_off(db, cfg, five_speech_days):
     now = T_next(12, 0)
+    _drained(db, now)
     assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=0) == five_speech_days
     assert due_days(db, _cfg(cfg, insights_auto=False), now_ms=now, enabled_at_ms=0) == []
     assert due_days(db, cfg, now_ms=now, enabled_at_ms=0) == []  # no provider chosen
@@ -339,3 +352,27 @@ def test_insights_never_imports_playback_or_opens_audio():
         assert not bad_import.search(src), f
         assert not bad_open.search(src), f
         assert "paths.audio" not in src and ".audio /" not in src, f
+
+
+# --- final fix wave: a day is due only once its audio is in (R21)
+
+def test_a_complete_day_is_due_only_after_a_drain_that_ended_after_it_completed(db, cfg, clip_record):
+    _speech_day(db, clip_record, DAY, 0)
+    now = T_next(9, 0)
+    assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=0) == []           # never drained
+    _drained(db, T_next(3, 59))                       # the evening may still be on the pendant
+    assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=0) == []
+    _drained(db, T_next(8, 30))
+    assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=0) == [DAY]
+
+
+def test_a_day_with_a_clip_waiting_for_its_transcript_is_not_due(db, cfg, clip_record):
+    _speech_day(db, clip_record, DAY, 0)
+    _drained(db, T_next(8, 30))
+    pending = dataclasses.replace(clip_record, clip_id="clip_pending", first_ms=at(DAY, 21), last_ms=at(DAY, 21) + 9000,
+                                  classification=None, transcribed_at=None)
+    db.add_clip(pending)
+    assert db.days_needing_transcript() == {DAY}
+    assert due_days(db, _cfg(cfg), now_ms=T_next(9, 0), enabled_at_ms=0) == []
+    db.set_transcript("clip_pending", Transcript("", "en", cfg.whisper_model, []), "noise", T_next(9, 1))
+    assert due_days(db, _cfg(cfg), now_ms=T_next(9, 2), enabled_at_ms=0) == [DAY]

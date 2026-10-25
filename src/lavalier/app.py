@@ -746,13 +746,13 @@ class App:
                 except Exception:
                     _log.exception("retention failed")
                 try:
-                    await self.insights_if_due()
-                except Exception:
-                    _log.exception("insights failed")
-                try:
                     await self.tick()
                 except Exception:
                     _log.exception("scheduled sync failed")
+                try:  # after the drain and its processing: a day is due only once its audio is in
+                    await self.insights_if_due()
+                except Exception:
+                    _log.exception("insights failed")
                 if self._stopping:
                     break
                 interval = self.cfg.poll_interval_s

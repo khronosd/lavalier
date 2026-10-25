@@ -32,13 +32,19 @@ def day_is_complete(day: date, now_ms: int) -> bool:
 
 
 def due_days(db: Database, cfg: Config, *, now_ms: int, enabled_at_ms: Optional[int]) -> list[date]:
-    """Complete speech days without any insight row that completed after a provider was chosen; oldest first."""
+    """Complete speech days without any insight row that completed after a provider was chosen; oldest first.
+    A day is due only once its audio is in: a successful drain ended after the day completed (the evening
+    may still be on the pendant until then), and none of its clips still waits for a transcript."""
     if not cfg.insights_auto or not cfg.insights_provider or enabled_at_ms is None:
         return []
+    drained = db.last_drain_ok_ms()
+    if drained is None:
+        return []
+    pending = db.days_needing_transcript()
     today = datetime.fromtimestamp(now_ms / 1000).date()
     return [d for d in db.days_with_speech()
             if d != today and day_is_complete(d, now_ms) and _complete_ms(d) >= enabled_at_ms
-            and db.insight(d) is None]
+            and drained > _complete_ms(d) and d not in pending and db.insight(d) is None]
 
 
 def _failed(db: Database, provider: Provider, day: date, *, now_ms: int, chars: int, truncated: bool,
