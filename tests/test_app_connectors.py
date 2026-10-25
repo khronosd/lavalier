@@ -272,6 +272,32 @@ async def test_a_day_is_exported_automatically_at_most_once_a_minute(notion_app)
     assert j["result"]["unchanged"] == 1 and app._export_pending == set()
 
 
+async def test_days_whose_automatic_export_failed_at_prepare_wait_for_the_next_trigger(notion_app, db):
+    app = notion_app
+    app.note_key("notion", True)
+    clock = [1_000_000]
+    app._now_ms = lambda: clock[0]
+    app.fake.visible = False                           # Notion cannot see the database: prepare fails
+    app._auto_export([DAY])
+    j = await _wait_export(app)
+    assert j["state"] == "error" and DAY in app._export_pending
+    assert app.jobs.running("export") is None and app._export_timer is None   # no retry loop of its own
+    app.fake.visible = True
+    clock[0] += 60_001
+    app._auto_export([])                               # the next trigger takes it
+    j = await _wait_export(app)
+    assert j["state"] == "done" and j["result"]["done"] == 1 and app._export_pending == set()
+    assert db.export(DAY, CONNECTOR).state == "done"
+
+
+async def test_a_failed_export_on_demand_is_not_kept_pending(notion_app):
+    app = notion_app
+    app.note_key("notion", True)
+    app.fake.visible = False
+    j = await _export(app, [DAY])
+    assert j["state"] == "error" and app._export_pending == set()
+
+
 async def test_old_dedup_entries_are_pruned(notion_app):
     app = notion_app
     app.note_key("notion", True)

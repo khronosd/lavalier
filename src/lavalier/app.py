@@ -614,9 +614,11 @@ class App:
 
     def _start_export(self, days: list[date], *, force: bool, changed_only: bool) -> str:
         cfg = self.cfg
+        retry = list(days) if changed_only else []   # an automatic run's days come back if the job fails
         return self.jobs.start("export", EXPORT_KEY,
                                lambda prepared: self._export_job(cfg, days, force, changed_only, prepared),
-                               prepare=lambda: self._prepare_export(cfg), on_done=self._export_done)
+                               prepare=lambda: self._prepare_export(cfg),
+                               on_done=lambda job: self._export_done(job, retry))
 
     def _prepare_export(self, cfg: Config) -> tuple[Notion, object]:
         """Daemon thread, no lock: the token (one Keychain read, noted in the cache), the client, and one
@@ -703,10 +705,15 @@ class App:
             return "stopped: another database was chosen"
         return None
 
-    def _export_done(self, job: dict) -> None:
-        """Loop: log what went wrong, then start what was kept pending while this ran."""
+    def _export_done(self, job: dict, retry: list[date] = ()) -> None:
+        """Loop: log what went wrong, then start what was kept pending while this ran. When an automatic run
+        failed as a whole (Notion down, the Keychain refused), its days are kept pending afterwards, so the
+        next trigger tries them again; they never start a retry loop of their own."""
         if job["state"] == "error":
             _log.warning("notion: export failed: %s", job["error"])
+            self._auto_export(())
+            self._export_pending.update(retry)
+            return
         else:
             for d in job["result"]["stopped"]:
                 _log.info("notion: %s stopped: the block was edited by hand", d)
