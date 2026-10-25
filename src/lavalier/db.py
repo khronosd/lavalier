@@ -827,6 +827,13 @@ class Database:
         rows = self._conn.execute("SELECT * FROM insights WHERE state = 'done' ORDER BY day DESC").fetchall()
         return [_insight_record(r) for r in rows]
 
+    def insight_counts(self) -> dict[str, int]:
+        """Rows per state: {"done": n, "error": n}."""
+        rows = self._conn.execute("SELECT state, COUNT(*) AS n FROM insights GROUP BY state").fetchall()
+        counts = {"done": 0, "error": 0}
+        counts.update({r["state"]: r["n"] for r in rows})
+        return counts
+
     def days_with_speech(self) -> list[date]:
         rows = self._conn.execute(
             "SELECT DISTINCT day FROM clips WHERE classification = 'speech' ORDER BY day").fetchall()

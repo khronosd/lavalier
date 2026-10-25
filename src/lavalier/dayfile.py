@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from lavalier.config import Config
-from lavalier.db import Database
+from lavalier.db import Database, InsightRecord
 from lavalier.journal import ConversationView, DayView, StarView, day_view
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
@@ -92,6 +92,25 @@ def _noise_section(clips: list[ClipRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _insights(rec: InsightRecord) -> list[str]:
+    # imported here: the registry imports the providers, whose prompt module imports this one
+    from lavalier.insights.registry import DISPLAY
+
+    ins = rec.insight
+    parts = ["## Insights\n"]
+    if ins.summary:
+        parts.append(f"{ins.summary}\n")
+    if ins.follow_ups:
+        ups = [f"- [{_hms(f.at_ms)}] {f.text}" if f.at_ms is not None else f"- {f.text}" for f in ins.follow_ups]
+        parts.append("### Follow-ups\n" + "\n".join(ups) + "\n")
+    if ins.people:
+        parts.append(f"### People\n{', '.join(ins.people)}\n")
+    if ins.topics:
+        parts.append(f"### Topics\n{', '.join(ins.topics)}\n")
+    parts.append(f"_Insights by {rec.model} ({DISPLAY.get(rec.provider, rec.provider)}) at {_hm(rec.generated_ms)}._\n")
+    return parts
+
+
 def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise: bool = False) -> str:
     view = day_view(db, day, cfg, now_ms=now_ms)
     clips = db.clips_for_day(day)
@@ -112,6 +131,9 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
     if view.conversations:
         parts.append("## Conversations\n")
         parts += [render_conversation(c) for c in view.conversations]
+    rec = db.insight(day)
+    if rec is not None and rec.state == "done":
+        parts += _insights(rec)
 
     model = models[0] if models else cfg.whisper_model
     # A day that never had clips (stars only) says nothing about audio.
