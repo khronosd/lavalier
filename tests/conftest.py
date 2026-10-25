@@ -730,9 +730,10 @@ class BrokenKeyring(InMemoryKeyring):
         raise RuntimeError("backend exploded")
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def memory_keyring():
-    """An in-memory Keychain for the test; the real one is never touched. Request explicitly."""
+    """An in-memory Keychain for every test; the real one is never touched. Request it by name to
+    reach the backend."""
     old = keyring.get_keyring()
     backend = InMemoryKeyring()
     keyring.set_keyring(backend)

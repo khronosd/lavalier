@@ -5,9 +5,6 @@ from conftest import BrokenKeyring
 from lavalier.insights.keys import SERVICE, KeychainError, delete_key, get_key, has_key, set_key
 
 
-pytestmark = pytest.mark.usefixtures("memory_keyring")
-
-
 def test_set_get_delete_round_trip():
     set_key("anthropic", " k1 ")
     assert get_key("anthropic") == "k1" and has_key("anthropic")

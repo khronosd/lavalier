@@ -13,9 +13,6 @@ from lavalier.insights.registry import check, make_provider, provider_facts
 from conftest import BrokenKeyring
 
 
-pytestmark = pytest.mark.usefixtures("memory_keyring")
-
-
 def test_make_provider_none_without_a_provider():
     assert make_provider(Config()) is None
 
