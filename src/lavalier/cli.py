@@ -17,6 +17,7 @@ from lavalier import actions, agent, client, doctor
 from lavalier.actions import another_process as _another_process
 from lavalier.charger import cdc_present, read_ioreg
 from lavalier.config import Config, load_config
+from lavalier.connectors import calendar
 from lavalier.dayfile import render_day, write_day
 from lavalier.insights.stage import NO_SPEECH
 from lavalier.db import Database, SchemaTooNewError, now_ms
@@ -72,7 +73,7 @@ def _echo_process(db: Database, report: ProcessReport) -> None:
 
 def _run_process(db: Database, paths: Paths, cfg: Config) -> None:
     transcriber = MlxWhisperTranscriber(cfg.whisper_model, cfg.whisper_language)
-    _echo_process(db, process(db, paths, cfg, transcriber, now_ms=now_ms()))
+    _echo_process(db, process(db, paths, cfg, transcriber, now_ms=now_ms(), calendar=calendar.process_source()))
 
 
 def _require_address(cfg: Config) -> None:
@@ -562,14 +563,16 @@ _EXPORT_LINE = {"exported": "exported", "unchanged": "unchanged"}
 @click.argument("day", required=False, type=click.DateTime(formats=["%Y-%m-%d"]))
 @click.option("--days", type=click.IntRange(1, 365), default=None,
               help="The newest N days with speech (default 7).")
-@click.option("--force", is_flag=True, help="Export again, also a day stopped by a hand edit.")
+@click.option("--force", is_flag=True, help="Export DAY again, also when it was stopped by a hand edit.")
 def export_cmd(day: Optional[datetime], days: Optional[int], force: bool) -> None:
     """Export days to Notion through the app; without DAY, the newest 7 days with speech."""
     if day is not None and days is not None:
         raise click.UsageError("give DAY or --days, not both")
+    if force and day is None:
+        raise click.UsageError("--force overwrites a hand edit: give the one DAY to export again")
     paths, _ = _paths_cfg()
     token = _app_token(paths)
-    body = {"day": day.date().isoformat(), "force": force} if day is not None else {"days": days or 7, "force": force}
+    body = {"day": day.date().isoformat(), "force": force} if day is not None else {"days": days or 7}
     job = _app_call(token, "POST", "/api/connectors/notion/export", body, busy="An export is already running")["job"]
     result = _finished_job(token, job)
     for d in result["days"]:
@@ -578,6 +581,8 @@ def export_cmd(day: Optional[datetime], days: Optional[int], force: bool) -> Non
         click.echo(f"{d['day']}: {text}")
     click.echo(f"Exported {result['done']}, unchanged {result['unchanged']}, stopped {len(result['stopped'])}, "
                f"errors {len(result['errors'])}")
+    if result["errors"]:
+        raise SystemExit(1)
 
 
 @main.command("retention")

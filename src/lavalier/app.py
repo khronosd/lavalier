@@ -24,7 +24,8 @@ from typing import Callable, Optional
 from lavalier import actions, audio, client, journal, pipeline, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
-from lavalier.connectors.calendar import CalendarSource, EventKitSource, chosen_calendar_ids, event_kit_available
+from lavalier.connectors.calendar import (UNAVAILABLE, CalendarSource, EventKitSource, NoCalendar,
+                                          chosen_calendar_ids, event_kit_available)
 from lavalier.connectors.export import CONNECTOR as NOTION, NO_DATABASE, days_to_export, export_day
 from lavalier.connectors.notion import NO_TOKEN, Notion, NotionError
 from lavalier.db import Database, InsightRecord, now_ms as _now_ms
@@ -56,7 +57,6 @@ EXPORT_DEDUP_MS = 60_000   # a day is exported automatically at most once a minu
 EXPORT_LAST = 30           # the export rows the connectors state lists
 CALENDARS_TTL_MS = 60_000  # the calendars list is read at most once a minute
 NOTION_OFF = "Notion export is off. Turn it on in Settings › Connectors."
-UNAVAILABLE = "unavailable"  # the calendar's authorization when EventKit cannot be loaded
 
 _log = logging.getLogger("lavalier.app")
 
@@ -79,23 +79,6 @@ def _whisper(cfg: Config) -> Transcriber:
 def _event_kit() -> Optional[CalendarSource]:
     """The real calendars when pyobjc's EventKit loads; never called on the loop (the import is heavy)."""
     return EventKitSource() if event_kit_available() else None
-
-
-class _NoCalendar:
-    """What process gets without EventKit: never allowed, so nothing is labelled, and with the connector
-    off the labels are still cleared."""
-
-    def authorization(self) -> str:
-        return UNAVAILABLE
-
-    def request_access(self) -> str:
-        return UNAVAILABLE
-
-    def calendars(self) -> list:
-        return []
-
-    def events(self, day: date) -> list:
-        return []
 
 
 class App:
@@ -147,7 +130,7 @@ class App:
         self.calendar_factory: Callable[[], Optional[CalendarSource]] = _event_kit
         self._calendar_source: Optional[CalendarSource] = None
         self._calendar_built = False
-        self._calendar_lock = threading.Lock()   # guards the source, its build and the two caches below
+        self._calendar_lock = threading.Lock()   # guards the source and the two caches below; never the build
         self._calendar_auth: Optional[str] = None             # the last authorization a worker read
         self._calendars: Optional[tuple[int, list[dict]]] = None  # (read at ms, calendars) while allowed
         self._export_pending: set[date] = set()  # days an automatic export could not start yet
@@ -608,11 +591,12 @@ class App:
             raise ValueError(reason)
         return self._start_export(list(days), force=force, changed_only=False)
 
-    def export_recent(self, days: int, *, force: bool = False) -> str:
-        """The newest `days` days with speech, exported oldest first."""
+    def export_recent(self, days: int) -> str:
+        """The newest `days` days with speech, exported oldest first. Never forced: a day stopped by a hand
+        edit is exported again only on its own."""
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= EXPORT_MAX_DAYS:
             raise ValueError(f"days must be a whole number from 1 to {EXPORT_MAX_DAYS}")
-        return self.export_days(self.db.days_with_speech()[-days:], force=force)
+        return self.export_days(self.db.days_with_speech()[-days:])
 
     def _start_export(self, days: list[date], *, force: bool, changed_only: bool) -> str:
         cfg = self.cfg
@@ -726,6 +710,7 @@ class App:
             _log.exception("notion: the automatic export did not start")
             return
         self._export_pending.difference_update(ready)
+        self._export_started = {d: t for d, t in self._export_started.items() if now - t < EXPORT_DEDUP_MS}
         for d in ready:
             self._export_started[d] = now
 
@@ -768,18 +753,23 @@ class App:
     def _calendar(self) -> Optional[CalendarSource]:
         """Off the loop only: the source, built on first use."""
         with self._calendar_lock:
+            if self._calendar_built:
+                return self._calendar_source
+        # built outside the lock (the pyobjc import is slow), so the loop's reads never wait for it; two
+        # workers racing here may both build one, and the first stored wins
+        try:
+            built = self.calendar_factory()
+        except Exception:
+            _log.exception("the calendar could not be loaded")
+            built = None
+        with self._calendar_lock:
             if not self._calendar_built:
-                try:
-                    self._calendar_source = self.calendar_factory()
-                except Exception:
-                    _log.exception("the calendar could not be loaded")
-                    self._calendar_source = None
-                self._calendar_built = True
+                self._calendar_source, self._calendar_built = built, True
             return self._calendar_source
 
     def _calendar_for_process(self) -> CalendarSource:
         """Worker thread: what process labels from; it reads it only with the connector on."""
-        return self._calendar() or _NoCalendar()
+        return self._calendar() or NoCalendar()
 
     def calendar_facts(self) -> dict:
         """Off the loop only: the authorization and, when allowed, the calendars (read at most once a minute)."""
@@ -1131,6 +1121,9 @@ class App:
                     self._sleep_task = None
         finally:
             self._stopping = True
+            if self._export_timer is not None:
+                self._export_timer.cancel()
+                self._export_timer = None
             # in this order: every session has unwound (restored, written to the DB, file lock
             # released by its owner), then the server goes, then the file lock and the DB
             async with self._device_lock:

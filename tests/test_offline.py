@@ -107,4 +107,4 @@ def test_the_loop_with_connectors_off_makes_no_network_call_and_reads_no_calenda
     asyncio.run(one_turn())
     assert app.last_process is not None and app.last_process.days_written   # the process ran
     assert source.touched == [] and built == []
-    assert "export" not in app.jobs.running_keys()
+    assert [j for j in app.jobs._jobs.values() if j.kind == "export"] == []   # none was ever created

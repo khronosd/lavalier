@@ -113,7 +113,8 @@ def test_export_returns_a_job_and_refusals_are_400(conn_server, db):
 
 
 @pytest.mark.parametrize("body", [{}, {"days": 0}, {"days": 366}, {"days": True}, {"days": "3"},
-                                  {"day": "yesterday"}, {"day": DAY, "days": 3}, {"day": DAY, "force": "yes"}])
+                                  {"day": "yesterday"}, {"day": DAY, "days": 3}, {"day": DAY, "force": "yes"},
+                                  {"days": 7, "force": True}, {"days": 7, "force": False}])
 def test_a_bad_export_body_is_400(conn_server, body):
     assert post(conn_server, "/api/connectors/notion/export", body).status == 400
 
@@ -144,6 +145,11 @@ def test_export_while_stopping_is_503(conn_server):
 def test_calendar_access_requests_it_and_returns_the_status(conn_server, calendar):
     r = post(conn_server, "/api/connectors/calendar/access")
     assert r.status == 200 and _body(r) == {"authorization": "allowed"} and calendar.access_requests == 1
+
+
+def test_the_access_cap_matches_the_sources_own_wait():
+    from lavalier.connectors import calendar as cal
+    assert server_mod.ACCESS_TIMEOUT_S == cal.ACCESS_TIMEOUT_S == 120
 
 
 def test_calendar_access_past_its_cap_is_504(conn_server, calendar, monkeypatch):

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from lavalier.connectors.calendar import ACCESS_TIMEOUT_S as calendar_access_wait_s
 from lavalier.connectors.notion import NotionError
 from lavalier.insights import keys, registry
 from lavalier.jobs import JobRunning
@@ -35,7 +36,7 @@ ACTION_TIMEOUT_S = 900
 DATA_TIMEOUT_S = 30
 AUDIO_TIMEOUT_S = 120     # a first play waits for ffmpeg
 CHECK_TIMEOUT_S = 20      # a provider or Notion check is a real call: capped
-ACCESS_TIMEOUT_S = 60     # the calendar access prompt waits for the owner
+ACCESS_TIMEOUT_S = calendar_access_wait_s   # the access prompt waits for the owner, as long as the source does
 CALENDAR_READ_TIMEOUT_S = 20
 NOTION_ACCOUNT = "notion"  # the Notion token's Keychain account
 MAX_BODY = 65536
@@ -474,10 +475,12 @@ def _notion_export(srv, req):
         day = _parse_day(body["day"])
         job = _refused_as_400(srv, lambda: srv.app_like.export_days([day], force=force))
     else:
+        if "force" in body:  # force overwrites a hand edit: one named day at a time, never a range
+            raise _BadRequest("force goes with a single day")
         days = body["days"]
         if isinstance(days, bool) or not isinstance(days, int):
             raise _BadRequest("days must be a whole number")
-        job = _refused_as_400(srv, lambda: srv.app_like.export_recent(days, force=force))
+        job = _refused_as_400(srv, lambda: srv.app_like.export_recent(days))
     return _json({"job": job}, 202)
 
 

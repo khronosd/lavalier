@@ -54,6 +54,32 @@ class CalendarSource(Protocol):
         ...
 
 
+UNAVAILABLE = "unavailable"  # the authorization when EventKit cannot be loaded
+
+
+class NoCalendar:
+    """The source without EventKit: never allowed, so nothing is labelled; with the connector off, process
+    still clears the labels through it."""
+
+    def authorization(self) -> str:
+        return UNAVAILABLE
+
+    def request_access(self) -> str:
+        return UNAVAILABLE
+
+    def calendars(self) -> list[Calendar]:
+        return []
+
+    def events(self, day: date) -> list[Event]:
+        return []
+
+
+def process_source() -> "CalendarSource":
+    """What a process labels from: the real calendars when pyobjc's EventKit loads, else NoCalendar. The
+    import is heavy: never on the app's loop."""
+    return EventKitSource() if event_kit_available() else NoCalendar()
+
+
 def event_kit_available() -> bool:
     try:
         import EventKit  # noqa: F401

@@ -147,6 +147,8 @@ async def test_export_recent_takes_the_newest_days_with_speech_oldest_first(noti
     for bad in (0, 366, True, "3"):
         with pytest.raises(ValueError):
             app.export_recent(bad)
+    with pytest.raises(TypeError):
+        app.export_recent(7, force=True)              # a range is never forced
 
 
 async def test_nothing_exports_while_the_app_is_stopping(notion_app):
@@ -225,10 +227,33 @@ async def test_a_day_is_exported_automatically_at_most_once_a_minute(notion_app)
     await _wait_export(app)
     app._auto_export([DAY])                            # within 60 s: waits
     assert app.jobs.running("export") is None and DAY in app._export_pending
+    assert app._export_timer is not None               # and goes by itself once the minute is up
     clock[0] += 60_001
     app._auto_export([])                               # the next trigger takes it
     j = await _wait_export(app)
     assert j["result"]["unchanged"] == 1 and app._export_pending == set()
+
+
+async def test_old_dedup_entries_are_pruned(notion_app):
+    app = notion_app
+    app.note_key("notion", True)
+    clock = [1_000_000]
+    app._now_ms = lambda: clock[0]
+    app._export_started = {date(2026, 1, 1): clock[0] - 61_000, date(2026, 1, 2): clock[0] - 1_000}
+    app._auto_export([DAY])
+    await _wait_export(app)
+    assert set(app._export_started) == {date(2026, 1, 2), DAY}
+
+
+async def test_run_cancels_the_export_retry_timer(app_env):
+    app = app_env(FakePendant())
+    fired = []
+    app._export_timer = asyncio.get_running_loop().call_later(30, lambda: fired.append(1))
+    timer = app._export_timer
+    async def stop(s): app.stop()
+    app._sleep = stop
+    await app.run()
+    assert app._export_timer is None and timer.cancelled()
 
 
 async def test_an_insight_generated_with_notion_on_is_exported(notion_app, db):
@@ -264,6 +289,19 @@ async def test_the_calendar_source_is_built_lazily_in_a_worker(app_env):
     assert facts["authorization"] == "allowed" and built and loop_thread not in built
     await asyncio.to_thread(app.calendar_facts)
     assert len(built) == 1
+
+
+async def test_the_loop_never_waits_for_the_calendar_build(app_env):
+    app = app_env(FakePendant())
+    gate, started = threading.Event(), threading.Event()
+    app.calendar_factory = lambda: (started.set(), gate.wait(10), FakeCalendarSource())[2]
+    building = asyncio.ensure_future(asyncio.to_thread(app.calendar_facts))
+    await asyncio.to_thread(started.wait, 5)
+    t = asyncio.get_running_loop().time()
+    app.connectors_state()                             # the slow import holds no lock the loop needs
+    assert asyncio.get_running_loop().time() - t < 1
+    gate.set()
+    assert (await building)["authorization"] == "allowed"
 
 
 async def test_calendar_facts_list_calendars_only_when_allowed_and_cache_them(app_env):

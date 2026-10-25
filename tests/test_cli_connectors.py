@@ -46,9 +46,9 @@ def test_cli_export_reports_a_stopped_day_and_force_exports_it(cli_env, served, 
     assert r.exit_code == 0 and r.output.splitlines()[0] == f"{DAY}: exported"
 
 
-def test_cli_export_prints_a_day_error(cli_env, served):
+def test_cli_export_prints_a_day_error_and_exits_1(cli_env, served):
     r = cli_env.invoke(["export", "2026-10-20"])
-    assert r.exit_code == 0 and r.output.splitlines()[0] == "2026-10-20: error: Nothing to export"
+    assert r.exit_code == 1 and r.output.splitlines()[0] == "2026-10-20: error: Nothing to export"
     assert "errors 1" in r.output
 
 
@@ -69,6 +69,25 @@ def test_cli_export_refused_exits_1_with_the_reason(cli_env, served, memory_keyr
 
 def test_cli_export_rejects_a_day_with_days(cli_env, served):
     assert cli_env.invoke(["export", DAY, "--days", "3"]).exit_code == 2
+
+
+@pytest.mark.parametrize("args", [["export", "--force"], ["export", "--days", "3", "--force"]])
+def test_cli_export_force_needs_one_day(cli_env, served, args):
+    r = cli_env.invoke(args)
+    assert r.exit_code == 2 and "--force" in r.output
+    assert served.app.fake.calls == []
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_headless_process_passes_a_calendar_source(cli_env, monkeypatch, available):
+    from lavalier.connectors import calendar as cal
+    from lavalier.pipeline import ProcessReport
+    monkeypatch.setattr(cal, "event_kit_available", lambda: available)
+    seen = []
+    monkeypatch.setattr(cli, "process", lambda *a, calendar=None, **k: seen.append(calendar) or ProcessReport())
+    r = cli_env.invoke(["process"])
+    assert r.exit_code == 0, r.output
+    assert isinstance(seen[0], cal.EventKitSource if available else cal.NoCalendar)
 
 
 def test_cli_export_needs_the_app(cli_env):
