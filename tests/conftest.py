@@ -694,3 +694,47 @@ def server_with_fixture(app_env, db, seeded_2026_10_23_subset):
 def server_with_audio(app_env, db, two_clips_with_audio):
     from fake_pendant import FakePendant
     yield from _serve_real_app(app_env(FakePendant()), db)
+
+
+import keyring
+import keyring.backend
+import keyring.errors
+
+
+class InMemoryKeyring(keyring.backend.KeyringBackend):
+    priority = 1
+
+    def __init__(self):
+        self.store = {}
+
+    def get_password(self, service, username):
+        return self.store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        if (service, username) not in self.store:
+            raise keyring.errors.PasswordDeleteError("missing")
+        del self.store[(service, username)]
+
+
+class BrokenKeyring(InMemoryKeyring):
+    def get_password(self, service, username):
+        raise keyring.errors.KeyringError("locked")
+
+    def set_password(self, service, username, password):
+        raise keyring.errors.KeyringError("locked")
+
+    def delete_password(self, service, username):
+        raise RuntimeError("backend exploded")
+
+
+@pytest.fixture
+def memory_keyring():
+    """An in-memory Keychain for the test; the real one is never touched. Request explicitly."""
+    old = keyring.get_keyring()
+    backend = InMemoryKeyring()
+    keyring.set_keyring(backend)
+    yield backend
+    keyring.set_keyring(old)
