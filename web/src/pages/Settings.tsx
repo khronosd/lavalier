@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, explainError, type Appearance, type Settings as SettingsData, type SettingsPatch, type Status } from "../api";
-import { Empty } from "../components/Empty";
+import {
+  api, ApiError, explainError, type Appearance, type ConnectorsState, type Settings as SettingsData, type SettingsPatch, type Status,
+} from "../api";
+import { CalendarConnector } from "../components/CalendarConnector";
+import { NotionConnector } from "../components/NotionConnector";
 import { Field } from "../components/Field";
 import { ProviderPicker } from "../components/ProviderPicker";
 import { SettingsTabs } from "../components/SettingsTabs";
@@ -25,6 +28,48 @@ function Heading({ title, lead }: { title: string; lead?: string }) {
     <>
       <h1 class="set-title">{title}</h1>
       {lead && <p class="set-lead">{lead}</p>}
+    </>
+  );
+}
+
+interface ConnectorsProps {
+  settings: SettingsData;
+  setSettings: (update: (s: SettingsData | null) => SettingsData | null) => void;
+  save: (patch: SettingsPatch) => Promise<boolean>;
+  errors: Record<string, string>;
+  clearError: (field: string) => void;
+}
+
+/** Settings › Connectors below its lead: the connectors as the app reports them, read on opening and again
+ *  after anything that may change them; the latest read wins. */
+function Connectors({ settings, setSettings, save, errors, clearError }: ConnectorsProps) {
+  const [state, setState] = useState<ConnectorsState | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const live = useRef(true);
+  const lastFetch = useRef(0);
+  useEffect(() => () => { live.current = false; }, []);
+
+  function refresh() {
+    const n = ++lastFetch.current;
+    api<ConnectorsState>("GET", "/api/connectors").then(
+      (c) => { if (live.current && n === lastFetch.current) { setState(c); setLoadError(null); } },
+      (e) => { if (live.current && n === lastFetch.current) setLoadError(explainError(e, "The connectors")); },
+    );
+  }
+  useEffect(refresh, []);
+
+  async function saveAndRead(patch: SettingsPatch): Promise<boolean> {
+    const ok = await save(patch);
+    if (ok && live.current) refresh();
+    return ok;
+  }
+
+  const shared = { settings, state, saveAndRead, setSettings, errors, refresh };
+  return (
+    <>
+      {loadError && <p class="notice warn" role="alert">{loadError}</p>}
+      <NotionConnector {...shared} clearError={clearError} />
+      <CalendarConnector {...shared} />
     </>
   );
 }
@@ -143,7 +188,7 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Connectors" lead={CONNECTORS_LEAD} />
-            <Empty title="Connectors arrive in a later release." />
+            <Connectors settings={settings} setSettings={setSettings} save={save} errors={errors} clearError={clearError} />
           </>
         );
         break;

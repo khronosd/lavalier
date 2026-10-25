@@ -10,6 +10,7 @@ import "./styles/audio.css";
 import "./styles/insights.css";
 import "./styles/pendant.css";
 import "./styles/settings.css";
+import "./styles/connectors.css";
 
 initToken();
 void start(() => render(<App />, document.getElementById("app")!));

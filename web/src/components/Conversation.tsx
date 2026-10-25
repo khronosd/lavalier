@@ -18,7 +18,8 @@ export function span(conv: ConversationView): string {
   return start === end ? start : `${start} to ${end}`;
 }
 
-/** One conversation of the transcript: its heading, tools, and lines with stars in place. */
+/** One conversation of the transcript: its heading (with the calendar event it overlaps, when labelled),
+ *  tools, and lines with stars in place. */
 export function Conversation({ conv, onPin, onPlay }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,10 @@ export function Conversation({ conv, onPin, onPlay }: Props) {
     <section class="conv" id={`c-${conv.conversation_id}`} tabIndex={-1} aria-labelledby={`h-${conv.conversation_id}`}>
       <header class="conv-head">
         <h2 class="conv-title" id={`h-${conv.conversation_id}`}>{span(conv)}</h2>
-        <span class="conv-dur">{`${duration(conv.speech_ms)} speech`}</span>
+        <span class="conv-dur">
+          {`${duration(conv.speech_ms)} speech`}
+          {conv.label && <span class="conv-label">{` · ${conv.label}`}</span>}
+        </span>
         {stars > 0 && <span class="conv-stars" aria-label={`${stars} starred`}>{"★".repeat(stars)}</span>}
         {conv.pinned && <span class="conv-pinned">pinned</span>}
         <div class="conv-tools">
@@ -51,7 +55,6 @@ export function Conversation({ conv, onPin, onPlay }: Props) {
         </div>
       </header>
       {error && <p class="conv-error" role="alert">{error}</p>}
-      {conv.label && <p class="conv-label">{conv.label}</p>}
       {placeStars(conv).map((item) =>
         item.kind === "line"
           ? <TranscriptLine key={`${item.line.clip_id}-${item.line.seq}`} line={item.line} />

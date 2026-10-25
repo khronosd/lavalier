@@ -1,0 +1,31 @@
+/* Settings › Connectors: one section per connector under the lead, separated by a hairline. The last
+   exports are lines on the margin grid; a calendar's colour is a dot read from --dot. */
+.con { margin: 0 0 8px; padding-top: 4px; }
+.con + .con { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.con-title { margin-top: 0; }
+.con-sub { margin: 22px 0 8px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.con-action { margin: 0 0 14px; }
+.con-action .set-fact-label { width: auto; font-size: 13px; }
+.con-auth { font-size: 13px; color: var(--text); }
+.con-bad { color: var(--warn); }
+.con-note { margin: -8px 0 14px; }
+.con .key-field .field-help + .field-help { margin-top: 3px; }
+
+.exp-list { list-style: none; margin: 0; padding: 0; }
+.exp-row {
+  display: grid; grid-template-columns: minmax(0, 11.5em) minmax(0, 1fr) auto; column-gap: 14px;
+  align-items: baseline; padding: 5px 0; border-top: 1px solid var(--hair2); font-size: 13px;
+}
+.exp-row:first-child { border-top: 0; }
+.exp-day { color: var(--text); font-variant-numeric: tabular-nums; }
+.exp-state { color: var(--text-2); overflow-wrap: anywhere; }
+.exp-stopped .exp-state, .exp-error .exp-state { color: var(--warn); }
+.exp-row .btn { grid-column: 3; }
+
+.cal-list { margin-top: 4px; }
+.cal-check input { accent-color: var(--accent); margin: 0; }
+.cal-dot {
+  flex: none; width: 8px; height: 8px; border-radius: var(--radius-l);
+  background: var(--dot, var(--text-3));
+}
+.cal-list .con-note { margin: 2px 0 0; }

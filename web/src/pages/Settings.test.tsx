@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { ProviderFacts, Settings as SettingsData } from "../api";
+import type { ConnectorsState, ProviderFacts, Settings as SettingsData } from "../api";
 import { anthropic, noProvider, ollama } from "../insights.fixtures";
 import { MODEL_PRIVACY } from "../insights";
 import { status } from "../pendant.fixtures";
@@ -14,6 +14,7 @@ const saved: SettingsData = {
   drain_after_hours: 6, require_firmware: "", whisper_language: "en", appearance: "system", window_size: "1120x720",
   readonly: { state_root: "/Users/me/Pendant", whisper_model: "small.en", bundle_id: "example.lavalier" },
   insights_provider: "", insights_model: "", insights_base_url: "", insights_auto: true,
+  notion_enabled: false, notion_database_id: "", calendar_enabled: false, calendar_ids: "",
 };
 
 const opus: ProviderFacts = {
@@ -40,6 +41,7 @@ let current: SettingsData;
 let facts: ProviderFacts;
 let others: { key: string; body: unknown }[]; // key, check and providers requests
 let otherReply: (key: string) => Response | undefined;
+let conn: ConnectorsState;
 
 beforeEach(() => {
   puts = [];
@@ -47,6 +49,7 @@ beforeEach(() => {
   current = { ...saved };
   facts = noProvider;
   otherReply = () => undefined;
+  conn = connectors();
   putReply = () => json(current);
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -57,11 +60,13 @@ beforeEach(() => {
       current = { ...current, ...body };
       return putReply();
     }
-    if (url.startsWith("/api/insights") || url.startsWith("/api/keys")) {
+    if (url.startsWith("/api/insights") || url.startsWith("/api/keys") || url.startsWith("/api/connectors") ||
+        url.startsWith("/api/jobs")) {
       others.push({ key, body });
       const special = otherReply(key);
       if (special) return special;
       if (key === "GET /api/insights/providers") return json(facts);
+      if (key === "GET /api/connectors") return json(conn);
       if (key.startsWith("PUT /api/keys/") || key.startsWith("DELETE /api/keys/")) return new Response(null, { status: 204 });
       throw new Error(`unexpected ${key}`);
     }
@@ -145,13 +150,6 @@ test("Appearance reverts and says why when the save fails", async () => {
   expect(await screen.findByText("Could not save: The app is stopping")).toBeTruthy();
   expect(document.documentElement.dataset.theme).toBe("light");
   expect((screen.getByLabelText("System") as HTMLInputElement).checked).toBe(true);
-});
-
-test("Connectors is an honest placeholder with no controls", async () => {
-  render(<Settings tab="connectors" />);
-  expect(await screen.findByText("Connectors arrive in a later release.")).toBeTruthy();
-  expect(screen.getByText(/Audio never leaves this Mac\./)).toBeTruthy();
-  expect(screen.queryAllByRole("switch").length + screen.queryAllByRole("checkbox").length).toBe(0);
 });
 
 test("the tab list names six tabs in order and marks the open one", async () => {
@@ -460,4 +458,207 @@ test("Model: the warning follows a base URL saved as http://", async () => {
   fireEvent.blur(base);
   await waitFor(() => expect(puts).toEqual([{ insights_base_url: "http://localhost:1234/v1" }]));
   expect(await screen.findByText(CLEAR)).toBeTruthy();
+});
+
+// --- Settings › Connectors ---
+
+const DB = "0123456789abcdef0123456789abcdef";
+
+function connectors(over: { notion?: Partial<ConnectorsState["notion"]>; calendar?: Partial<ConnectorsState["calendar"]> } = {}): ConnectorsState {
+  return {
+    notion: { enabled: false, database_id: "", token_present: false, last: [], exporting: false, ...over.notion },
+    calendar: { enabled: false, authorization: "not-asked", calendars: [], chosen: [], ...over.calendar },
+  };
+}
+
+const exportRow = (day: string, state: "done" | "stopped" | "error", error: string | null = null) => ({
+  day, connector: "notion", page_id: "p", block_id: "b", content_hash: "h",
+  exported_ms: new Date(2026, 9, 23, 14, 2).getTime(), state, error,
+});
+
+async function connectorsTab() {
+  const r = render(<Settings tab="connectors" />);
+  await screen.findByRole("switch", { name: "Send days to Notion" });
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(1));
+  await waitFor(() => expect(document.querySelector(".con-auth")!.textContent).not.toBe("Reading…")); // the state is shown
+  return r;
+}
+
+const NOTION_SENTENCE = "Sends each day's text, and its Insights once generated, to the Notion database you choose. Audio is never sent.";
+const CALENDAR_SENTENCE = "Reads the calendars you pick on this Mac to name conversations after the event they overlap. Nothing leaves this Mac.";
+
+test("Connectors: the lead, then two switches, each with its sentence, saved and read again", async () => {
+  const { container } = await connectorsTab();
+  expect(screen.getByText(/Audio never leaves this Mac\./)).toBeTruthy();
+  const notion = screen.getByRole("switch", { name: "Send days to Notion" }) as HTMLInputElement;
+  const calendar = screen.getByRole("switch", { name: "Label conversations from Calendar" }) as HTMLInputElement;
+  expect(document.getElementById(notion.getAttribute("aria-describedby")!)!.textContent).toBe(NOTION_SENTENCE);
+  expect(document.getElementById(calendar.getAttribute("aria-describedby")!)!.textContent).toBe(CALENDAR_SENTENCE);
+  expect(notion.checked).toBe(false);
+  conn = connectors({ notion: { enabled: true } });
+  fireEvent.click(notion);
+  await waitFor(() => expect(puts).toEqual([{ notion_enabled: true }]));
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(2));
+  expect(notion.checked).toBe(true);
+  fireEvent.click(calendar);
+  await waitFor(() => expect(puts).toEqual([{ notion_enabled: true }, { calendar_enabled: true }]));
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(3));
+  expect(container.querySelector("[style]")).toBeNull();
+});
+
+test("Connectors: the token is saved to the Keychain under notion and never echoed or kept", async () => {
+  await connectorsTab();
+  expect(await screen.findByText("No token saved")).toBeTruthy();
+  expect(screen.getByText("Create an internal integration in Notion, share your database with it, and paste its secret here.")).toBeTruthy();
+  const input = screen.getByLabelText("Integration token") as HTMLInputElement;
+  expect(input.type).toBe("password");
+  expect(input.getAttribute("autocomplete")).toBe("new-password");
+  fireEvent.input(input, { target: { value: "ntn_secret_1" } });
+  conn = connectors({ notion: { token_present: true } });
+  fireEvent.click(screen.getByRole("button", { name: "Save token" }));
+  await screen.findByText("Saved in your Keychain");
+  expect(others.filter((o) => o.key.startsWith("PUT /api/keys"))).toEqual([
+    { key: "PUT /api/keys/notion", body: { key: "ntn_secret_1" } }]);
+  expect(input.value).toBe("");
+  expect(document.body.innerHTML).not.toContain("ntn_secret_1");
+  expect(puts).toEqual([]);
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(2));
+});
+
+test("Connectors: the database takes a URL, saved normalised on blur, and a bad one is refused locally", async () => {
+  await connectorsTab();
+  expect(screen.getByText("The database that gets one page per day. Share it with the integration first.")).toBeTruthy();
+  const input = screen.getByLabelText("Database") as HTMLInputElement;
+  fireEvent.input(input, { target: { value: "journal" } });
+  expect(puts).toEqual([]); // never saved while typing
+  fireEvent.blur(input);
+  expect(await screen.findByText("Paste the database's link from Notion, or its 32-character id.")).toBeTruthy();
+  expect(puts).toEqual([]);
+  fireEvent.input(input, { target: { value: `https://www.notion.so/me/Journal-${DB.toUpperCase()}?v=1` } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(puts).toEqual([{ notion_database_id: DB }]));
+  await waitFor(() => expect(input.value).toBe(DB));
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(2));
+});
+
+test("Connectors: Test names the database and the properties it will add, or says what went wrong", async () => {
+  await connectorsTab();
+  otherReply = (key) => key === "POST /api/connectors/notion/check"
+    ? json({ database_id: DB, data_source_id: "ds", title: "Journal <b>", missing_properties: ["Date", "Speech"],
+      title_property: "Name", mistyped_properties: [] }) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Test" }));
+  expect(await screen.findByText("Connected to Journal <b>")).toBeTruthy();
+  expect(screen.getByText("Missing properties will be added: Date, Speech")).toBeTruthy();
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(2));
+  otherReply = (key) => key === "POST /api/connectors/notion/check"
+    ? json({ error: "No Notion token is saved." }, 400) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Test" }));
+  expect(await screen.findByText("No Notion token is saved.")).toBeTruthy();
+  expect(screen.queryByText(/Connected to/)).toBeNull();
+  expect(screen.queryByText(/Missing properties/)).toBeNull();
+});
+
+test("Connectors: Export the last 7 days follows the job and says what it did", async () => {
+  await connectorsTab();
+  otherReply = (key) => {
+    if (key === "POST /api/connectors/notion/export") return json({ job: "j1" }, 202);
+    if (key === "GET /api/jobs/j1") {
+      return json({ id: "j1", kind: "export", key: "notion", state: "done", error: null, started_ms: 0, finished_ms: 1,
+        result: { done: 5, unchanged: 1, stopped: ["2026-10-20"], errors: [], days: [] } });
+    }
+    return undefined;
+  };
+  conn = connectors({ notion: { last: [exportRow("2026-10-20", "stopped", "edited by hand")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Export the last 7 days" }));
+  expect(await screen.findByText("Exported 5 days, 1 unchanged; 1 stopped: 20 October was edited by hand")).toBeTruthy();
+  expect(others.find((o) => o.key === "POST /api/connectors/notion/export")!.body).toEqual({ days: 7 });
+  await screen.findByText("stopped: edited by hand");
+});
+
+test("Connectors: a refused export says why", async () => {
+  await connectorsTab();
+  otherReply = (key) => key === "POST /api/connectors/notion/export"
+    ? json({ error: "Turn Notion on first." }, 400) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Export the last 7 days" }));
+  expect(await screen.findByText("Turn Notion on first.")).toBeTruthy();
+});
+
+test("Connectors: the export list, newest first, with Export again on a stopped or failed day", async () => {
+  conn = connectors({ notion: { enabled: true, last: [
+    exportRow("2026-10-21", "error", "Notion is rate limiting"),
+    exportRow("2026-10-23", "done"),
+    exportRow("2026-10-22", "stopped", "edited by hand"),
+  ] } });
+  await connectorsTab();
+  const rows = [...document.querySelectorAll(".exp-row")].map((r) => r.querySelector(".exp-day")!.textContent);
+  expect(rows).toEqual(["Friday, 23 October", "Thursday, 22 October", "Wednesday, 21 October"]);
+  expect(screen.getByText("exported 14:02")).toBeTruthy();
+  expect(screen.getByText("stopped: edited by hand")).toBeTruthy();
+  expect(screen.getByText("error: Notion is rate limiting")).toBeTruthy();
+  const again = screen.getAllByRole("button", { name: "Export again" });
+  expect(again.length).toBe(2);
+  expect(document.querySelectorAll(".exp-row")[0].querySelector("button")).toBeNull();
+  otherReply = (key) => {
+    if (key === "POST /api/connectors/notion/export") return json({ job: "j2" }, 202);
+    if (key === "GET /api/jobs/j2") {
+      return json({ id: "j2", kind: "export", key: "notion", state: "done", error: null, started_ms: 0, finished_ms: 1,
+        result: { done: 1, unchanged: 0, stopped: [], errors: [], days: [] } });
+    }
+    return undefined;
+  };
+  conn = connectors({ notion: { enabled: true, last: [exportRow("2026-10-23", "done"), exportRow("2026-10-22", "done"),
+    exportRow("2026-10-21", "error", "Notion is rate limiting")] } });
+  fireEvent.click(again[0]);
+  await waitFor(() => expect(screen.queryByText("stopped: edited by hand")).toBeNull());
+  expect(others.find((o) => o.key === "POST /api/connectors/notion/export")!.body).toEqual({ day: "2026-10-22", force: true });
+  expect(screen.getAllByRole("button", { name: "Export again" }).length).toBe(1);
+});
+
+test("Connectors: the calendar authorisation states", async () => {
+  const lines: [ConnectorsState["calendar"]["authorization"], string][] = [
+    ["allowed", "Allowed"],
+    ["denied", "Denied: open System Settings › Privacy & Security › Calendars to allow it"],
+    ["restricted", "Restricted on this Mac"],
+    ["unavailable", "Calendar access is not available on this Mac"],
+  ];
+  for (const [auth, text] of lines) {
+    conn = connectors({ calendar: { authorization: auth } });
+    render(<Settings tab="connectors" />);
+    expect(await screen.findByText(text)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Allow access" })).toBeNull();
+    cleanup();
+  }
+});
+
+test("Connectors: Allow access asks once and reads the state again", async () => {
+  await connectorsTab();
+  expect(screen.getByText("Not asked yet")).toBeTruthy();
+  otherReply = (key) => key === "POST /api/connectors/calendar/access" ? json({ authorization: "allowed" }) : undefined;
+  conn = connectors({ calendar: { authorization: "allowed", calendars: [{ identifier: "work", title: "Work", colour: null }] } });
+  fireEvent.click(screen.getByRole("button", { name: "Allow access" }));
+  expect(await screen.findByText("Allowed")).toBeTruthy();
+  expect(count("POST /api/connectors/calendar/access")).toBe(1);
+  expect(screen.getByRole("checkbox", { name: "Work" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Allow access" })).toBeNull();
+});
+
+test("Connectors: the calendars are checkboxes saving a comma-separated list; none means all", async () => {
+  conn = connectors({ calendar: { enabled: true, authorization: "allowed", calendars: [
+    { identifier: "work", title: "Work", colour: "#1badf8" }, { identifier: "home", title: "Home", colour: null }] } });
+  await connectorsTab();
+  expect(screen.getByText("All calendars are read until you pick some.")).toBeTruthy();
+  const work = screen.getByRole("checkbox", { name: "Work" }) as HTMLInputElement;
+  const home = screen.getByRole("checkbox", { name: "Home" }) as HTMLInputElement;
+  expect(work.checked || home.checked).toBe(false);
+  // the colour is a custom property only, never an inline style beyond it
+  const dot = work.closest("label")!.querySelector(".cal-dot") as HTMLElement;
+  expect(dot.style.getPropertyValue("--dot")).toBe("#1badf8");
+  expect(home.closest("label")!.querySelector(".cal-dot")).toBeNull();
+  fireEvent.click(work);
+  await waitFor(() => expect(puts).toEqual([{ calendar_ids: "work" }]));
+  await waitFor(() => expect(work.checked).toBe(true));
+  expect(screen.queryByText("All calendars are read until you pick some.")).toBeNull();
+  fireEvent.click(home);
+  await waitFor(() => expect(puts).toEqual([{ calendar_ids: "work" }, { calendar_ids: "work,home" }]));
+  await waitFor(() => expect(count("GET /api/connectors")).toBe(3));
 });

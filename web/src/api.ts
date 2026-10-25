@@ -306,6 +306,12 @@ export interface Settings {
   /** OpenAI only: "" for OpenAI itself, else an OpenAI-compatible endpoint. */
   insights_base_url: string;
   insights_auto: boolean;
+  notion_enabled: boolean;
+  /** 32 lower-case hex, or "" for none (the server normalises an id or a URL). */
+  notion_database_id: string;
+  calendar_enabled: boolean;
+  /** Calendar identifiers separated by commas; "" means every calendar. */
+  calendar_ids: string;
   readonly: { state_root: string; whisper_model: string; bundle_id: string };
 }
 
@@ -438,4 +444,53 @@ export interface RangeResult {
   /** Why the range stopped early (a refused key, an unreachable provider), and how many days it left unsent. */
   stopped?: string | null;
   not_sent?: number;
+}
+
+// --- connectors (Plan 5) ---
+
+/** One row of the Notion export ledger (db.ExportRecord without its plain text). */
+export interface ExportRow {
+  day: IsoDate;
+  connector: string;
+  page_id: string | null;
+  block_id: string | null;
+  content_hash: string | null;
+  exported_ms: number | null;
+  state: "done" | "error" | "stopped";
+  error: string | null;
+}
+
+/** "unavailable" when EventKit cannot be loaded; null before anything has read it. */
+export type CalendarAuth = "not-asked" | "allowed" | "denied" | "restricted" | "unavailable" | null;
+
+export interface CalendarInfo {
+  identifier: string;
+  title: string;
+  /** "#rrggbb", or null when the calendar has none. */
+  colour: string | null;
+}
+
+/** GET /api/connectors: app.connectors_state. `last` is newest first; `calendars` only when allowed. */
+export interface ConnectorsState {
+  notion: { enabled: boolean; database_id: string; token_present: boolean | null; last: ExportRow[]; exporting: boolean };
+  calendar: { enabled: boolean; authorization: CalendarAuth; calendars: CalendarInfo[]; chosen: string[] };
+}
+
+/** POST /api/connectors/notion/check: notion.DatabaseInfo. */
+export interface DatabaseInfo {
+  database_id: string;
+  data_source_id: string;
+  title: string;
+  missing_properties: string[];
+  title_property: string;
+  mistyped_properties: string[];
+}
+
+/** An export job's result (app._export_job). */
+export interface ExportResult {
+  done: number;
+  unchanged: number;
+  stopped: IsoDate[];
+  errors: { day: IsoDate; error: string | null }[];
+  days: { day: IsoDate; outcome: string; error: string | null }[];
 }

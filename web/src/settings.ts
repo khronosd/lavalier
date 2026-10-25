@@ -2,6 +2,7 @@
 // (_check_value); the app still has the last word and its message is shown when it disagrees.
 
 import type { SettingsPatch } from "./api";
+import { BAD_DATABASE, normaliseNotionId } from "./connectors";
 
 export interface FieldProblem {
   field: string;
@@ -31,7 +32,8 @@ const isWhole = (n: unknown): n is number => typeof n === "number" && Number.isI
 
 /** The first rule a patch breaks, or null. Mirrors the server: retention 0 to 36500 days, poll >= 60 s,
  * at least 1 page, hours >= 0, a 2 or 3 letter language code, window size, appearance; a known insights
- * provider, a base URL that is empty or http(s) (not a bare scheme), any model name, auto on or off. */
+ * provider, a base URL that is empty or http(s) (not a bare scheme), any model name, auto on or off; a Notion
+ * database id or URL (normalise it first with normaliseNotionId), any calendar list, the connector switches. */
 export function validateLocally(patch: SettingsPatch): FieldProblem | null {
   const bad = (field: string, message: string): FieldProblem => ({ field, message });
   if ("retention_days" in patch) {
@@ -73,6 +75,16 @@ export function validateLocally(patch: SettingsPatch): FieldProblem | null {
   }
   if ("insights_auto" in patch && typeof patch.insights_auto !== "boolean") {
     return bad("insights_auto", "Automatic generation is either on or off.");
+  }
+  if ("notion_database_id" in patch) {
+    const v = patch.notion_database_id;
+    if (typeof v !== "string" || normaliseNotionId(v) === null) return bad("notion_database_id", BAD_DATABASE);
+  }
+  if ("calendar_ids" in patch && typeof patch.calendar_ids !== "string") {
+    return bad("calendar_ids", "The calendars must be a list of identifiers.");
+  }
+  for (const [field, label] of [["notion_enabled", "Notion"], ["calendar_enabled", "Calendar"]] as const) {
+    if (field in patch && typeof patch[field] !== "boolean") return bad(field, `${label} is either on or off.`);
   }
   return null;
 }
