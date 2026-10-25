@@ -32,7 +32,7 @@ function Names({ title, names }: { title: string; names: string[] }) {
   return (
     <section class="ins-block">
       <h2 class="section-title">{title}</h2>
-      <p class="ins-names">{names.join(", ")}</p>
+      <ul class="chips">{names.map((n) => <li class="chip" key={n}>{n}</li>)}</ul>
     </section>
   );
 }

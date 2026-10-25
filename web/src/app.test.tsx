@@ -49,6 +49,8 @@ beforeEach(() => {
     if (key === "GET /api/days") return json(days);
     if (key === "GET /api/day/2026-10-23") return dayReply();
     if (key === "GET /api/insights") return json(insightsIndex);
+    if (key === "GET /api/insights/providers") return json({ provider: "", model: "", display: "", sentence: "" });
+    if (key.startsWith("GET /api/insights/")) return json({ state: "none", record: null, reason: "No model chosen.", job: null });
     throw new Error(`unexpected ${key}`);
   }));
 });
@@ -61,6 +63,8 @@ afterEach(() => {
 });
 
 const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
+/** The content column: the first line's words also appear as the row's snippet in the list column. */
+const content = () => within(screen.getByRole("main"));
 const poll = () => act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
 const count = (key: string) => calls.filter((c) => c === key).length;
 
@@ -75,7 +79,7 @@ test("the data version follows the last process and the last sync, and is unknow
 test("an unchanged status refetches nothing", async () => {
   render(<App />);
   await flush();
-  expect(await screen.findByText("test test test one two three")).toBeTruthy();
+  expect(await content().findByText("test test test one two three")).toBeTruthy();
   expect([count("GET /api/days"), count("GET /api/day/2026-10-23")]).toEqual([1, 1]);
   await poll();
   await poll();
@@ -94,7 +98,7 @@ test("a new sync or process refetches the days and the open day once, without bl
   await poll();
   expect([count("GET /api/days"), count("GET /api/day/2026-10-23")]).toEqual([2, 2]);
   // the refetch is in flight: the day stays on screen, no loading state
-  expect(screen.getByText("test test test one two three")).toBeTruthy();
+  expect(content().getByText("test test test one two three")).toBeTruthy();
   expect(screen.queryByText("Loading this day")).toBeNull();
   release();
   await flush();
@@ -113,7 +117,7 @@ test("a failed refetch keeps what is on screen", async () => {
   current = { ...current, last_sync: run(9) };
   await poll();
   await flush();
-  expect(screen.getByText("test test test one two three")).toBeTruthy();
+  expect(content().getByText("test test test one two three")).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
 });
 

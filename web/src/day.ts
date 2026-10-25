@@ -46,3 +46,58 @@ export function pendingSentence(pages: number | null): string | null {
   if (!pages) return null;
   return `${pages === 1 ? "1 page is" : `${pages} pages are`} waiting on the pendant and will be added at the next sync.`;
 }
+
+export type TranscriptPiece =
+  | { kind: "line"; line: Line; starred: boolean }
+  | { kind: "star"; at_ms: number }
+  | { kind: "gap"; minutes: number };
+
+/** Lines further apart than this get a quiet gap between them. */
+export const QUIET_MS = 5 * 60_000;
+
+/**
+ * What the transcript draws: the conversation's lines in time order, each star marking the line at or just
+ * after it (the quote under a star is that line); a star past the last line keeps its own item at its exact
+ * time; and a quiet gap between two lines more than five minutes apart.
+ */
+export function transcriptItems(conv: ConversationView): TranscriptPiece[] {
+  const lines = [...conv.lines].sort((a, b) => a.at_ms - b.at_ms || a.seq - b.seq);
+  const stars = conv.star_ms.filter((ms) => ms >= conv.start_ms && ms <= conv.end_ms).sort((a, b) => a - b);
+  const items: TranscriptPiece[] = [];
+  let s = 0;
+  let lastAt: number | null = null;
+  for (const line of lines) {
+    let starred = false;
+    while (s < stars.length && stars[s] <= line.at_ms) {
+      starred = true;
+      s++;
+    }
+    if (lastAt !== null && line.at_ms - lastAt > QUIET_MS) {
+      items.push({ kind: "gap", minutes: Math.round((line.at_ms - lastAt) / 60_000) });
+    }
+    items.push({ kind: "line", line, starred });
+    lastAt = line.at_ms;
+  }
+  while (s < stars.length) items.push({ kind: "star", at_ms: stars[s++] });
+  return items;
+}
+
+function audioWords(view: DayView): string {
+  if (view.audio_until) return `audio kept until ${dayMonth(view.audio_until)}`;
+  if (view.audio_kept_for_good) return "audio kept for good";
+  return "audio no longer kept";
+}
+
+/** The band's line: "7 conversations · 3 h 1 min of speech · 4 starred moments · audio kept until 22 November". */
+export function summaryLine(view: DayView): string {
+  const parts = [plural(view.conversations.length, "conversation", "conversations"), `${duration(view.speech_ms)} of speech`];
+  if (view.stars.length > 0) parts.push(plural(view.stars.length, "starred moment", "starred moments"));
+  parts.push(audioWords(view));
+  return parts.join(" · ");
+}
+
+/** Where a conversation sits in the list column: before noon, before six, or after. */
+export function partOfDay(ms: number): "Morning" | "Afternoon" | "Evening" {
+  const h = new Date(ms).getHours();
+  return h < 12 ? "Morning" : h < 18 ? "Afternoon" : "Evening";
+}

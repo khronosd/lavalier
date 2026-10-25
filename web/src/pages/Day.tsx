@@ -1,51 +1,60 @@
-import { InsightsTab } from "../components/InsightsTab";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, type DayView, explainError } from "../api";
+import { api, type ConversationView, type DayView, explainError } from "../api";
 import { AudioTab } from "../components/AudioTab";
 import { Conversation } from "../components/Conversation";
+import { ConversationRow } from "../components/ConversationRow";
 import { DayHeader } from "../components/DayHeader";
 import { Empty } from "../components/Empty";
 import { Frame } from "../components/Frame";
+import { InsightsIcon } from "../components/icons";
+import { InsightsTab } from "../components/InsightsTab";
 import { Starred } from "../components/Starred";
 import { Tabs, tabOf } from "../components/Tabs";
-import { pendingSentence, summarySentence } from "../day";
+import { partOfDay, pendingSentence, summaryLine } from "../day";
 import { useOnDataChange } from "../refresh";
-import { navigate, type Route } from "../router";
+import { navigate, type Route, toHash } from "../router";
+import { namedConversation, selectedConversation } from "../selection";
 import { useJumpTo } from "../useJumpTo";
 
 interface Props {
   date: string;
   isToday: boolean;
-  /** The today or day route being shown; tabs and Play keep to it. */
+  /** The today or day route being shown; tabs, rows and Play keep to it. */
   route: Route;
   nav?: ComponentChildren;
 }
 
 type Load = { date: string; view: DayView | null; error: string | null };
 
-function TabPanel({ route, view, onPin }: {
-  route: Route; view: DayView; onPin: (id: string, pinned: boolean) => Promise<void>;
-}) {
-  switch (tabOf(route)) {
-    case "insights":
-      return <InsightsTab key={view.day} day={view.day} view={view} />;
-    case "audio":
-      return <AudioTab view={view} conv={route.query.conv} />;
-    default:
-      return (
-        <>
-          <Starred stars={view.stars} conversations={view.conversations} route={route} />
-          {view.conversations.map((c) => (
-            <Conversation key={c.conversation_id} conv={c} onPin={(p) => onPin(c.conversation_id, p)}
-              onPlay={() => navigate({ ...route, query: { tab: "audio", conv: c.conversation_id } })} />
-          ))}
-        </>
-      );
+/** The list column: a row per conversation under the part of the day it started in; a row links to the
+ * same route with ?conv= naming it (and no ?at=, which is a one-time jump). */
+function ConversationList({ view, selected, route }: { view: DayView; selected: string | null; route: Route }) {
+  const groups: { name: string; convs: ConversationView[] }[] = [];
+  for (const c of view.conversations) {
+    const name = partOfDay(c.start_ms);
+    const last = groups[groups.length - 1];
+    if (last && last.name === name) last.convs.push(c);
+    else groups.push({ name, convs: [c] });
   }
+  const { at: _at, ...rest } = route.query;
+  return (
+    <>
+      {groups.map((g) => (
+        <div class="list-group" key={g.name}>
+          <p class="hd">{g.name}</p>
+          {g.convs.map((c) => (
+            <ConversationRow key={c.conversation_id} conv={c} selected={c.conversation_id === selected}
+              href={toHash({ ...route, query: { ...rest, conv: c.conversation_id } })} />
+          ))}
+        </div>
+      ))}
+    </>
+  );
 }
 
-/** A day: its title and summary, the tabs in the toolbar, and the transcript with starred moments and pins. */
+/** A day: the band with its name and count, the conversations as rows, the selected one's transcript (or
+ * the Audio tab), and the inspector with the day's starred moments and its insight. */
 export function Day({ date, isToday, route, nav }: Props) {
   const [load, setLoad] = useState<Load>({ date, view: null, error: null });
 
@@ -84,35 +93,49 @@ export function Day({ date, isToday, route, nav }: Props) {
 
   const view = load.date === date ? load.view : null;
   const error = load.date === date ? load.error : null;
+
+  // the selected conversation: the one the route names, remembered once ?at= is dropped, else the first
+  const named = view ? namedConversation(view, route) : null;
+  const [remembered, setRemembered] = useState<string | null>(null);
+  useEffect(() => { if (named) setRemembered(named); }, [named]);
+  const selected = view ? selectedConversation(view, named, remembered) : null;
+  const conv = view && selected ? view.conversations.find((c) => c.conversation_id === selected) ?? null : null;
   useJumpTo(route.query.at, view !== null);
 
-  const frame = (body: ComponentChildren, busy = false) => (
-    <Frame toolbar={{ children: <Tabs route={route} /> }}>
-      <div class="page day-page" aria-busy={busy ? "true" : undefined}>{body}</div>
-    </Frame>
+  const list = view && view.conversations.length > 0
+    ? <ConversationList view={view} selected={selected} route={route} />
+    : <p class="hd">Conversations</p>;
+  const inspector = view && (
+    <>
+      <p class="insp-title"><InsightsIcon /> Insights</p>
+      <Starred stars={view.stars} conversations={view.conversations} route={route} />
+      <InsightsTab key={view.day} day={view.day} view={view} />
+    </>
   );
-  if (error) {
-    return frame(<><DayHeader date={date} nav={nav} /><p class="notice warn" role="alert">{error}</p></>);
-  }
-  if (!view) {
-    return frame(<><DayHeader date={date} nav={nav} /><p class="day-summary loading">Loading this day</p></>, true);
-  }
-  if (view.conversations.length === 0) {
-    return frame(
-      <>
-        <DayHeader date={date} nav={nav} />
-        {isToday
-          ? <Empty title="Nothing recorded yet today">{pendingSentence(view.pending_pages)}</Empty>
-          : <Empty title="No conversations on this day" />}
-      </>,
+
+  let content: ComponentChildren;
+  if (error) content = <p class="notice warn" role="alert">{error}</p>;
+  else if (!view) content = <p class="day-summary loading">Loading this day</p>;
+  else if (view.conversations.length === 0) {
+    content = isToday
+      ? <Empty title="Nothing recorded yet today">{pendingSentence(view.pending_pages)}</Empty>
+      : <Empty title="No conversations on this day" />;
+  } else if (tabOf(route) === "audio") content = <AudioTab view={view} conv={route.query.conv} />;
+  else if (conv) {
+    content = (
+      <Conversation key={conv.conversation_id} conv={conv} onPin={(p) => pin(conv.conversation_id, p)}
+        onPlay={() => navigate({ ...route, query: { tab: "audio", conv: conv.conversation_id } })} />
     );
   }
-  return frame(
-    <>
-      <DayHeader date={date} summary={summarySentence(view)} nav={nav} />
-      <div class="day-body">
-        <TabPanel route={route} view={view} onPin={pin} />
+
+  return (
+    <Frame toolbar={{ children: <Tabs route={route} /> }}
+      band={<DayHeader date={date} summary={view ? summaryLine(view) : null} nav={nav} />}
+      list={list} listLabel="Conversations" inspector={inspector} inspectorLabel="Insights"
+      focusInspector={route.query.tab === "insights" ? toHash(route) : undefined}>
+      <div class="page day-page" aria-busy={!view && !error ? "true" : undefined}>
+        <div class="day-body">{content}</div>
       </div>
-    </>,
+    </Frame>
   );
 }

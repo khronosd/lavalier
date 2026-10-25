@@ -44,7 +44,7 @@ export function QuestionBox({ day }: { day: string }) {
           <input id="ask-input" class="ask-input" type="text" autocomplete="off" value={question}
             placeholder={'For example, "what did I decide about retention?"'}
             onInput={(e) => setQuestion(e.currentTarget.value)} />
-          <button class="btn" type="submit" disabled={!q || thinking}>Ask</button>
+          <button class="btn primary" type="submit" disabled={!q || thinking}>Ask</button>
         </div>
       </form>
       {reply.phase === "thinking" && <p class="ins-quiet" role="status">Thinking…</p>}

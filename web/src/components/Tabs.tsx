@@ -2,19 +2,18 @@ import { type Route, toHash } from "../router";
 
 export const DAY_TABS = [
   { id: "transcript", label: "Transcript" },
-  { id: "insights", label: "Insights" },
   { id: "audio", label: "Audio" },
 ] as const;
 
 export type DayTab = (typeof DAY_TABS)[number]["id"];
 
-/** The tab a day route asks for; anything unknown is the transcript. */
+/** The tab a day route asks for; anything unknown is the transcript (?tab=insights focuses the inspector). */
 export function tabOf(route: Route): DayTab {
   const found = DAY_TABS.find((t) => t.id === route.query.tab);
   return found ? found.id : "transcript";
 }
 
-/** Transcript, Insights, Audio as a segmented control; each is a link to the same day with ?tab=. */
+/** Transcript and Audio as a segmented control in the toolbar; each is a link to the same day with ?tab=. */
 export function Tabs({ route }: { route: Route }) {
   const active = tabOf(route);
   return (

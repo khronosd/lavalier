@@ -8,6 +8,8 @@ interface Props {
   /** The 300 px list column's content; a page without one leaves it out. */
   list?: ComponentChildren;
   listLabel?: string;
+  /** A band between the toolbar and the panes (the day view's header and timeline). */
+  band?: ComponentChildren;
   /** The 260 px inspector's content; a page without one leaves it out. */
   inspector?: ComponentChildren;
   inspectorLabel?: string;
@@ -18,7 +20,7 @@ interface Props {
 
 /** A page's frame: the toolbar, then the list column, the content column and the inspector. Below 1216 px
  * the inspector is a popover behind the toolbar's sparkles button; the page's markup is the same. */
-export function Frame({ toolbar, list, listLabel = "List", inspector, inspectorLabel = "Inspector", focusInspector, children }: Props) {
+export function Frame({ toolbar, list, listLabel = "List", band, inspector, inspectorLabel = "Inspector", focusInspector, children }: Props) {
   const shell = useShell();
   const aside = useRef<HTMLElement>(null);
   const hasInspector = inspector != null && inspector !== false;
@@ -26,7 +28,7 @@ export function Frame({ toolbar, list, listLabel = "List", inspector, inspectorL
   const shown = hasInspector && shell.inspectorShown;
   const open = useRef(shell.openInspector);
   open.current = shell.openInspector;
-  useEffect(() => { if (focusInspector && hasInspector) open.current(); }, [focusInspector]);
+  useEffect(() => { if (focusInspector && hasInspector) open.current(); }, [focusInspector, hasInspector]);
   useEffect(() => { if (focusInspector && shown) aside.current?.focus(); }, [focusInspector, shown]);
 
   const asideEl = shown && (
@@ -35,6 +37,7 @@ export function Frame({ toolbar, list, listLabel = "List", inspector, inspectorL
   return (
     <>
       <Toolbar {...toolbar} inspectorToggle={folded} inspectorPopover={folded ? asideEl : undefined} />
+      {band != null && <div class="band">{band}</div>}
       <div class="panes">
         {list != null && <section class="list-col" aria-label={listLabel}>{list}</section>}
         <main class="content">{children}</main>

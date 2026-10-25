@@ -13,28 +13,26 @@ const noop = async () => undefined;
 
 afterEach(cleanup);
 
-test("the heading names the overlapping event after the speech total", () => {
+test("the heading is the calendar label when there is one; the range and the speech total follow it", () => {
   render(<Conversation conv={{ ...conv, label: "Weekly sync" }} onPin={noop} onPlay={() => undefined} />);
-  const head = screen.getByRole("heading", { level: 2 }).closest("header")!;
-  expect(head.textContent).toContain("16 min speech · Weekly sync");
-  const label = screen.getByText("· Weekly sync", { exact: false });
-  expect(label.classList.contains("conv-label")).toBe(true);
+  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Weekly sync");
+  expect(document.querySelector(".conv-dur")!.textContent).toBe("09:30 to 10:15 · 16 min speech");
   expect(screen.getByText("Shall we start?")).toBeTruthy();
 });
 
-test("the stars come before the label, as in the day file", () => {
+test("the stars follow the speech total", () => {
   render(<Conversation conv={{ ...conv, label: "Weekly sync", star_ms: [at(9, 40), at(9, 50)] }} onPin={noop}
     onPlay={() => undefined} />);
   const head = screen.getByRole("heading", { level: 2 }).closest("header")!;
-  expect(head.textContent).toContain("16 min speech ★★ · Weekly sync");
+  expect(head.querySelector(".conv-dur")!.textContent).toBe("09:30 to 10:15 · 16 min speech ★★");
   expect(head.querySelector(".conv-stars")!.textContent).toBe("★★");
   expect(head.querySelector(".conv-stars")!.getAttribute("aria-label")).toBe("2 starred");
 });
 
-test("without a label the heading shows the speech total only", () => {
+test("without a label the heading is the range and the meta line the speech total only", () => {
   render(<Conversation conv={conv} onPin={noop} onPlay={() => undefined} />);
+  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("09:30 to 10:15");
   const head = screen.getByRole("heading", { level: 2 }).closest("header")!;
-  expect(head.textContent).toContain("16 min speech");
+  expect(head.querySelector(".conv-dur")!.textContent).toBe("16 min speech");
   expect(head.textContent).not.toContain("·");
-  expect(document.querySelector(".conv-label")).toBeNull();
 });

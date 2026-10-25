@@ -1,10 +1,22 @@
-/* A day: header, tabs, starred moments and the transcript. The reading face is used only for what
-   people said (transcript lines and starred quotes). Hairlines between conversations, no cards. */
+/* A day: the band under the toolbar (the day's name and date, its count line, the day navigation), the list
+   column's rows, and the selected conversation in the content column. The reading face is used only for what
+   people said. Hairlines, no cards; the only motion is the flash on a jump target (lists.css). */
 
-.day-header-row { display: flex; align-items: baseline; gap: 16px; }
-.day-title { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
-.day-summary { margin: 8px 0 0; color: var(--text-2); font-size: 14px; max-width: 62ch; }
-.day-summary.loading { color: var(--text-3); }
+/* the band */
+.band { flex: none; padding: 14px 24px 12px; border-bottom: 1px solid var(--hairline); }
+.day-band-head { display: flex; align-items: flex-end; gap: 10px; min-height: 32px; }
+.day-title { margin: 0; display: flex; align-items: baseline; gap: 10px; line-height: 1; white-space: nowrap; }
+.day-name { font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
+.day-date { font-size: 20px; font-weight: 400; letter-spacing: -0.015em; color: var(--text-3); }
+.day-summary {
+  margin: 0 0 3px 8px; flex: 1; min-width: 0; color: var(--text-2); font-size: 12.5px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.day-nav { margin-left: auto; flex: none; }
+.day-nav .segment { height: 24px; padding: 0 10px; font-size: 12px; font-weight: 600; }
+.day-nav .step { padding: 0 5px; }
+.day-nav .step svg { width: 16px; height: 16px; }
+.day-nav .segment[aria-disabled="true"] { opacity: 0.45; }
 
 /* buttons, and links drawn the same way: a control fill with an inset ring; primary ones take the accent */
 .btn {
@@ -17,8 +29,6 @@
 .btn.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: none; }
 .btn svg { width: 14px; height: 14px; }
 
-.day-nav { margin-left: auto; display: flex; gap: 4px; flex: none; }
-
 /* Transcript, Audio: a segmented control, each segment a link */
 .segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--control); border-radius: 8px; }
 .segment {
@@ -28,32 +38,73 @@
 .segment:hover { color: var(--text); }
 .segment[aria-current="page"] { background: var(--control-3); color: var(--text); font-weight: 600; box-shadow: var(--shadow-s); }
 
-.day-body { padding-top: 8px; }
+/* the list column's rows */
+.list-group + .list-group > .hd { padding-top: 14px; }
+.row { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: var(--radius-m); color: var(--text); }
+.row:hover { background: var(--hover-row); }
+.row.selected { background: var(--accent); color: var(--on-accent); }
+.row-top, .row-mid, .row-foot { display: flex; align-items: center; gap: 8px; }
+.row-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-time, .row-foot { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.row-snippet { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-foot { gap: 10px; }
+.row-stars { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); }
+.row-stars .star-fill { width: 10px; height: 10px; }
+.row-pinned { display: inline-flex; color: var(--text-3); }
+.row-pinned svg { width: 11px; height: 11px; }
+.wave { flex: none; fill: var(--bar); }
+.row.selected .row-time, .row.selected .row-snippet, .row.selected .row-foot { color: color-mix(in srgb, var(--on-accent) 72%, transparent); }
+.row.selected .row-stars, .row.selected .row-pinned { color: var(--on-accent); }
+.row.selected .wave { fill: color-mix(in srgb, var(--on-accent) 55%, transparent); }
 
-/* a time in the margin, the words beside it */
-.line { display: grid; grid-template-columns: 68px minmax(0, 1fr); column-gap: 14px; align-items: baseline; padding: 3px 0; }
-.line > .time { font-size: 12px; }
+/* the content column: the selected conversation */
+.day-summary.loading { margin: 0; color: var(--text-3); white-space: normal; }
+
+.conv:focus { outline: none; }
+.conv-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+.conv-heading { flex: 1; min-width: 0; }
+.conv-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; overflow-wrap: anywhere; }
+.conv-meta { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.conv-stars { color: var(--star); font-size: 12px; letter-spacing: 1px; }
+.conv-pinned { color: var(--text-3); font-size: 11.5px; font-weight: 500; }
+.conv-tools { display: flex; gap: 6px; flex: none; }
+.conv-error { margin: -8px 0 12px; color: var(--warn); font-size: 12.5px; }
+
+/* a time in the margin, the words beside it; a starred line is tinted, with the star before its time */
+.line {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); column-gap: 12px; align-items: baseline;
+  padding: 5px 8px; margin: 0 -8px; border-radius: 8px;
+}
+.line > .time, .time-cell { font-size: 11.5px; }
+.time-cell { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.time-cell .star-fill { width: 10px; height: 10px; flex: none; color: var(--accent); }
+.line.starred { background: var(--accent-tint); }
 .line > p { margin: 0; }
 .line > p.reading { overflow-wrap: anywhere; }
 .star-line > p { font-size: 12.5px; color: var(--star); }
+.quiet { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 11.5px; color: var(--text-3); }
+.quiet::before, .quiet::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
 
 .section-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
 .section-title .glyph { color: var(--star); }
 
-.starred { margin: 22px 0 0; padding: 0 0 20px; border-bottom: 1px solid var(--hairline); }
-.starred .quote { font-size: 15px; }
-.starred .no-quote { color: var(--text-3); }
-.star-link { margin-left: 10px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
-.star-link:hover { color: var(--accent); text-decoration: underline; }
-
-.conv { padding: 22px 0 6px; }
-.conv + .conv { border-top: 1px solid var(--hairline); }
-.conv:focus { outline: none; }
-.conv-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
-.conv-title { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.conv-dur { color: var(--text-2); font-variant-numeric: tabular-nums; }
-.conv-stars { color: var(--star); font-size: 12px; letter-spacing: 1px; }
-.conv-pinned { color: var(--text-3); font-size: 11.5px; font-weight: 500; }
-.conv-tools { margin-left: auto; display: flex; gap: 6px; }
-.conv-label { font-family: var(--ui); color: var(--text-2); overflow-wrap: anywhere; }
-.conv-error { margin: -2px 0 10px; color: var(--warn); font-size: 12.5px; }
+/* the inspector: its title row, the day's starred moments, then the insight (insights.css) */
+.insp-title { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; }
+.insp-title svg { width: 16px; height: 16px; color: var(--accent); }
+.inspector .section-title {
+  margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3);
+}
+.inspector .section-title .glyph { display: none; }
+.inspector .starred { margin: 0; padding: 0; border: 0; }
+.inspector .line {
+  grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: flex-start; padding: 6px 0; margin: 0;
+}
+.inspector .line > .time, .inspector .time-cell {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600;
+}
+.inspector .line > p { font-size: 12.5px; line-height: 1.4; }
+.inspector .starred .quote { font-size: 13px; line-height: 1.45; }
+.inspector .starred .no-quote { color: var(--text-3); }
+.inspector .star-link { display: block; margin: 2px 0 0; font-size: 11.5px; color: var(--text-3); }
+.inspector .star-link:hover { color: var(--accent); }

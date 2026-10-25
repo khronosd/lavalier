@@ -1,6 +1,8 @@
+import type { ComponentChildren } from "preact";
 import type { DaySummary } from "../api";
 import { dayTitle } from "../format";
 import { type Route, toHash } from "../router";
+import { ChevronLeftIcon, ChevronRightIcon } from "./icons";
 
 interface Props {
   date: string;
@@ -17,25 +19,28 @@ export function neighbours(date: string, days: DaySummary[]): { previous?: strin
   return { previous: older.sort().at(-1), next: newer.sort()[0] };
 }
 
-function Step({ to, label, text, route, today }: { to?: string; label: string; text: string; route: Route; today: string }) {
-  if (!to) return <span class="btn" aria-disabled="true">{text}</span>;
+function Step({ to, label, text, icon, route, today }: {
+  to?: string; label: string; text: string; icon: ComponentChildren; route: Route; today: string;
+}) {
+  if (!to) return <span class="segment step" aria-disabled="true">{icon}<span class="sr">{text}</span></span>;
   const tab = route.query.tab;
   const target: Route = to === today
     ? { name: "today", params: {}, query: tab ? { tab } : {} }
     : { name: "day", params: { date: to }, query: tab ? { tab } : {} };
-  return <a class="btn" href={toHash(target)} aria-label={`${label}, ${dayTitle(to)}`}>{text}</a>;
+  return <a class="segment step" href={toHash(target)} aria-label={`${label}, ${dayTitle(to)}`}>{icon}<span class="sr">{text}</span></a>;
 }
 
-/** Previous and next among the days with clips, and Today. */
+/** Previous, Today and next among the days with clips, as a small segmented group. */
 export function DayNav({ date, today, days, route }: Props) {
   const { previous, next } = neighbours(date, days ?? []);
+  const tab = route.query.tab;
   return (
-    <nav class="day-nav" aria-label="Days">
-      <Step to={previous} label="Previous day" text="Previous" route={route} today={today} />
-      <Step to={next} label="Next day" text="Next" route={route} today={today} />
+    <nav class="day-nav segmented" aria-label="Days">
+      <Step to={previous} label="Previous day" text="Previous" icon={<ChevronLeftIcon />} route={route} today={today} />
       {date === today
-        ? <span class="btn" aria-disabled="true">Today</span>
-        : <a class="btn" href={toHash({ name: "today", params: {}, query: route.query.tab ? { tab: route.query.tab } : {} })}>Today</a>}
+        ? <span class="segment" aria-disabled="true">Today</span>
+        : <a class="segment" href={toHash({ name: "today", params: {}, query: tab ? { tab } : {} })}>Today</a>}
+      <Step to={next} label="Next day" text="Next" icon={<ChevronRightIcon />} route={route} today={today} />
     </nav>
   );
 }

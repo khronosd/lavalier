@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ConversationView, DayView, Line } from "./api";
-import { pendingSentence, placeStars, summarySentence } from "./day";
+import { partOfDay, pendingSentence, placeStars, summaryLine, summarySentence, transcriptItems } from "./day";
 
 const T0 = Date.UTC(2026, 9, 23, 20, 56, 0);
 const line = (offsetS: number, text: string, seq = 0): Line => ({ at_ms: T0 + offsetS * 1000, text, clip_id: "clip_a", seq });
@@ -61,4 +61,36 @@ test("pendingSentence says how many pages wait on the pendant", () => {
   expect(pendingSentence(1)).toBe("1 page is waiting on the pendant and will be added at the next sync.");
   expect(pendingSentence(0)).toBeNull();
   expect(pendingSentence(null)).toBeNull();
+});
+
+const marks = (items: ReturnType<typeof transcriptItems>) =>
+  items.map((i) => i.kind === "line" ? `L${(i.line.at_ms - T0) / 1000}${i.starred ? "★" : ""}`
+    : i.kind === "star" ? `S${(i.at_ms - T0) / 1000}` : `G${i.minutes}`);
+
+test("transcriptItems marks the line at or just after each star; a star past the last line keeps its own item", () => {
+  expect(marks(transcriptItems(conv([line(9, "a", 0), line(13, "b", 1), line(20, "c", 2)], [12, 20])))).toEqual(["L9", "L13★", "L20★"]);
+  expect(marks(transcriptItems(conv([line(5, "a"), line(8, "b", 1)], [1])))).toEqual(["L5★", "L8"]);
+  expect(marks(transcriptItems(conv([line(5, "a")], [30])))).toEqual(["L5", "S30"]);
+  expect(marks(transcriptItems(conv([line(8, "b", 1), line(5, "a", 0)], [])))).toEqual(["L5", "L8"]);
+});
+
+test("transcriptItems puts a quiet gap between lines more than five minutes apart", () => {
+  const c = conv([line(0, "a", 0), line(400, "b", 1), line(701, "c", 2), line(1001, "d", 3)], [], T0, T0 + 1200_000);
+  expect(marks(transcriptItems(c))).toEqual(["L0", "G7", "L400", "G5", "L701", "L1001"]);
+});
+
+test("summaryLine counts the day in one line, singulars and missing parts included", () => {
+  expect(summaryLine(view({}))).toBe("6 conversations · 3 h 1 min of speech · audio kept until 7 November");
+  expect(summaryLine(view({ speech_ms: 16_000, conversations: [conv([], [])], stars: [{ at_ms: T0, conversation_id: "conv_1", quote: null }] })))
+    .toBe("1 conversation · 16 s of speech · 1 starred moment · audio kept until 7 November");
+  expect(summaryLine(view({ stars: [{ at_ms: T0, conversation_id: null, quote: null }, { at_ms: T0 + 1, conversation_id: null, quote: null }],
+    audio_until: null, audio_kept_for_good: true })))
+    .toBe("6 conversations · 3 h 1 min of speech · 2 starred moments · audio kept for good");
+  expect(summaryLine(view({ audio_until: null }))).toBe("6 conversations · 3 h 1 min of speech · audio no longer kept");
+});
+
+test("partOfDay splits the day at noon and six", () => {
+  const local = (h: number, m = 0) => new Date(2026, 9, 23, h, m).getTime();
+  expect([local(0), local(8, 5), local(11, 59), local(12), local(17, 59), local(18), local(23, 30)].map(partOfDay))
+    .toEqual(["Morning", "Morning", "Morning", "Afternoon", "Afternoon", "Evening", "Evening"]);
 });
