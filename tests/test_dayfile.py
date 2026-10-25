@@ -112,3 +112,30 @@ def test_a_stored_insight_renders_after_the_conversations(root, db, cfg, seeded_
                        ["Remy", "Daddy"], ["pendant test", "star button"]))
     out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
     assert out == (Path(__file__).parent / "golden" / "2026-10-23-with-insights.md").read_text()
+
+
+# --- final fix wave
+
+def _insight(db, *, provider="anthropic", summary="A summary.", follow_up="Call back"):
+    from datetime import datetime
+
+    from lavalier.insights.schema import FollowUp, Insight
+    gen = int(datetime(2026, 10, 24, 4, 12).timestamp() * 1000)
+    db.set_insight(date(2026, 10, 23), provider=provider, model="m1", prompt_version=1, generated_ms=gen,
+                   input_chars=100, insight=Insight(summary, [FollowUp(follow_up, None, None)], [], []))
+    return gen
+
+
+def test_an_endpoint_run_names_the_endpoint_not_openai(root, db, cfg, seeded_2026_10_23_subset):
+    gen = _insight(db, provider="openai@llm.example.net:8443")
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+    assert "_Insights by m1 (the endpoint at llm.example.net:8443) at 04:12._" in out and "OpenAI" not in out
+    _insight(db, provider="openai")
+    assert "(OpenAI)" in render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+
+
+def test_newlines_in_a_summary_or_a_follow_up_are_collapsed(root, db, cfg, seeded_2026_10_23_subset):
+    gen = _insight(db, summary="First line.\n\n## Not a heading\nlast", follow_up="Call\nback\r\n  soon")
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+    assert "First line. ## Not a heading last\n" in out and "\n## Not a heading" not in out
+    assert "- Call back soon\n" in out

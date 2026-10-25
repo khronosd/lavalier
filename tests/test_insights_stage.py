@@ -376,3 +376,29 @@ def test_a_day_with_a_clip_waiting_for_its_transcript_is_not_due(db, cfg, clip_r
     assert due_days(db, _cfg(cfg), now_ms=T_next(9, 0), enabled_at_ms=0) == []
     db.set_transcript("clip_pending", Transcript("", "en", cfg.whisper_model, []), "noise", T_next(9, 1))
     assert due_days(db, _cfg(cfg), now_ms=T_next(9, 2), enabled_at_ms=0) == [DAY]
+
+
+def test_importing_the_pipeline_and_writing_insights_never_loads_keyring_or_the_adapters():
+    import subprocess
+    import sys
+    code = (
+        "import lavalier.pipeline, sys\n"
+        "from datetime import date\n"
+        "from lavalier import dayfile\n"
+        "from lavalier.db import InsightRecord\n"
+        "from lavalier.insights.schema import Insight\n"
+        "rec = InsightRecord(date(2026, 10, 23), 'done', 'openai', 'm', 1, 0, 1, Insight('s', [], [], []), None)\n"
+        "assert 'OpenAI' in ''.join(dayfile._insights(rec))\n"
+        "print(sorted(m for m in sys.modules if m.split('.')[0] in ('keyring', 'anthropic', 'openai')"
+        " or m.startswith(('lavalier.insights.registry', 'lavalier.insights.keys', 'lavalier.insights.providers'))))\n")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    assert out.strip() == "[]"
+
+
+def test_an_endpoint_run_is_stored_under_the_endpoint(root, db, seeded_2026_10_23_subset, cfg):
+    p = FakeProvider(name="openai")
+    p.base_url = "https://llm.example.net/v1"
+    assert generate_day(db, root, cfg, p, DAY, now_ms=NOW).provider == "openai@llm.example.net"
+    p.error = "rate limited"
+    assert generate_day(db, root, cfg, p, DAY, now_ms=NOW).provider == "openai@llm.example.net"
+    assert generate_day(db, root, cfg, FakeProvider(name="openai"), DAY, now_ms=NOW).provider == "openai"

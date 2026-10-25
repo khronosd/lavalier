@@ -7,6 +7,7 @@ from pathlib import Path
 from lavalier.config import Config
 from lavalier.db import Database, InsightRecord
 from lavalier.group import press_times, rebuild_day
+from lavalier.insights.names import display
 from lavalier.journal import ConversationView, DayView, StarView, day_view
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
@@ -96,23 +97,27 @@ def _noise_section(clips: list[ClipRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _insights(rec: InsightRecord) -> list[str]:
-    # imported here: the registry imports the providers, whose prompt module imports this one
-    from lavalier.insights.registry import DISPLAY
+def _one_line(text: str) -> str:
+    """A model's text on one line: newlines (and the runs of spaces around them) become one space, so a
+    reply can never start a heading or a list of its own in the file."""
+    return " ".join(text.split()) if any(c in text for c in "\r\n") else text
 
+
+def _insights(rec: InsightRecord) -> list[str]:
     ins = rec.insight
     parts = ["## Insights\n"]
     if ins.summary:
-        parts.append(f"{ins.summary}\n")
+        parts.append(f"{_one_line(ins.summary)}\n")
     if ins.follow_ups:
-        ups = [f"- [{_hms(f.at_ms)}] {f.text}" if f.at_ms is not None else f"- {f.text}" for f in ins.follow_ups]
+        ups = [f"- [{_hms(f.at_ms)}] {_one_line(f.text)}" if f.at_ms is not None else f"- {_one_line(f.text)}"
+               for f in ins.follow_ups]
         parts.append("### Follow-ups\n" + "\n".join(ups) + "\n")
     if ins.people:
         parts.append(f"### People\n{', '.join(ins.people)}\n")
     if ins.topics:
         parts.append(f"### Topics\n{', '.join(ins.topics)}\n")
     cut = " (the earlier part of the day was left out)" if rec.truncated else ""
-    parts.append(f"_Insights by {rec.model} ({DISPLAY.get(rec.provider, rec.provider)}) at {_hm(rec.generated_ms)}{cut}._\n")
+    parts.append(f"_Insights by {rec.model} ({display(rec.provider)}) at {_hm(rec.generated_ms)}{cut}._\n")
     return parts
 
 

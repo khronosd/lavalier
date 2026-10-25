@@ -9,6 +9,7 @@ from lavalier.config import Config
 from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database, InsightRecord
 from lavalier.insights.keys import KeychainError
+from lavalier.insights.names import provider_id
 from lavalier.insights.prompt import day_text, estimate_tokens, resolve_moment
 from lavalier.insights.providers.base import Provider, ProviderError
 from lavalier.insights.schema import PROMPT_VERSION, FollowUp, Insight, InsightError, parse_reply
@@ -47,15 +48,20 @@ def due_days(db: Database, cfg: Config, *, now_ms: int, enabled_at_ms: Optional[
             and drained > _complete_ms(d) and d not in pending and db.insight(d) is None]
 
 
+def _provider_string(provider: Provider) -> str:
+    """What the row records as its provider: `openai@<host>` for an endpoint, else the provider's name."""
+    return provider_id(provider.name, getattr(provider, "base_url", "") or "")
+
+
 def _failed(db: Database, provider: Provider, day: date, *, now_ms: int, chars: int, truncated: bool,
             error: str, store: bool = True) -> InsightRecord:
     """The error record. It is stored only when the day has no done row, so a failed regenerate never
     takes away a good insight; otherwise it is returned without being stored."""
-    rec = InsightRecord(day, "error", provider.name, provider.model, PROMPT_VERSION, now_ms, chars, None, error,
+    rec = InsightRecord(day, "error", _provider_string(provider), provider.model, PROMPT_VERSION, now_ms, chars, None, error,
                         truncated)
     existing = db.insight(day)
     if store and (existing is None or existing.state != "done"):
-        db.set_insight_error(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
+        db.set_insight_error(day, provider=_provider_string(provider), model=provider.model, prompt_version=PROMPT_VERSION,
                              generated_ms=now_ms, input_chars=chars, error=error, truncated=truncated)
         return db.insight(day)
     return rec
@@ -80,7 +86,7 @@ def generate_day(db: Database, paths: Paths, cfg: Config, provider: Provider, da
            for f in insight.follow_ups]
     insight = Insight(insight.summary, ups, insight.people, insight.topics)
     with db.transaction():  # the row and the dirty mark land together; the file is written after the commit
-        db.set_insight(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
+        db.set_insight(day, provider=_provider_string(provider), model=provider.model, prompt_version=PROMPT_VERSION,
                        generated_ms=now_ms, input_chars=dt.chars, insight=insight, truncated=dt.truncated)
         db.mark_day_dirty(day)
     write_dirty_days(db, paths, cfg, now_ms=now_ms)
