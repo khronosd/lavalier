@@ -75,10 +75,13 @@ def ask_messages(dt: DayText, question: str) -> list[dict]:
 
 
 def resolve_moment(view: DayView, at_ms: int) -> Optional[str]:
-    """The id "<clip_id>-<seq>" of the last line at or before at_ms and within a minute of it."""
+    """The id "<clip_id>-<seq>" of the last line at or before at_ms and within a minute of it, compared in
+    whole seconds: the model reads [HH:MM:SS], so a line at :13.045 cited as :13 is that line."""
+    at_s, window_s = at_ms // 1000, MOMENT_WINDOW_MS // 1000
     found = None
     for conv in view.conversations:
         for line in conv.lines:
-            if line.at_ms <= at_ms and at_ms - line.at_ms <= MOMENT_WINDOW_MS:
+            line_s = line.at_ms // 1000
+            if line_s <= at_s and at_s - line_s <= window_s:
                 found = line
     return f"{found.clip_id}-{found.seq}" if found else None

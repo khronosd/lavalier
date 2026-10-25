@@ -390,6 +390,32 @@ def test_migration_6_adds_insights_and_round_trips(db):
     assert len(db_module.MIGRATIONS) >= 6
 
 
+def test_migration_7_adds_truncated_and_keeps_rows(root, monkeypatch):
+    from lavalier.insights.schema import Insight
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS[:6])
+    d = date(2026, 10, 23)
+    with Database(root.db) as dbx:
+        dbx.migrate()
+        dbx._conn.execute(
+            "INSERT INTO insights (day, state, provider, model, prompt_version, generated_ms, input_chars, summary, "
+            "follow_ups, people, topics, error) VALUES (?, 'done', 'p', 'm', 1, 5, 10, 's', '[]', '[]', '[]', NULL)",
+            (d.isoformat(),))
+        dbx._conn.commit()
+        monkeypatch.undo()
+        dbx.migrate()
+        assert dbx.get_status("schema_version") == str(len(db_module.MIGRATIONS)) and len(db_module.MIGRATIONS) >= 7
+        r = dbx.insight(d)
+        assert r.state == "done" and r.insight == Insight("s", [], [], []) and r.truncated is False
+        kw = dict(provider="p", model="m", prompt_version=1, generated_ms=1, input_chars=2)
+        dbx.set_insight(d, insight=Insight("s2", [], [], []), truncated=True, **kw)
+        assert dbx.insight(d).truncated is True
+        dbx.set_insight_error(d, error="e", truncated=True, **kw)
+        assert dbx.insight(d).truncated is True
+        dbx.set_insight_error(d, error="e", **kw)
+        assert dbx.insight(d).truncated is False
+
+
 def test_set_insight_error_replaces_a_done_row(db):
     from lavalier.insights.schema import Insight
     d = date(2026, 10, 23)

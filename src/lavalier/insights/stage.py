@@ -6,6 +6,7 @@ from math import floor, log10
 from typing import Optional
 
 from lavalier.config import Config
+from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database, InsightRecord
 from lavalier.insights.keys import KeychainError
 from lavalier.insights.prompt import day_text, estimate_tokens, resolve_moment
@@ -13,7 +14,6 @@ from lavalier.insights.providers.base import Provider, ProviderError
 from lavalier.insights.schema import PROMPT_VERSION, FollowUp, Insight, InsightError, parse_reply
 from lavalier.journal import day_view
 from lavalier.paths import Paths
-from lavalier.pipeline import write_dirty_days
 
 NO_SPEECH = "Nothing to summarise for this day"
 DAY_COMPLETE_HOUR = 4
@@ -41,32 +41,42 @@ def due_days(db: Database, cfg: Config, *, now_ms: int, enabled_at_ms: Optional[
             and db.insight(d) is None]
 
 
-def _store_error(db: Database, provider: Provider, day: date, *, now_ms: int, chars: int, error: str) -> InsightRecord:
-    db.set_insight_error(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
-                         generated_ms=now_ms, input_chars=chars, error=error)
-    return db.insight(day)
+def _failed(db: Database, provider: Provider, day: date, *, now_ms: int, chars: int, truncated: bool,
+            error: str, store: bool = True) -> InsightRecord:
+    """The error record. It is stored only when the day has no done row, so a failed regenerate never
+    takes away a good insight; otherwise it is returned without being stored."""
+    rec = InsightRecord(day, "error", provider.name, provider.model, PROMPT_VERSION, now_ms, chars, None, error,
+                        truncated)
+    existing = db.insight(day)
+    if store and (existing is None or existing.state != "done"):
+        db.set_insight_error(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
+                             generated_ms=now_ms, input_chars=chars, error=error, truncated=truncated)
+        return db.insight(day)
+    return rec
 
 
 def generate_day(db: Database, paths: Paths, cfg: Config, provider: Provider, day: date, *,
                  now_ms: int) -> InsightRecord:
-    """Summarise one day. Provider, reply and Keychain problems become an error row, never an exception,
-    and leave the day file as it was."""
+    """Summarise one day. Provider, reply and Keychain problems become an error record, never an exception,
+    and leave the day file as it was. A day without speech stores nothing, so pressing Generate before any
+    speech cannot keep the day from its later automatic send."""
     dt = day_text(db, day, cfg, now_ms=now_ms)
+    fail = dict(now_ms=now_ms, chars=dt.chars, truncated=dt.truncated)
+    if not dt.has_speech:
+        return _failed(db, provider, day, error=NO_SPEECH, store=False, **fail)
     try:
-        if not dt.has_speech:
-            raise InsightError(NO_SPEECH)
         insight = parse_reply(provider.summarize(dt), day)
     except (ProviderError, InsightError, KeychainError) as e:
-        return _store_error(db, provider, day, now_ms=now_ms, chars=dt.chars, error=str(e))
+        return _failed(db, provider, day, error=str(e), **fail)
 
     view = day_view(db, day, cfg, now_ms=now_ms)
-    # The model reads times cut to the second, so the line it cites as [HH:MM:SS] lies within that second.
-    ups = [FollowUp(f.text, f.at_ms, resolve_moment(view, f.at_ms + 999) if f.at_ms is not None else None)
+    ups = [FollowUp(f.text, f.at_ms, resolve_moment(view, f.at_ms) if f.at_ms is not None else None)
            for f in insight.follow_ups]
     insight = Insight(insight.summary, ups, insight.people, insight.topics)
-    db.set_insight(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
-                   generated_ms=now_ms, input_chars=dt.chars, insight=insight)
-    db.mark_day_dirty(day)
+    with db.transaction():  # the row and the dirty mark land together; the file is written after the commit
+        db.set_insight(day, provider=provider.name, model=provider.model, prompt_version=PROMPT_VERSION,
+                       generated_ms=now_ms, input_chars=dt.chars, insight=insight, truncated=dt.truncated)
+        db.mark_day_dirty(day)
     write_dirty_days(db, paths, cfg, now_ms=now_ms)
     return db.insight(day)
 

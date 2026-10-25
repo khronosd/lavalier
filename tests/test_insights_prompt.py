@@ -96,18 +96,32 @@ def view(db, seeded_2026_10_23_subset, cfg):
     return day_view(db, DAY, cfg, now_ms=T(23, 30, 0))
 
 
+def _sec(ms: int) -> int:
+    return ms // 1000 * 1000
+
+
 def test_resolve_moment_picks_the_last_line_at_or_before(view):
     lines = [ln for c in view.conversations for ln in c.lines]
     first = lines[0]
     assert resolve_moment(view, first.at_ms) == f"{first.clip_id}-{first.seq}"
-    later = [ln for ln in lines if ln.at_ms > first.at_ms][0]
+    later = [ln for ln in lines if ln.at_ms // 1000 > first.at_ms // 1000][0]
     assert resolve_moment(view, later.at_ms + 1) == f"{later.clip_id}-{later.seq}"
     if later.at_ms - first.at_ms <= 60_000:
-        assert resolve_moment(view, later.at_ms - 1) == f"{first.clip_id}-{first.seq}"
+        assert resolve_moment(view, _sec(later.at_ms) - 1) == f"{first.clip_id}-{first.seq}"
+
+
+def test_resolve_moment_matches_whole_seconds(view):
+    """The model reads [HH:MM:SS]: a line at :13.045 cited as :13 is that line; :12 is the line before."""
+    lines = [ln for c in view.conversations for ln in c.lines]
+    first, second = lines[0], lines[1]
+    assert second.at_ms % 1000 != 0  # the seeded line is at 22:56:13.045
+    assert resolve_moment(view, _sec(second.at_ms)) == f"{second.clip_id}-{second.seq}"
+    assert resolve_moment(view, _sec(second.at_ms) - 1000) == f"{first.clip_id}-{first.seq}"
+    assert resolve_moment(view, _sec(first.at_ms)) == f"{first.clip_id}-{first.seq}"
 
 
 def test_resolve_moment_outside_any_line_gives_none(view):
     lines = [ln for c in view.conversations for ln in c.lines]
-    assert resolve_moment(view, lines[0].at_ms - 1) is None
-    assert resolve_moment(view, lines[-1].at_ms + 60_001) is None
-    assert resolve_moment(view, lines[-1].at_ms + 60_000) is not None
+    assert resolve_moment(view, _sec(lines[0].at_ms) - 1) is None
+    assert resolve_moment(view, _sec(lines[-1].at_ms) + 61_000) is None  # the window is 60 whole seconds
+    assert resolve_moment(view, _sec(lines[-1].at_ms) + 60_999) is not None

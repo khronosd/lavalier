@@ -1,13 +1,17 @@
 """Render one day's conversations as a Markdown file."""
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
 
 from lavalier.config import Config
 from lavalier.db import Database, InsightRecord
+from lavalier.group import press_times, rebuild_day
 from lavalier.journal import ConversationView, DayView, StarView, day_view
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
+
+log = logging.getLogger(__name__)
 
 
 def _local(ms: int) -> datetime:
@@ -107,7 +111,8 @@ def _insights(rec: InsightRecord) -> list[str]:
         parts.append(f"### People\n{', '.join(ins.people)}\n")
     if ins.topics:
         parts.append(f"### Topics\n{', '.join(ins.topics)}\n")
-    parts.append(f"_Insights by {rec.model} ({DISPLAY.get(rec.provider, rec.provider)}) at {_hm(rec.generated_ms)}._\n")
+    cut = " (the earlier part of the day was left out)" if rec.truncated else ""
+    parts.append(f"_Insights by {rec.model} ({DISPLAY.get(rec.provider, rec.provider)}) at {_hm(rec.generated_ms)}{cut}._\n")
     return parts
 
 
@@ -151,3 +156,23 @@ def write_day(db: Database, paths: Paths, day: date, cfg: Config, *, now_ms: int
     out.write_text(text, encoding="utf-8")
     db.mark_day_clean(day)
     return out
+
+
+def write_dirty_days(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> list[date]:
+    try:
+        dirty = db.days_dirty()
+    except Exception:
+        log.exception("stage day files failed: cannot list dirty days")
+        return []
+    written = []
+    for day in dirty:
+        try:
+            rebuild_day(db, day, cfg)
+            if not db.clips_for_day(day) and not press_times(db, day):
+                db.mark_day_clean(day)  # only status events: nothing worth a file
+                continue
+            write_day(db, paths, day, cfg, now_ms=now_ms)
+            written.append(day)
+        except Exception:
+            log.exception("stage day files failed for %s", day)
+    return sorted(written)

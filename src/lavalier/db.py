@@ -259,7 +259,12 @@ def _migrate_6(c: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6]
+def _migrate_7(c: sqlite3.Connection) -> None:
+    """Insights note whether the day's text was cut from the front to fit."""
+    _run_script(c, "ALTER TABLE insights ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0;")
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6, _migrate_7]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -301,6 +306,7 @@ class InsightRecord:
     input_chars: int
     insight: Optional[Insight]
     error: Optional[str]
+    truncated: bool = False  # the day's text was cut from the front to fit
 
 
 def _insight_record(r: sqlite3.Row) -> InsightRecord:
@@ -309,7 +315,7 @@ def _insight_record(r: sqlite3.Row) -> InsightRecord:
         ups = [FollowUp(f["text"], f["at_ms"], f["line_id"]) for f in json.loads(r["follow_ups"])]
         insight = Insight(r["summary"], ups, json.loads(r["people"]), json.loads(r["topics"]))
     return InsightRecord(date.fromisoformat(r["day"]), r["state"], r["provider"], r["model"], r["prompt_version"],
-                         r["generated_ms"], r["input_chars"], insight, r["error"])
+                         r["generated_ms"], r["input_chars"], insight, r["error"], bool(r["truncated"]))
 
 
 class Database:
@@ -806,22 +812,24 @@ class Database:
         return _insight_record(r) if r else None
 
     def set_insight(self, day: date, *, provider: str, model: str, prompt_version: int, generated_ms: int,
-                    input_chars: int, insight: Insight) -> None:
+                    input_chars: int, insight: Insight, truncated: bool = False) -> None:
         ups = [{"text": f.text, "at_ms": f.at_ms, "line_id": f.line_id} for f in insight.follow_ups]
         with self._write_scope():
             self._conn.execute(
                 "INSERT OR REPLACE INTO insights (day, state, provider, model, prompt_version, generated_ms, "
-                "input_chars, summary, follow_ups, people, topics, error) VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                "input_chars, summary, follow_ups, people, topics, error, truncated) "
+                "VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
                 (day.isoformat(), provider, model, prompt_version, generated_ms, input_chars, insight.summary,
-                 json.dumps(ups), json.dumps(insight.people), json.dumps(insight.topics)))
+                 json.dumps(ups), json.dumps(insight.people), json.dumps(insight.topics), int(truncated)))
 
     def set_insight_error(self, day: date, *, provider: str, model: str, prompt_version: int, generated_ms: int,
-                          input_chars: int, error: str) -> None:
+                          input_chars: int, error: str, truncated: bool = False) -> None:
         with self._write_scope():
             self._conn.execute(
                 "INSERT OR REPLACE INTO insights (day, state, provider, model, prompt_version, generated_ms, "
-                "input_chars, summary, follow_ups, people, topics, error) VALUES (?, 'error', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)",
-                (day.isoformat(), provider, model, prompt_version, generated_ms, input_chars, error))
+                "input_chars, summary, follow_ups, people, topics, error, truncated) "
+                "VALUES (?, 'error', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)",
+                (day.isoformat(), provider, model, prompt_version, generated_ms, input_chars, error, int(truncated)))
 
     def insights_all(self) -> list[InsightRecord]:
         rows = self._conn.execute("SELECT * FROM insights WHERE state = 'done' ORDER BY day DESC").fetchall()

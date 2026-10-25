@@ -12,9 +12,9 @@ from lavalier.capture import SINK_NAME, open_sink_paths
 from lavalier.audio import ffmpeg_available, measure_loudness
 from lavalier.clips import decode_new_pages
 from lavalier.config import Config
-from lavalier.dayfile import write_day
+from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database
-from lavalier.group import press_times, rebuild_day
+from lavalier.group import rebuild_day
 from lavalier.models import ClipRecord
 from lavalier.pages import ImportResult, import_capture
 from lavalier.paths import Paths
@@ -69,26 +69,6 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
     except Exception:
         log.exception("stage retention failed")
     return report
-
-
-def write_dirty_days(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> list[date]:
-    try:
-        dirty = db.days_dirty()
-    except Exception:
-        log.exception("stage day files failed: cannot list dirty days")
-        return []
-    written = []
-    for day in dirty:
-        try:
-            rebuild_day(db, day, cfg)
-            if not db.clips_for_day(day) and not press_times(db, day):
-                db.mark_day_clean(day)  # only status events: nothing worth a file
-                continue
-            write_day(db, paths, day, cfg, now_ms=now_ms)
-            written.append(day)
-        except Exception:
-            log.exception("stage day files failed for %s", day)
-    return sorted(written)
 
 
 def retention_tick(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> ProcessReport:

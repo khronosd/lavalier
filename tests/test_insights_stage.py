@@ -89,7 +89,7 @@ def test_generate_stores_the_insight_with_resolved_moments_and_rewrites_the_day_
 ])
 def test_a_failed_generation_stores_an_error_and_leaves_the_day_file_alone(root, db, seeded_2026_10_23_subset, cfg, make):
     db.mark_day_dirty(DAY)
-    from lavalier.pipeline import write_dirty_days
+    from lavalier.dayfile import write_dirty_days
     write_dirty_days(db, root, cfg, now_ms=NOW)
     f = root.days / "2026-10-23.md"
     before, mtime = f.read_text(), f.stat().st_mtime_ns
@@ -113,13 +113,74 @@ def test_a_programming_error_propagates(root, db, seeded_2026_10_23_subset, cfg)
     assert db.insight(DAY) is None
 
 
-def test_a_day_without_speech_is_not_sent(root, db, cfg):
+def test_a_day_without_speech_is_not_sent_and_stores_nothing(root, db, cfg, clip_record):
     db.add_event(_press(7000, T(22, 50, 0)))  # a star alone: no clips, no speech
     rebuild_day(db, DAY, cfg)
     p = FakeProvider()
-    r = generate_day(db, root, cfg, p, DAY, now_ms=NOW)
-    assert r.state == "error" and r.error == NO_SPEECH and p.calls == []
-    assert not (root.days / "2026-10-23.md").exists()
+    r = generate_day(db, root, cfg, p, DAY, now_ms=T(22, 55, 0))
+    assert r.state == "error" and r.error == NO_SPEECH and r.insight is None and p.calls == []
+    assert (r.provider, r.model, r.generated_ms) == ("anthropic", "claude-opus-5-5", T(22, 55, 0))
+    assert db.insight(DAY) is None and not (root.days / "2026-10-23.md").exists()
+    # speech arrives later; once the day is complete the automatic send still picks it up
+    _speech_day(db, clip_record, DAY, 0)
+    assert due_days(db, _cfg(cfg), now_ms=T_next(4, 0, 1), enabled_at_ms=0) == [DAY]
+
+
+def test_a_failed_regenerate_keeps_the_done_row_and_the_day_file(root, db, seeded_2026_10_23_subset, cfg):
+    done = generate_day(db, root, cfg, FakeProvider(), DAY, now_ms=NOW)
+    f = root.days / "2026-10-23.md"
+    before, mtime = f.read_text(), f.stat().st_mtime_ns
+    for p in (FakeProvider(error="timed out"), FakeProvider(reply={"summary": "x"}),
+              FakeProvider(exc=KeychainError("The Keychain refused: locked"))):
+        r = generate_day(db, root, cfg, p, DAY, now_ms=NOW + 60_000)
+        assert r.state == "error" and r.error and r.insight is None and r.generated_ms == NOW + 60_000
+        assert db.insight(DAY) == done and db.insight(DAY).state == "done"
+        assert f.read_text() == before and f.stat().st_mtime_ns == mtime
+
+
+def test_a_failed_generate_replaces_an_earlier_error(root, db, seeded_2026_10_23_subset, cfg):
+    generate_day(db, root, cfg, FakeProvider(error="first"), DAY, now_ms=NOW)
+    generate_day(db, root, cfg, FakeProvider(error="second"), DAY, now_ms=NOW + 1)
+    assert db.insight(DAY).error == "second"
+
+
+def test_the_insight_and_the_dirty_mark_land_together(root, db, seeded_2026_10_23_subset, cfg, monkeypatch):
+    def boom(day):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(db, "mark_day_dirty", boom)
+    with pytest.raises(RuntimeError, match="disk full"):
+        generate_day(db, root, cfg, FakeProvider(), DAY, now_ms=NOW)
+    assert db.insight(DAY) is None and not (root.days / "2026-10-23.md").exists()
+
+
+def test_a_truncated_day_is_stored_and_noted_in_the_day_file(root, db, seeded_2026_10_23_subset, cfg, monkeypatch):
+    real = stage.day_text
+    monkeypatch.setattr(stage, "day_text",
+                        lambda db, day, cfg, *, now_ms: dataclasses.replace(real(db, day, cfg, now_ms=now_ms), truncated=True))
+    r = generate_day(db, root, cfg, FakeProvider(), DAY, now_ms=NOW)
+    assert r.truncated and db.insight(DAY).truncated
+    out = (root.days / "2026-10-23.md").read_text()
+    assert "_Insights by claude-opus-5-5 (Anthropic) at 04:12 (the earlier part of the day was left out)._" in out
+    r = generate_day(db, root, cfg, FakeProvider(error="timed out"), DAY, now_ms=NOW + 1)
+    assert r.state == "error" and r.truncated  # the error record says the text was cut too
+
+
+def test_an_untruncated_day_is_not_noted(root, db, seeded_2026_10_23_subset, cfg):
+    r = generate_day(db, root, cfg, FakeProvider(), DAY, now_ms=NOW)
+    assert not r.truncated and "left out" not in (root.days / "2026-10-23.md").read_text()
+
+
+def test_importing_the_stage_leaves_transcription_unloaded():
+    import subprocess
+    import sys
+    # lavalier.playback, lavalier.audio and subprocess do load: journal -> retention -> playback -> audio
+    # (subprocess). The stage itself never imports them (the source scan below holds that).
+    watch = ["lavalier.transcribe", "lavalier.pipeline", "lavalier.capture", "lavalier.sync"]
+    code = ("import lavalier.insights.stage, sys; "
+            f"print(sorted(m for m in sys.modules if m in {set(watch)!r}))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    assert out.strip() == "[]"
 
 
 def test_follow_ups_keep_their_text_when_the_moment_has_no_line(root, db, seeded_2026_10_23_subset, cfg):
