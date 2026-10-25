@@ -91,3 +91,51 @@ def test_day_without_audio_says_nothing_about_audio(root, db, cfg):
     out = render_day(db, DAY, cfg, now_ms=0)
     assert "★ (no speech recorded nearby)" in out
     assert out.endswith(f"_Transcribed with {cfg.whisper_model}._\n") and "Audio" not in out
+
+
+def test_golden_day_file_without_insights_is_unchanged(root, db, cfg, seeded_2026_10_23_subset):
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=T(23, 30, 0))
+    assert db.insight(date(2026, 10, 23)) is None and "## Insights" not in out
+    assert out == (Path(__file__).parent / "golden" / "2026-10-23.md").read_text()
+
+
+def test_a_stored_insight_renders_after_the_conversations(root, db, cfg, seeded_2026_10_23_subset):
+    from datetime import datetime
+
+    from lavalier.insights.schema import FollowUp, Insight
+    at = int(datetime(2026, 10, 23, 22, 56, 13).timestamp() * 1000)
+    gen = int(datetime(2026, 10, 24, 4, 12).timestamp() * 1000)
+    db.set_insight(date(2026, 10, 23), provider="anthropic", model="claude-opus-5-5", prompt_version=1,
+                   generated_ms=gen, input_chars=100, insight=Insight(
+                       "A short pendant test: two rounds of counting to three, both starred.",
+                       [FollowUp("Check that both stars landed", at, "clip_20261024T055609.085Z-1")],
+                       ["Remy", "Daddy"], ["pendant test", "star button"]))
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+    assert out == (Path(__file__).parent / "golden" / "2026-10-23-with-insights.md").read_text()
+
+
+# --- final fix wave
+
+def _insight(db, *, provider="anthropic", summary="A summary.", follow_up="Call back"):
+    from datetime import datetime
+
+    from lavalier.insights.schema import FollowUp, Insight
+    gen = int(datetime(2026, 10, 24, 4, 12).timestamp() * 1000)
+    db.set_insight(date(2026, 10, 23), provider=provider, model="m1", prompt_version=1, generated_ms=gen,
+                   input_chars=100, insight=Insight(summary, [FollowUp(follow_up, None, None)], [], []))
+    return gen
+
+
+def test_an_endpoint_run_names_the_endpoint_not_openai(root, db, cfg, seeded_2026_10_23_subset):
+    gen = _insight(db, provider="openai@llm.example.net:8443")
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+    assert "_Insights by m1 (the endpoint at llm.example.net:8443) at 04:12._" in out and "OpenAI" not in out
+    _insight(db, provider="openai")
+    assert "(OpenAI)" in render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+
+
+def test_newlines_in_a_summary_or_a_follow_up_are_collapsed(root, db, cfg, seeded_2026_10_23_subset):
+    gen = _insight(db, summary="First line.\n\n## Not a heading\nlast", follow_up="Call\nback\r\n  soon")
+    out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
+    assert "First line. ## Not a heading last\n" in out and "\n## Not a heading" not in out
+    assert "- Call back soon\n" in out

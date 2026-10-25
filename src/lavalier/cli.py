@@ -18,6 +18,7 @@ from lavalier.actions import another_process as _another_process
 from lavalier.charger import cdc_present, read_ioreg
 from lavalier.config import Config, load_config
 from lavalier.dayfile import render_day, write_day
+from lavalier.insights.stage import NO_SPEECH
 from lavalier.db import Database, SchemaTooNewError, now_ms
 from lavalier.device import Pendant
 from lavalier.logsetup import quiet_fork_chatter
@@ -32,6 +33,7 @@ from lavalier.sync import run_sync
 from lavalier.transcribe import MlxWhisperTranscriber
 
 UNMUTE_SETTLE_S = 1.0  # tests patch this to 0
+JOB_POLL_S = 1.0       # how often insights and ask poll their job; tests patch it
 SERVER_FILE = ".server.json"
 
 # Tests monkeypatch this to hand back a FakePendant.
@@ -456,6 +458,101 @@ def pin_cmd(conversation_id: str) -> None:
 def unpin_cmd(conversation_id: str) -> None:
     """Release a pinned conversation."""
     _pin(conversation_id, False)
+
+
+def _app_token(paths: Paths) -> Path:
+    """The running app's token file; insights and ask exist only through the app."""
+    from lavalier.window import NOT_RUNNING
+    token = paths.root / SERVER_FILE
+    if not client.app_running(token):
+        click.echo(NOT_RUNNING, err=True)
+        raise SystemExit(1)
+    return token
+
+
+def _app_call(token: Path, method: str, route: str, body: Optional[dict] = None, *, busy: str = "") -> dict:
+    try:
+        return client.call(token, method, route, body=body, timeout_s=60)
+    except client.AppBusy as e:
+        raise click.ClickException(busy or "the app is busy") from e
+    except client.AppRefused as e:
+        raise click.ClickException(str(e)) from e
+    except client.AppUnavailable as e:
+        raise click.ClickException(f"lavalier app: {e}") from e
+
+
+def _finished_job(token: Path, job_id: str) -> dict:
+    try:
+        job = client.poll_job(token, job_id, every_s=JOB_POLL_S)
+    except client.AppUnavailable as e:
+        raise click.ClickException(f"lavalier app: {e}") from e
+    if job["state"] == "error":
+        raise click.ClickException(job["error"] or "failed")
+    return job["result"]
+
+
+def _echo_insight(record: dict) -> None:
+    ins = record["insight"]
+    click.echo(ins["summary"])
+    if ins["follow_ups"]:
+        click.echo("")
+        click.echo("Follow-ups:")
+        for f in ins["follow_ups"]:
+            at = datetime.fromtimestamp(f["at_ms"] / 1000).strftime("%H:%M:%S") if f["at_ms"] is not None else ""
+            click.echo(f"  {at}  {f['text']}" if at else f"  {f['text']}")
+    for label, names in (("People", ins["people"]), ("Topics", ins["topics"])):
+        if names:
+            click.echo(f"{label}: {', '.join(names)}")
+    if record["truncated"]:
+        click.echo("(the day was long: only its latest part was sent)")
+
+
+@main.command("insights")
+@click.argument("day", required=False, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--force", is_flag=True, help="Generate again when the day already has insights.")
+def insights_cmd(day: Optional[datetime], force: bool) -> None:
+    """Generate a day's insights through the app; without DAY, show what the automatic run would do."""
+    paths, _ = _paths_cfg()
+    token = _app_token(paths)
+    if day is None:
+        idx = _app_call(token, "GET", "/api/insights")
+        provider = _app_call(token, "GET", "/api/status")["insights"]["provider"]
+        if not provider:
+            click.echo("Automatic insights: off (no model chosen)")
+        else:
+            click.echo(f"Automatic insights: {'on' if idx['auto'] else 'off'} ({provider})")
+        click.echo(f"Due now: {', '.join(idx['due']) or 'none'}")
+        without = [d["day"] + (f" (failed: {d['error']})" if d["error"] else "") for d in idx["days_without"]]
+        click.echo(f"Without insights: {', '.join(without) or 'none'}")
+        if idx["generating"]:
+            click.echo(f"Generating: {', '.join(idx['generating'])}")
+        return
+    d = day.date().isoformat()
+    if not force and _app_call(token, "GET", f"/api/insights/{d}")["state"] == "done":
+        click.echo(f"Insights for {d} exist; use --force to generate again")
+        return
+    job = _app_call(token, "POST", f"/api/insights/generate/{d}",
+                    busy=f"Insights for {d} are already being generated")["job"]
+    result = _finished_job(token, job)
+    record = result["record"]
+    if record["state"] != "done" and record["error"] == NO_SPEECH:
+        click.echo(f"Nothing to summarise for {d}", err=True)
+        raise SystemExit(1)
+    if record["state"] != "done":
+        kept = "; the earlier insights stay" if not result["stored"] else ""
+        raise click.ClickException(f"{record['error']}{kept}")
+    _echo_insight(record)
+
+
+@main.command("ask")
+@click.argument("day", type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.argument("question")
+def ask_cmd(day: datetime, question: str) -> None:
+    """Ask a question about one day, through the app."""
+    paths, _ = _paths_cfg()
+    token = _app_token(paths)
+    job = _app_call(token, "POST", "/api/ask", {"day": day.date().isoformat(), "question": question})["job"]
+    click.echo(_finished_job(token, job)["answer"])
 
 
 @main.command("retention")

@@ -34,14 +34,14 @@ def test_a_failing_stage_does_not_stop_later_stages(root, db, cfg, imported_and_
 
 def test_a_failing_day_does_not_stop_other_days(root, db, cfg, imported_and_decoded_three_clips, monkeypatch):
     db.mark_day_dirty(date(2026, 10, 22))
-    real = __import__("lavalier.pipeline", fromlist=["write_day"]).write_day
+    real = __import__("lavalier.dayfile", fromlist=["write_day"]).write_day
 
     def flaky(db_, paths, day, cfg_, **k):
         if day == date(2026, 10, 22):
             raise RuntimeError("disk full")
         return real(db_, paths, day, cfg_, **k)
 
-    monkeypatch.setattr("lavalier.pipeline.write_day", flaky)
+    monkeypatch.setattr("lavalier.dayfile.write_day", flaky)
     r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0))
     assert r.days_written == [date(2026, 10, 23)]
 

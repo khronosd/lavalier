@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/preact";
+import { act, cleanup, render, screen, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { DaySummary, DayView, Status } from "./api";
 import { App } from "./app";
@@ -29,6 +29,7 @@ const run = (id: number) => ({
 let current: Status;
 let calls: string[];
 let dayReply: () => Promise<Response>;
+let insightsIndex: unknown;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -37,12 +38,17 @@ beforeEach(() => {
   current = status({ last_sync: run(7), last_process: '{"transcribed": 1, "processed_ms": 1}' });
   calls = [];
   dayReply = async () => json(day23);
+  insightsIndex = {
+    follow_ups: [], people: [], topics: [], generating: [], due: [], auto: true,
+    days_without: [{ day: "2026-10-22", chars: 100, error: null }, { day: "2026-10-21", chars: 100, error: null }],
+  };
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${url}`;
     calls.push(key);
     if (key === "GET /api/status") return json(current);
     if (key === "GET /api/days") return json(days);
     if (key === "GET /api/day/2026-10-23") return dayReply();
+    if (key === "GET /api/insights") return json(insightsIndex);
     throw new Error(`unexpected ${key}`);
   }));
 });
@@ -142,4 +148,35 @@ test("a status-driven refetch of an equal day does not restart the audio that is
   expect(blobs).toHaveLength(1);
   expect(audio.getAttribute("src")).toBe(src);
   expect(play.mock.calls.length).toBe(plays);
+});
+
+const insightsLink = () =>
+  within(screen.getByRole("complementary", { name: "Sections" })).getByRole("link", { name: /^Insights/ });
+
+test("the Insights link counts the days without insights once a provider is set", async () => {
+  const insights = { days_done: 1, days_error: 0, provider: "ollama", model: "", auto: true, generating: [] };
+  current = { ...current, insights };
+  render(<App />);
+  await flush();
+  await flush();
+  expect(insightsLink().querySelector(".nav-count")!.textContent).toBe("2 to do");
+  expect(count("GET /api/insights")).toBe(1);
+  await poll();
+  expect(count("GET /api/insights")).toBe(1); // nothing changed: no refetch
+
+  insightsIndex = { ...(insightsIndex as object), days_without: [] };
+  current = { ...current, last_process: '{"transcribed": 3, "processed_ms": 3}' };
+  await poll();
+  await flush();
+  expect(count("GET /api/insights")).toBe(2);
+  expect(insightsLink().querySelector(".nav-count")).toBeNull();
+});
+
+test("with no provider the Insights link has no count and asks nothing", async () => {
+  current = { ...current, insights: { days_done: 0, days_error: 0, provider: "", model: "", auto: true, generating: [] } };
+  render(<App />);
+  await flush();
+  await flush();
+  expect(insightsLink().querySelector(".nav-count")).toBeNull();
+  expect(count("GET /api/insights")).toBe(0);
 });

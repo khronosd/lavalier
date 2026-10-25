@@ -82,7 +82,7 @@ def test_migration_5_backfills_existing_segments(root, clip_record, monkeypatch)
         d.set_transcript(clip_record.clip_id, speech_transcript_with("one two"), "speech", 1)
         monkeypatch.undo()
         d.migrate()
-        assert d.get_status("schema_version") == "5" and search(d, "one two")
+        assert d.get_status("schema_version") == str(len(db_module.MIGRATIONS)) and search(d, "one two")
 
 
 def test_a_noise_clip_is_never_a_hit_and_a_speech_clip_is(db, clip_record):

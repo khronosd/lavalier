@@ -1,6 +1,7 @@
 """SQLite state store: dedup pages, captures, clips, transcripts, events, conversations."""
 
 import json
+from dataclasses import dataclass
 from contextlib import contextmanager, nullcontext
 import sqlite3
 import time
@@ -8,6 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
+from lavalier.insights.schema import FollowUp, Insight
 from lavalier.models import (
     MIN_VALID_MS,
     ClipRecord,
@@ -244,7 +246,25 @@ def _migrate_5(c: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5]
+def _migrate_6(c: sqlite3.Connection) -> None:
+    """Per-day Insights: one row per day, replaced on regeneration; the lists are JSON."""
+    _run_script(
+        c,
+        """
+        CREATE TABLE insights (
+            day TEXT PRIMARY KEY, state TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
+            prompt_version INTEGER NOT NULL, generated_ms INTEGER NOT NULL, input_chars INTEGER NOT NULL,
+            summary TEXT, follow_ups TEXT, people TEXT, topics TEXT, error TEXT);
+        """,
+    )
+
+
+def _migrate_7(c: sqlite3.Connection) -> None:
+    """Insights note whether the day's text was cut from the front to fit."""
+    _run_script(c, "ALTER TABLE insights ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0;")
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6, _migrate_7]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -273,6 +293,29 @@ def _clip_from_row(r: sqlite3.Row) -> ClipRecord:
         classification=r["classification"],
         transcribed_at=r["transcribed_at"],
     )
+
+
+@dataclass(frozen=True)
+class InsightRecord:
+    day: date
+    state: str  # done | error
+    provider: str
+    model: str
+    prompt_version: int
+    generated_ms: int
+    input_chars: int
+    insight: Optional[Insight]
+    error: Optional[str]
+    truncated: bool = False  # the day's text was cut from the front to fit
+
+
+def _insight_record(r: sqlite3.Row) -> InsightRecord:
+    insight = None
+    if r["state"] == "done":
+        ups = [FollowUp(f["text"], f["at_ms"], f["line_id"]) for f in json.loads(r["follow_ups"])]
+        insight = Insight(r["summary"], ups, json.loads(r["people"]), json.loads(r["topics"]))
+    return InsightRecord(date.fromisoformat(r["day"]), r["state"], r["provider"], r["model"], r["prompt_version"],
+                         r["generated_ms"], r["input_chars"], insight, r["error"], bool(r["truncated"]))
 
 
 class Database:
@@ -449,6 +492,13 @@ class Database:
 
     def clips_needing_transcript(self) -> list[ClipRecord]:
         return self._clips("path != '' AND transcribed_at IS NULL AND classification IS NULL")
+
+    def days_needing_transcript(self) -> set[date]:
+        """The days that have a clip still waiting for its transcript (the same rule as above)."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT day FROM clips WHERE path != '' AND transcribed_at IS NULL AND classification IS NULL"
+        ).fetchall()
+        return {date.fromisoformat(r["day"]) for r in rows}
 
     def set_loudness(self, clip_id: str, mean_db: float, peak_db: float) -> None:
         with self._write_scope():
@@ -761,6 +811,56 @@ class Database:
     def last_drain_ok_ms(self) -> Optional[int]:
         r = self._conn.execute("SELECT MAX(ended_ms) AS m FROM sync_runs WHERE outcome = 'drained'").fetchone()
         return r["m"]
+
+    # insights
+
+    def insight(self, day: date) -> Optional[InsightRecord]:
+        r = self._conn.execute("SELECT * FROM insights WHERE day = ?", (day.isoformat(),)).fetchone()
+        return _insight_record(r) if r else None
+
+    def set_insight(self, day: date, *, provider: str, model: str, prompt_version: int, generated_ms: int,
+                    input_chars: int, insight: Insight, truncated: bool = False) -> None:
+        ups = [{"text": f.text, "at_ms": f.at_ms, "line_id": f.line_id} for f in insight.follow_ups]
+        with self._write_scope():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO insights (day, state, provider, model, prompt_version, generated_ms, "
+                "input_chars, summary, follow_ups, people, topics, error, truncated) "
+                "VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+                (day.isoformat(), provider, model, prompt_version, generated_ms, input_chars, insight.summary,
+                 json.dumps(ups), json.dumps(insight.people), json.dumps(insight.topics), int(truncated)))
+
+    def set_insight_error(self, day: date, *, provider: str, model: str, prompt_version: int, generated_ms: int,
+                          input_chars: int, error: str, truncated: bool = False) -> None:
+        with self._write_scope():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO insights (day, state, provider, model, prompt_version, generated_ms, "
+                "input_chars, summary, follow_ups, people, topics, error, truncated) "
+                "VALUES (?, 'error', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)",
+                (day.isoformat(), provider, model, prompt_version, generated_ms, input_chars, error, int(truncated)))
+
+    def insights_all(self) -> list[InsightRecord]:
+        rows = self._conn.execute("SELECT * FROM insights WHERE state = 'done' ORDER BY day DESC").fetchall()
+        return [_insight_record(r) for r in rows]
+
+    def insight_counts(self) -> dict[str, int]:
+        """Rows per state: {"done": n, "error": n}."""
+        rows = self._conn.execute("SELECT state, COUNT(*) AS n FROM insights GROUP BY state").fetchall()
+        counts = {"done": 0, "error": 0}
+        counts.update({r["state"]: r["n"] for r in rows})
+        return counts
+
+    def day_text_chars(self) -> dict[date, int]:
+        """An estimate, in one query, of each speech day's text size: the characters of its speech clips'
+        segments. The day text sent to a model (times, speakers, the cut to fit) differs from it."""
+        rows = self._conn.execute(
+            "SELECT c.day AS day, SUM(LENGTH(s.text)) AS n FROM segments s JOIN clips c ON c.clip_id = s.clip_id "
+            "WHERE c.classification = 'speech' GROUP BY c.day").fetchall()
+        return {date.fromisoformat(r["day"]): int(r["n"] or 0) for r in rows}
+
+    def days_with_speech(self) -> list[date]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT day FROM clips WHERE classification = 'speech' ORDER BY day").fetchall()
+        return [date.fromisoformat(r["day"]) for r in rows]
 
     # status
 

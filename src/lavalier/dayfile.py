@@ -1,13 +1,18 @@
 """Render one day's conversations as a Markdown file."""
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
 
 from lavalier.config import Config
-from lavalier.db import Database
+from lavalier.db import Database, InsightRecord
+from lavalier.group import press_times, rebuild_day
+from lavalier.insights.names import display
 from lavalier.journal import ConversationView, DayView, StarView, day_view
 from lavalier.models import ClipRecord
 from lavalier.paths import Paths
+
+log = logging.getLogger(__name__)
 
 
 def _local(ms: int) -> datetime:
@@ -56,14 +61,14 @@ def _starred(stars: list[StarView], convs: dict[str, ConversationView]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _conversation(conv: ConversationView) -> str:
+def render_conversation(conv: ConversationView, *, anchor: bool = True) -> str:
     stars = "★" * len(conv.star_ms)
     head = f"### {_hm(conv.start_ms)}–{_hm(conv.end_ms)} · {_duration(conv.speech_ms)} speech"
     if stars:
         head += f" {stars}"
     if conv.pinned:
         head += " (pinned)"
-    lines = [f"{head} {{#{conv.conversation_id}}}"]
+    lines = [f"{head} {{#{conv.conversation_id}}}" if anchor else head]
     events = [(ln.at_ms, 1, f"[{_hms(ln.at_ms)}] {ln.text}") for ln in conv.lines]
     # A star pressed shortly before the conversation began has no place in the
     # transcript; it still counts in the heading and the Starred section.
@@ -92,6 +97,30 @@ def _noise_section(clips: list[ClipRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _one_line(text: str) -> str:
+    """A model's text on one line: newlines (and the runs of spaces around them) become one space, so a
+    reply can never start a heading or a list of its own in the file."""
+    return " ".join(text.split()) if any(c in text for c in "\r\n") else text
+
+
+def _insights(rec: InsightRecord) -> list[str]:
+    ins = rec.insight
+    parts = ["## Insights\n"]
+    if ins.summary:
+        parts.append(f"{_one_line(ins.summary)}\n")
+    if ins.follow_ups:
+        ups = [f"- [{_hms(f.at_ms)}] {_one_line(f.text)}" if f.at_ms is not None else f"- {_one_line(f.text)}"
+               for f in ins.follow_ups]
+        parts.append("### Follow-ups\n" + "\n".join(ups) + "\n")
+    if ins.people:
+        parts.append(f"### People\n{', '.join(ins.people)}\n")
+    if ins.topics:
+        parts.append(f"### Topics\n{', '.join(ins.topics)}\n")
+    cut = " (the earlier part of the day was left out)" if rec.truncated else ""
+    parts.append(f"_Insights by {rec.model} ({display(rec.provider)}) at {_hm(rec.generated_ms)}{cut}._\n")
+    return parts
+
+
 def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise: bool = False) -> str:
     view = day_view(db, day, cfg, now_ms=now_ms)
     clips = db.clips_for_day(day)
@@ -111,7 +140,10 @@ def render_day(db: Database, day: date, cfg: Config, *, now_ms: int, keep_noise:
         parts.append(_starred(view.stars, convs))
     if view.conversations:
         parts.append("## Conversations\n")
-        parts += [_conversation(c) for c in view.conversations]
+        parts += [render_conversation(c) for c in view.conversations]
+    rec = db.insight(day)
+    if rec is not None and rec.state == "done":
+        parts += _insights(rec)
 
     model = models[0] if models else cfg.whisper_model
     # A day that never had clips (stars only) says nothing about audio.
@@ -129,3 +161,23 @@ def write_day(db: Database, paths: Paths, day: date, cfg: Config, *, now_ms: int
     out.write_text(text, encoding="utf-8")
     db.mark_day_clean(day)
     return out
+
+
+def write_dirty_days(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> list[date]:
+    try:
+        dirty = db.days_dirty()
+    except Exception:
+        log.exception("stage day files failed: cannot list dirty days")
+        return []
+    written = []
+    for day in dirty:
+        try:
+            rebuild_day(db, day, cfg)
+            if not db.clips_for_day(day) and not press_times(db, day):
+                db.mark_day_clean(day)  # only status events: nothing worth a file
+                continue
+            write_day(db, paths, day, cfg, now_ms=now_ms)
+            written.append(day)
+        except Exception:
+            log.exception("stage day files failed for %s", day)
+    return sorted(written)

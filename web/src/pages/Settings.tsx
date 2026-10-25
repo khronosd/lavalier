@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, explainError, type Appearance, type Settings as SettingsData, type SettingsPatch, type Status } from "../api";
 import { Empty } from "../components/Empty";
 import { Field } from "../components/Field";
-import { MODEL_PRIVACY } from "../components/InsightsTab";
+import { ProviderPicker } from "../components/ProviderPicker";
 import { SettingsTabs } from "../components/SettingsTabs";
 import { Toast } from "../components/Toast";
+import { MODEL_PRIVACY } from "../insights";
 import { lastReadLine } from "../pendant";
 import { minutesToSeconds, secondsToMinutes, validateLocally } from "../settings";
 import { applyAppearance } from "../theme";
@@ -150,7 +151,8 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Model" lead={MODEL_PRIVACY} />
-            <Empty title="Insights arrive in a later release." />
+            <ProviderPicker settings={settings} setSettings={setSettings} save={save} errors={errors}
+              clearError={clearError} />
           </>
         );
         break;

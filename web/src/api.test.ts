@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { api, ApiError, explainError, fetchAudioBlobUrl, initToken } from "./api";
+import { api, ApiError, explainError, fetchAudioBlobUrl, initToken, pollJob } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -104,5 +104,84 @@ test("a 401 says how to get a window with its key, and no explanation says reloa
     const text = explainError(e, "The days");
     expect(text).toMatch(/^The days could not be loaded \(/);
     expect(text.toLowerCase()).not.toContain("reload");
+  }
+});
+
+// --- jobs ---
+
+function job(state: "running" | "done" | "error", extra: Record<string, unknown> = {}) {
+  return { id: "j1", kind: "ask", key: "ask:1", state, result: null, error: null, started_ms: 1, finished_ms: null, ...extra };
+}
+
+test("pollJob asks every second until the job is done, and resolves with it", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(reply(200, job("running")))
+      .mockResolvedValueOnce(reply(200, job("running")))
+      .mockResolvedValueOnce(reply(200, job("done", { result: { answer: "yes" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const done = pollJob("j1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(done).resolves.toMatchObject({ state: "done", result: { answer: "yes" } });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/jobs/j1");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("pollJob rejects with the job's error text", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(200, job("error", { error: "No key saved." }))));
+  await expect(pollJob("j1")).rejects.toThrow("No key saved.");
+});
+
+test("pollJob stops asking once cancelled", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = vi.fn().mockImplementation(async () => reply(200, job("running")));
+    vi.stubGlobal("fetch", fetchMock);
+    const ctl = new AbortController();
+    const done = pollJob("j1", { signal: ctl.signal });
+    const outcome = done.then(() => "resolved", (e: Error) => e.name);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    ctl.abort();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await outcome).toBe("AbortError");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("pollJob gives up after 30 minutes", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => reply(200, job("running"))));
+    const outcome = pollJob("j1", { every: 60_000 }).then(() => "resolved", (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(31 * 60_000);
+    expect(await outcome).toBe("The job did not finish within 30 minutes.");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("pollJob with cap 0 keeps asking past 30 minutes, until done", async () => {
+  vi.useFakeTimers();
+  try {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
+      reply(200, job(++n > 40 ? "done" : "running"))));
+    const outcome = pollJob("j1", { every: 60_000, cap: 0 }).then((j) => j.state, (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(41 * 60_000);
+    expect(await outcome).toBe("done");
+  } finally {
+    vi.useRealTimers();
   }
 });

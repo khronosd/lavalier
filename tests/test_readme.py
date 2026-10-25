@@ -11,3 +11,22 @@ def test_readme_documents_every_command_and_the_lock():
 def test_readme_documents_the_window():
     text = (Path(__file__).resolve().parents[1] / "README.md").read_text()
     assert "## The window" in text and "`window`" in text and "Limitless" not in text
+
+
+def test_readme_documents_insights():
+    text = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    assert "## Insights" in text and "`insights" in text and "`ask" in text
+    assert "io.github.khronosd.lavalier" in text and "Audio is never sent." in text and "Limitless" not in text
+
+
+def test_bundle_readme_notes_the_sdks_and_the_keychain_prompt():
+    text = (Path(__file__).resolve().parents[1] / "bundle" / "README.md").read_text()
+    assert "keyring" in text and "Keychain" in text and "Limitless" not in text
+
+
+def test_readme_says_what_the_range_control_shows_and_when_a_day_goes_out():
+    text = (Path(__file__).parent.parent / "README.md").read_text()
+    assert "the days without insights before anything is sent" not in text
+    assert "how many days, roughly how many tokens and what it would cost" in text
+    assert "after the first drain that follows" in text
+    assert "openai@<host>" in text and "not encrypted" in text

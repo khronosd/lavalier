@@ -12,12 +12,14 @@ interface Props {
   today: string;
   /** The pendant card (PendantCard); nothing is drawn while it is empty. */
   pendant?: ComponentChildren;
+  /** Complete days still without an insight, counted only while a provider is set. */
+  insightsTodo?: number;
 }
 
 const r = (name: Route["name"], params: Record<string, string> = {}): Route => ({ name, params, query: {} });
 const page = (on: boolean) => (on ? "page" : undefined);
 
-export function Sidebar({ route, days, today, pendant }: Props) {
+export function Sidebar({ route, days, today, pendant, insightsTodo }: Props) {
   const journalCount = days && days.length > 0 ? `${days.length} ${days.length === 1 ? "day" : "days"}` : undefined;
   return (
     <aside class="sidebar" aria-label="Sections">
@@ -33,7 +35,8 @@ export function Sidebar({ route, days, today, pendant }: Props) {
         <ul class="nav">
           <NavLink to={r("starred")} current={page(route.name === "starred")} icon={<StarIcon />} label="Starred" />
           <NavLink to={r("search")} current={page(route.name === "search")} icon={<SearchIcon />} label="Search" />
-          <NavLink to={r("insights")} current={page(route.name === "insights")} icon={<InsightsIcon />} label="Insights" />
+          <NavLink to={r("insights")} current={page(route.name === "insights")} icon={<InsightsIcon />} label="Insights"
+            count={insightsTodo ? `${insightsTodo} to do` : undefined} />
         </ul>
       </nav>
       <div class="sidebar-foot">

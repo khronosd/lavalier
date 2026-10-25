@@ -492,8 +492,14 @@ def get(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
     return _request(server, "GET", route, token, origin)
 
 
-def post(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
-    return _request(server, "POST", route, token, origin)
+def post(server, route: str, body=None, *, token=_DEFAULT, origin=None) -> Reply:
+    """POST, with a JSON body when one is given (bytes are sent as they are)."""
+    data = None if body is None else body if isinstance(body, bytes) else json.dumps(body).encode()
+    return _request(server, "POST", route, token, origin, data)
+
+
+def delete(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
+    return _request(server, "DELETE", route, token, origin)
 
 
 def put(server, route: str, body, *, token=_DEFAULT, origin=None) -> Reply:
@@ -694,3 +700,48 @@ def server_with_fixture(app_env, db, seeded_2026_10_23_subset):
 def server_with_audio(app_env, db, two_clips_with_audio):
     from fake_pendant import FakePendant
     yield from _serve_real_app(app_env(FakePendant()), db)
+
+
+import keyring
+import keyring.backend
+import keyring.errors
+
+
+class InMemoryKeyring(keyring.backend.KeyringBackend):
+    priority = 1
+
+    def __init__(self):
+        self.store = {}
+
+    def get_password(self, service, username):
+        return self.store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        if (service, username) not in self.store:
+            raise keyring.errors.PasswordDeleteError("missing")
+        del self.store[(service, username)]
+
+
+class BrokenKeyring(InMemoryKeyring):
+    def get_password(self, service, username):
+        raise keyring.errors.KeyringError("locked")
+
+    def set_password(self, service, username, password):
+        raise keyring.errors.KeyringError("locked")
+
+    def delete_password(self, service, username):
+        raise RuntimeError("backend exploded")
+
+
+@pytest.fixture(autouse=True)
+def memory_keyring():
+    """An in-memory Keychain for every test; the real one is never touched. Request it by name to
+    reach the backend."""
+    old = keyring.get_keyring()
+    backend = InMemoryKeyring()
+    keyring.set_keyring(backend)
+    yield backend
+    keyring.set_keyring(old)

@@ -8,6 +8,8 @@ interface Props {
   help?: string;
   error?: string | null;
   number?: boolean;
+  /** Save on blur or Enter only, never while typing (an endpoint or a model id is not worth saving half typed). */
+  blurOnly?: boolean;
   /** Called with the typed text when it should be saved: on blur, on Enter, and 300 ms after typing stops (text only). */
   onCommit: (text: string) => Promise<boolean> | void;
   /** Called on every keystroke, for text elsewhere on the page that follows the field. */
@@ -21,7 +23,7 @@ interface Props {
 const DEBOUNCE_MS = 300;
 
 /** A labelled field that saves one value; the typed text stays until a save succeeds or the saved value changes. */
-export function Field({ name, label, value, help, error, number, onCommit, onInput, onEdit, onGone }: Props) {
+export function Field({ name, label, value, help, error, number, blurOnly, onCommit, onInput, onEdit, onGone }: Props) {
   const [text, setText] = useState(value);
   const last = useRef(value);
   const timer = useRef<number | undefined>(undefined);
@@ -60,7 +62,7 @@ export function Field({ name, label, value, help, error, number, onCommit, onInp
           typed.current = t;
           onEdit?.();
           onInput?.(t);
-          if (!number) {
+          if (!number && !blurOnly) {
             window.clearTimeout(timer.current);
             timer.current = window.setTimeout(() => commit(t), DEBOUNCE_MS);
           }

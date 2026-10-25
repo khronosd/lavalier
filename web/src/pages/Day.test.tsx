@@ -164,10 +164,16 @@ test("the Audio tab lists the day's conversations with Play day", async () => {
   expect(screen.getAllByRole("button", { name: "Play" })).toHaveLength(2);
 });
 
-test("the Insights tab keeps its placeholder and the tabs keep ?tab=", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(day23)));
+test("the Insights tab loads the day's insights and the tabs keep ?tab=", async () => {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === "/api/insights/providers") return json({ provider: "", model: "", display: "", sentence: "" });
+    if (url === "/api/insights/2026-10-23") return json({ state: "none", record: null, reason: "No model chosen.", job: null });
+    return json(day23);
+  });
+  vi.stubGlobal("fetch", fetchMock);
   render(<Journal route={parseHash("#/day/2026-10-23?tab=insights")} today="2026-10-24" days={days} />);
-  expect(await screen.findByText("Insights arrive in a later release.")).toBeTruthy();
+  expect(await screen.findByText(
+    "Pick a model in Settings › Model to get a summary, follow-ups, people and topics for each day.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Audio" }).getAttribute("href")).toBe("#/day/2026-10-23?tab=audio");
   expect(screen.queryByRole("heading", { name: "22:56" })).toBeNull();
 });

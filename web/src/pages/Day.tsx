@@ -28,7 +28,7 @@ function TabPanel({ route, view, onPin }: {
 }) {
   switch (tabOf(route)) {
     case "insights":
-      return <InsightsTab />;
+      return <InsightsTab key={view.day} day={view.day} view={view} />;
     case "audio":
       return <AudioTab view={view} conv={route.query.conv} />;
     default:

@@ -35,6 +35,10 @@ class Config:
     app_bundle: str = ""
     appearance: str = "system"
     window_size: str = "1120x720"
+    insights_provider: str = ""  # "" | ollama | anthropic | openai | google
+    insights_model: str = ""  # "" means the provider's default
+    insights_base_url: str = ""  # OpenAI-compatible endpoints only
+    insights_auto: bool = True
 
 
 def _type_ok(value: object, default: object) -> bool:

@@ -223,7 +223,7 @@ Starred, pinned and failed clips are kept.
 
 `lavalier window` opens a native window on the background app. It shows the
 Journal (days and conversations), the Transcript for a day, Search,
-Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights and Connectors are placeholders in this release.
+Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights is described below; Connectors is a placeholder in this release.
 
 - It needs the background app. If the app is not running it prints how to start
   it and exits 1; it never starts one itself.
@@ -235,6 +235,54 @@ Starred clips, Audio, and the pendant card (the lamp state and its age, battery 
   after the audio is deleted.
 - Search covers every day, not only the one on screen.
 - The window's size is remembered: it is saved to `config.toml` when you close it.
+
+## Insights
+
+For each day the recorder can ask a language model for a summary, follow-ups
+(each with the moment it came from, which jumps to that line in the
+transcript), the people and topics mentioned, and a question box answered over
+that day's text. Insights are off until you choose a model in Settings › Model.
+Nothing is sent before that. With Ollama on this Mac nothing leaves the
+machine. The other choices are Anthropic, OpenAI (with a base URL for
+compatible endpoints) and Google. Each shows this sentence under the choice:
+"Sends each day's transcript text to <provider> once the day is complete, and
+whenever you press Generate or ask a question. Audio is never sent."
+
+When it runs:
+
+- Automatically, once a day is complete (04:00 the next morning) and its audio
+  is in: after the first drain that follows, and once none of its clips still
+  waits for a transcript. Only days that completed after the model was chosen
+  (and, for a cloud provider, after its key was saved, and after the switch was
+  last turned on) are sent; a key provider waits until the app knows the key
+  is there. Earlier days are never sent unless you ask. `insights_auto` in
+  `config.toml` turns this off.
+- On demand: Generate now on the day's Insights tab (today included), or the
+  Insights section's "Generate for the last 7 days" and "Generate for the last 30 days", which
+  show how many days, roughly how many tokens and what it would cost before
+  anything is sent. A range stops at a refused key or a provider it cannot
+  reach, and says how many days it did not send.
+- From the CLI, through the running app: `insights [DAY] [--force]` generates
+  one day (`--force` replaces insights that exist); without a day it shows
+  whether automatic insights are on, which days are due and which have none.
+  `ask DAY "question"` prints an answer from that day's text.
+
+Rough cost per 3-hour day at the default models: Anthropic Claude Opus 5.5
+about $0.20, OpenAI GPT-6.1 Sol about $0.095, Google Gemini 3.8 Flash about
+$0.036. Cheaper models are listed in Settings. Ollama is free.
+
+API keys are kept in the macOS Keychain under the service
+`io.github.khronosd.lavalier`, never in `config.toml`, one account per
+provider. An OpenAI-compatible endpoint (a base URL) has its own account,
+`openai@<host>`, so the OpenAI key is never sent to it, and the endpoint is
+named as "the endpoint at <host>" wherever the recipient is shown. An
+`http://` base URL is allowed, with a warning that it is not encrypted. A day with no speech
+gets nothing ("Nothing to summarise for this day").
+
+A failed generation shows its error on that day and is not retried by the
+automatic run. A done insight is never replaced by a failed retry. The day
+file gets an "## Insights" section after the conversations, with the summary,
+follow-ups, people and topics, and a line naming the model and the time.
 
 ## Building the app bundle
 

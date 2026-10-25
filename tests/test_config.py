@@ -71,3 +71,15 @@ def test_save_config_refuses_an_existing_file_that_is_not_utf8(tmp_path):
     with pytest.raises(ConfigError, match="config.toml"):
         save_config(Config(), p)
     assert p.read_bytes() == b"retention_days = 9\n\xff\xfe\n"
+
+
+def test_config_has_insights_fields_with_defaults():
+    c = Config()
+    assert (c.insights_provider, c.insights_model, c.insights_base_url, c.insights_auto) == ("", "", "", True)
+
+
+def test_insights_auto_must_be_a_bool_in_the_file(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('insights_auto = "yes"\n')
+    with pytest.raises(ConfigError, match="insights_auto must be bool"):
+        load_config(p)

@@ -7,6 +7,7 @@ token: they carry no data.
 """
 
 import asyncio
+import concurrent.futures
 import hmac
 import json
 import logging
@@ -23,12 +24,16 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from lavalier.insights import keys, registry
+from lavalier.jobs import JobRunning
+from lavalier.journal import to_json
 from lavalier.playback import AudioExpired, UnknownClip
 from lavalier.settings import SettingsError
 
 ACTION_TIMEOUT_S = 900
 DATA_TIMEOUT_S = 30
 AUDIO_TIMEOUT_S = 120     # a first play waits for ffmpeg
+CHECK_TIMEOUT_S = 20      # a provider check is a real call: capped
 MAX_BODY = 65536
 ACTIONS = ("sync", "mute", "unmute", "status-live")
 SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX = 50, 200
@@ -50,6 +55,10 @@ class _Busy(Exception):
 
 class _BadRequest(Exception):
     pass
+
+
+class _KeychainRefused(Exception):
+    """The Keychain said no to a key route: 503 with its message (which never carries the key)."""
 
 
 class AppStopping(Exception):
@@ -269,14 +278,134 @@ def _get_settings(srv, req):
     return _json(srv.call(srv.app_like.get_settings))
 
 
-def _put_settings(srv, req):
+def _body_object(req) -> dict:
     try:
-        patch = json.loads(req.body.decode("utf-8"))
+        body = json.loads(req.body.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise _BadRequest("the body must be a JSON object") from None
-    if not isinstance(patch, dict):
+    if not isinstance(body, dict):
         raise _BadRequest("the body must be a JSON object")
-    return _json(srv.call(srv.app_like.update_settings, patch))
+    return body
+
+
+def _put_settings(srv, req):
+    return _json(srv.call(srv.app_like.update_settings, _body_object(req)))
+
+
+def _refused_as_400(srv, fn, *args):
+    """An app method that refuses with ValueError (no usable provider, a bad argument): 400 with its reason."""
+    try:
+        return srv.call(fn, *args)
+    except ValueError as e:
+        raise _BadRequest(str(e)) from None
+
+
+def _insights_index(srv, req):
+    return _json(srv.call(srv.app_like.insights_index))
+
+
+def _insights_day(srv, req):
+    return _json(srv.call(srv.app_like.insights_day, _parse_day(req.groups[0])))
+
+
+def _generate(srv, req):
+    return _json({"job": _refused_as_400(srv, srv.app_like.generate, _parse_day(req.groups[0]))}, 202)
+
+
+def _generate_range(srv, req):
+    days = _body_object(req).get("days")
+    if isinstance(days, bool) or not isinstance(days, int):
+        raise _BadRequest("days must be a whole number")
+    return _json({"job": _refused_as_400(srv, srv.app_like.generate_range, days)}, 202)
+
+
+def _ask(srv, req):
+    body = _body_object(req)
+    if not isinstance(body.get("day"), str) or not isinstance(body.get("question"), str):
+        raise _BadRequest("day and question are required")
+    day = _parse_day(body["day"])
+    return _json({"job": _refused_as_400(srv, srv.app_like.ask, day, body["question"])}, 202)
+
+
+def _job(srv, req):
+    return _json(srv.call(srv.app_like.job, req.groups[0]))
+
+
+def _app_cfg(srv):
+    """The app's current Config, read on the loop; the Keychain and the provider are then used from
+    this server thread, so a slow Keychain prompt or provider never holds up the loop."""
+    return srv.call(lambda: srv.app_like.cfg)
+
+
+def _note_key(srv, provider: str, present, error=None, *, seen=None) -> None:
+    """Tell the app what is known of a key (never the key), so it never reads the Keychain on its loop.
+    A write (the key routes) passes no `seen`; a read passes the version it saw before its Keychain read."""
+    note = getattr(srv.app_like, "note_key", None)
+    if note is not None:
+        if seen is None:
+            note(provider, present, error)
+        else:
+            note(provider, present, error, seen=seen)
+
+
+def _key_seen(srv, account: str):
+    seen = getattr(srv.app_like, "_key_seen", None)
+    return seen(account) if seen is not None else None
+
+
+def _providers(srv, req):
+    cfg = _app_cfg(srv)
+    account = registry.key_account(cfg)
+    seen = _key_seen(srv, account)  # a read, like a worker's: never taken for a key being saved
+    try:
+        facts = registry.provider_facts(cfg)
+    except ValueError as e:  # an unknown provider in config.toml
+        raise _BadRequest(str(e)) from None
+    if facts["key_present"] is not None or facts["keychain_error"] is not None:
+        _note_key(srv, account, facts["key_present"], facts["keychain_error"], seen=seen)
+    return _json({**facts, "check": None})
+
+
+def _check(srv, req):
+    cfg = _app_cfg(srv)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="lavalier-check")
+    try:
+        result = pool.submit(registry.check, cfg).result(CHECK_TIMEOUT_S)
+    finally:
+        pool.shutdown(wait=False)  # past the cap the check is left to end on its own
+    return _json(to_json(result))
+
+
+def _key_account(srv, req) -> str:
+    """The Keychain account a key route acts on: the provider's own, or for "openai" the current
+    endpoint's (`openai@<host>` when a base URL is set), so a key is only ever sent where it was saved for."""
+    name = req.groups[0]
+    if name not in registry.KEYED:
+        raise _BadRequest("unknown provider")
+    return registry.key_account(_app_cfg(srv), name)
+
+
+def _put_key(srv, req):
+    key = _body_object(req).get("key")
+    if not isinstance(key, str):
+        raise _BadRequest("key must be a string")
+    account = _key_account(srv, req)
+    try:
+        keys.set_key(account, key)
+    except keys.KeychainError as e:
+        raise _KeychainRefused(str(e)) from None
+    _note_key(srv, account, bool(key.strip()))
+    return _Response(204, b"")
+
+
+def _delete_key(srv, req):
+    account = _key_account(srv, req)
+    try:
+        keys.delete_key(account)
+    except keys.KeychainError as e:
+        raise _KeychainRefused(str(e)) from None
+    _note_key(srv, account, False)
+    return _Response(204, b"")
 
 
 def _audio(srv, req):
@@ -329,6 +458,16 @@ _API_ROUTES = [
     ("POST", r"/api/unpin/([^/]+)", _unpin),
     ("GET", r"/api/settings", _get_settings),
     ("PUT", r"/api/settings", _put_settings),
+    ("GET", r"/api/insights", _insights_index),
+    ("GET", r"/api/insights/providers", _providers),   # before the day route, which would take it
+    ("GET", r"/api/insights/([^/]+)", _insights_day),
+    ("POST", r"/api/insights/generate/([^/]+)", _generate),
+    ("POST", r"/api/insights/generate-range", _generate_range),
+    ("POST", r"/api/insights/check", _check),
+    ("POST", r"/api/ask", _ask),
+    ("GET", r"/api/jobs/([A-Za-z0-9_-]+)", _job),
+    ("PUT", r"/api/keys/([^/]+)", _put_key),          # the body is never logged or echoed
+    ("DELETE", r"/api/keys/([^/]+)", _delete_key),
 ]
 _STATIC_ROUTES = [
     ("GET", r"/", _index),
@@ -415,6 +554,10 @@ def _handler(srv: ControlServer):
                 return self._reply(410, {"error": "audio expired"})
             except _Busy:
                 return self._reply(409, {"error": "busy"})
+            except JobRunning:
+                return self._reply(409, {"error": "already running"})
+            except _KeychainRefused as e:
+                return self._reply(503, {"error": str(e)})
             except (AppStopping, FutureCancelled):  # refused, or cancelled by the shutdown
                 return self._reply(503, {"error": "stopping"})
             except FutureTimeout:
@@ -437,5 +580,8 @@ def _handler(srv: ControlServer):
 
         def do_PUT(self):  # noqa: N802
             self._route_with_body("PUT")
+
+        def do_DELETE(self):  # noqa: N802
+            self._route_with_body("DELETE")
 
     return Handler

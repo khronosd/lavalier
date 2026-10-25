@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/preact";
+import { cleanup, render, screen } from "@testing-library/preact";
 import { expect, test } from "vitest";
 import type { DaySummary } from "../api";
 import { parseHash } from "../router";
@@ -30,4 +30,13 @@ test("an empty journal says so", () => {
   render(<Shell route={parseHash("#/today")} days={[]} today="2026-10-24"><p>page</p></Shell>);
   expect(screen.getByText("No days yet")).toBeTruthy();
   expect(screen.getByRole("link", { current: "page" }).getAttribute("href")).toBe("#/today");
+});
+
+test("the Insights link shows how many days are to do, muted like the day counts", () => {
+  render(<Shell route={parseHash("#/today")} days={days} today="2026-10-24" insightsTodo={3}><p>page</p></Shell>);
+  const link = screen.getByRole("link", { name: /^Insights/ });
+  expect(link.querySelector(".nav-count")!.textContent).toBe("3 to do");
+  cleanup();
+  render(<Shell route={parseHash("#/today")} days={days} today="2026-10-24" insightsTodo={0}><p>page</p></Shell>);
+  expect(screen.getByRole("link", { name: /^Insights/ }).querySelector(".nav-count")).toBeNull();
 });

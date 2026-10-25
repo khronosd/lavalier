@@ -8,11 +8,13 @@ from lavalier.config import Config, _type_ok, load_config, save_config
 from lavalier.paths import Paths
 
 EDITABLE = ("pendant_address", "retention_days", "poll_interval_s", "drain_pages_threshold", "drain_after_hours",
-            "require_firmware", "whisper_language", "appearance", "window_size")
+            "require_firmware", "whisper_language", "appearance", "window_size",
+            "insights_provider", "insights_model", "insights_base_url", "insights_auto")
 
 # Kept equal to bundle.build_app.BUNDLE_ID by a test; the bundle builder runs outside the package.
 BUNDLE_ID = "io.github.khronosd.lavalier"
 
+PROVIDERS = ("", "ollama", "anthropic", "openai", "google")
 APPEARANCES = {"system", "light", "dark"}
 _WINDOW_SIZE = re.compile(r"^\d{3,4}x\d{3,4}$")
 _LANGUAGE = re.compile(r"[a-z]{2,3}")  # a whisper language code; matched whole
@@ -48,6 +50,10 @@ def _check_value(name: str, value) -> None:
         raise SettingsError("poll_interval_s must be at least 60", name)
     if name == "window_size" and not _WINDOW_SIZE.fullmatch(value):
         raise SettingsError("window_size must look like 1120x720", name)
+    if name == "insights_provider" and value not in PROVIDERS:
+        raise SettingsError(f"insights_provider must be one of {', '.join(repr(p) for p in PROVIDERS)}", name)
+    if name == "insights_base_url" and value and (value in ("http://", "https://") or not value.startswith(("http://", "https://"))):
+        raise SettingsError("insights_base_url must be empty or start with http:// or https://", name)
 
 
 def apply(cfg: Config, patch: dict, path: Path) -> Config:

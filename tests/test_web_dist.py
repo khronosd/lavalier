@@ -26,3 +26,9 @@ def test_index_references_only_assets_that_exist():
 def test_index_names_no_remote_url():
     text = (DIST / "index.html").read_text()
     assert "http://" not in text and "https://" not in text
+
+
+def test_the_insights_styles_take_their_radii_from_the_tokens():
+    css = (Path(__file__).parent.parent / "web" / "src" / "styles" / "insights.css").read_text()
+    radii = re.findall(r"border-radius:\s*([^;]+);", css)
+    assert radii and all(r.strip().startswith("var(--radius-") for r in radii), radii
