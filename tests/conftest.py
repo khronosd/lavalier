@@ -371,6 +371,19 @@ def silent_speech_day(db, clip_record):
 
 
 @pytest.fixture
+def unconversed_speech_day(db, clip_record):
+    """2026-10-21, with a speech clip that has words but belongs to no conversation (never regrouped)."""
+    day = date(2026, 10, 21)
+    first = clip_record.first_ms - 2 * 86_400_000
+    cid = "clip_20261022T055514.111Z"
+    db.add_clip(dataclasses.replace(clip_record, clip_id=cid, path=f"audio/{day}/{cid}.opus", day=day,
+                                    first_ms=first, last_ms=first + 16000, classification=None, transcribed_at=None))
+    db.set_transcript(cid, speech_transcript(), "speech", first + 1)
+    assert day in db.days_with_speech() and db.conversations_for_day(day) == []
+    return day
+
+
+@pytest.fixture
 def snap():
     return DeviceSnapshot(1000, True, "LISTENING", 0, 786, 94, -10, "USB_DISCONNECTED", "1.1.3", 7)
 

@@ -199,6 +199,42 @@ async def test_export_recent_skips_a_speech_day_without_lines(notion_app, db, si
     assert j["result"]["errors"] == [] and db.export(silent, CONNECTOR) is None
 
 
+async def test_export_recent_skips_a_speech_clip_outside_any_conversation(notion_app, db, silent_speech_day,
+                                                                         unconversed_speech_day):
+    app = notion_app
+    jid = app.export_recent(7)
+    await app.jobs.wait(jid)
+    j = app.jobs.get(jid)
+    assert [d["day"] for d in j["result"]["days"]] == ["2026-10-23"] and j["result"]["errors"] == []
+    seen = []
+    app.export_days = lambda days, *, force=False: seen.append(days) or "j"
+    app.export_recent(1)                               # the newest day with lines, not the newest with clips
+    assert seen == [[DAY]]
+
+
+async def test_a_database_switch_while_a_day_is_written_leaves_no_stale_row(notion_app, db, monkeypatch):
+    from lavalier.config import save_config
+    app = notion_app
+    save_config(app.cfg, app.paths.config)
+    started, gate = threading.Event(), threading.Event()
+    real = app.fake.pages.create
+
+    def create(**kw):
+        out = real(**kw)
+        started.set()
+        gate.wait(10)                                  # the worker is inside the day's write
+        return out
+    app.fake.pages.create = create
+    jid = app.export_days([DAY, date(2026, 10, 20)])
+    assert await asyncio.to_thread(started.wait, 5)
+    app.update_settings({"notion_database_id": "f" * 32})   # on the loop, mid-write
+    gate.set()
+    await app.jobs.wait(jid)
+    j = app.jobs.get(jid)
+    assert j["result"]["interrupted"] == "stopped: another database was chosen"
+    assert db.exports_all(CONNECTOR) == []             # the old database's row did not survive the switch
+
+
 async def test_nothing_exports_while_the_app_is_stopping(notion_app):
     app = notion_app
     app.stop()

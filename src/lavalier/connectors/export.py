@@ -19,7 +19,9 @@ NOTHING = "Nothing to export"
 NO_DATABASE = "No database chosen. Add one in Settings › Connectors."
 
 
-def _has_speech(view: DayView) -> bool:
+def has_lines(view: DayView) -> bool:
+    """Whether the day has anything to export: a conversation with transcript lines. The one test the stage,
+    `days_to_export` and the app's range all use."""
     return any(c.lines for c in view.conversations)
 
 
@@ -47,7 +49,7 @@ def export_day(db: Database, cfg: Config, client: Notion, day: date, *, now_ms: 
     if row is not None and row.state == "stopped" and not force:
         return row
     view = day_view(db, day, cfg, now_ms=now_ms)
-    if not _has_speech(view):
+    if not has_lines(view):
         return ExportRecord(day, CONNECTOR, None, None, None, None, None, "error", NOTHING)
     children = day_blocks(view, db.insight(day))
     text, h = plain_text(children), content_hash(children)
@@ -125,7 +127,7 @@ def days_to_export(db: Database, cfg: Config, days: list[date]) -> list[date]:
         if row is not None and row.state == "stopped":
             continue
         view = day_view(db, day, cfg, now_ms=now_ms)
-        if not _has_speech(view):
+        if not has_lines(view):
             continue
         if row is None or row.state != "done" or row.content_hash != content_hash(day_blocks(view, db.insight(day))):
             out.append(day)

@@ -911,13 +911,6 @@ class Database:
             "SELECT DISTINCT day FROM clips WHERE classification = 'speech' ORDER BY day").fetchall()
         return [date.fromisoformat(r["day"]) for r in rows]
 
-    def days_with_speech_text(self) -> list[date]:
-        """The days with speech that also have words: a speech clip with a segment that is not blank."""
-        rows = self._conn.execute(
-            "SELECT DISTINCT c.day AS day FROM clips c JOIN segments s ON s.clip_id = c.clip_id "
-            "WHERE c.classification = 'speech' AND TRIM(s.text) <> '' ORDER BY c.day").fetchall()
-        return [date.fromisoformat(r["day"]) for r in rows]
-
     # exports
 
     def export(self, day: date, connector: str) -> Optional[ExportRecord]:

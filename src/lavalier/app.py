@@ -26,7 +26,7 @@ from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.connectors.calendar import (UNAVAILABLE, CalendarSource, EventKitSource, NoCalendar,
                                           chosen_calendar_ids, event_kit_available)
-from lavalier.connectors.export import CONNECTOR as NOTION, NO_DATABASE, days_to_export, export_day
+from lavalier.connectors.export import CONNECTOR as NOTION, NO_DATABASE, days_to_export, export_day, has_lines
 from lavalier.connectors.notion import NO_TOKEN, Notion, NotionError
 from lavalier.db import Database, InsightRecord, now_ms as _now_ms
 from lavalier.insights import keys, registry, stage
@@ -611,7 +611,14 @@ class App:
         a hand edit is exported again only on its own."""
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= EXPORT_MAX_DAYS:
             raise ValueError(f"days must be a whole number from 1 to {EXPORT_MAX_DAYS}")
-        return self.export_days(self.db.days_with_speech_text()[-days:])
+        cfg, now = self.cfg, self._now_ms()
+        picked: list[date] = []
+        for day in reversed(self.db.days_with_speech()):   # newest first, until enough have lines
+            if len(picked) == days:
+                break
+            if has_lines(journal.day_view(self.db, day, cfg, now_ms=now)):
+                picked.append(day)
+        return self.export_days(picked[::-1])
 
     def _start_export(self, days: list[date], *, force: bool, changed_only: bool) -> str:
         cfg = self.cfg
@@ -619,7 +626,7 @@ class App:
         return self.jobs.start("export", EXPORT_KEY,
                                lambda prepared: self._export_job(cfg, days, force, changed_only, prepared),
                                prepare=lambda: self._prepare_export(cfg),
-                               on_done=lambda job: self._export_done(job, retry))
+                               on_done=lambda job: self._export_done(job, retry, cfg.notion_database_id))
 
     def _prepare_export(self, cfg: Config) -> tuple[Notion, object]:
         """Daemon thread, no lock: the token (one Keychain read, noted in the cache), the client, and one
@@ -706,10 +713,16 @@ class App:
             return "stopped: another database was chosen"
         return None
 
-    def _export_done(self, job: dict, retry: list[date] = ()) -> None:
+    def _export_done(self, job: dict, retry: list[date] = (), database_id: Optional[str] = None) -> None:
         """Loop: log what went wrong, then start what was kept pending while this ran. When an automatic run
         failed as a whole (Notion down, the Keychain refused), its days are kept pending afterwards, so the
-        next trigger tries them again; they never start a retry loop of their own."""
+        next trigger tries them again; they never start a retry loop of their own. When another database was
+        chosen while the job ran, the rows it wrote for the old one are dropped (the switch already dropped
+        the rest, and only one export runs at a time), so every day still goes fresh into the new one."""
+        if database_id is not None and database_id != self.cfg.notion_database_id:
+            gone = self.db.delete_exports(NOTION)
+            if gone:
+                _log.info("notion: %d row(s) written for the previous database forgotten", gone)
         if job["state"] == "error":
             _log.warning("notion: export failed: %s", job["error"])
             self._auto_export(())
