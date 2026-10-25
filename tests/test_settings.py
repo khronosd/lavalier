@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from lavalier.config import Config, load_config, save_config
+from lavalier.settings import normalise_notion_id
 from lavalier.paths import Paths
 from lavalier.settings import EDITABLE, SettingsError, apply, read_settings
 
