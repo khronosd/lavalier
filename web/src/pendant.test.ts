@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
-import { ApiError, type SyncReportJson } from "./api";
+import { ApiError, type SyncReportJson, type SyncRun } from "./api";
 import { device, status } from "./pendant.fixtures";
 import {
   batteryLine, buttonsDisabled, isNoAddress, lampState, pagesSentence, pagesShort, pendingUnmuteLine, pillLabel, pillWord,
-  requestErrorLine, shouldRefresh, stateText, syncResultLine, toggleResultLine,
+  requestErrorLine, shouldRefresh, stateText, syncResultLine, syncRunLine, toggleResultLine,
 } from "./pendant";
 
 const run = (outcome: string) => ({
@@ -129,4 +129,18 @@ test("pages in the pill are short above 9,999", () => {
   expect(pagesShort(9999)).toBe("9999 pages");
   expect(pagesShort(10_000)).toBe("10k pages");
   expect(pagesShort(15_400)).toBe("15k pages");
+});
+
+test("syncRunLine says what the last sync did and when, in the sync's own words", () => {
+  const started_ms = new Date(2026, 9, 25, 9, 31).getTime();
+  const at = (over: Partial<SyncRun>): SyncRun => ({ ...run("drained"), started_ms, ...over });
+  expect(syncRunLine(null)).toBe("No sync yet");
+  expect(syncRunLine(at({ pages: 212 }))).toBe("Drained 212 pages at 09:31");
+  expect(syncRunLine(at({ pages: 1 }))).toBe("Drained 1 page at 09:31");
+  expect(syncRunLine(at({ pages: 0 }))).toBe("Nothing to drain at 09:31");
+  expect(syncRunLine(at({ outcome: "skipped" }))).toBe("Nothing to drain at 09:31");
+  expect(syncRunLine(at({ outcome: "not-in-range" }))).toBe("Pendant not in range at 09:31");
+  expect(syncRunLine(at({ outcome: "locked" }))).toBe("Another process was using the pendant at 09:31");
+  expect(syncRunLine(at({ outcome: "error", error: "set pendant_address in config.toml" }))).toBe("set pendant_address in config.toml at 09:31");
+  expect(syncRunLine(at({ outcome: "refused", reason: "firmware 1.1.20" }))).toBe("firmware 1.1.20 at 09:31");
 });

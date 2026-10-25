@@ -1,71 +1,102 @@
-/* Settings: a tab list (180px) and content no wider than 62ch. */
-.set-layout { display: flex; min-height: 100%; }
-.set-nav { width: 180px; flex: none; border-right: 1px solid var(--hairline); padding: 18px 10px; display: flex; flex-direction: column; gap: 1px; }
-.set-tab { padding: 6px 10px; border-radius: var(--radius-s); color: var(--text); }
-.set-tab:hover { background: var(--hair2); }
-.set-tab[aria-current="page"] { background: var(--select); font-weight: 600; }
-.set-main { flex: 1; min-width: 0; padding: 28px 40px 16px; display: flex; flex-direction: column; }
+/* Settings: the sections as rows with coloured tiles in the list column, the open section as group boxes in
+   the content column (a row per setting, 46px, hairlines between), the app's status facts in the inspector. */
+.set-main { display: flex; flex-direction: column; min-height: 100%; }
 .set-body { max-width: 62ch; }
-.set-title { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; }
-.set-lead { margin: 0 0 22px; color: var(--text-2); font-size: 14px; }
-.set-sub { margin: 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.set-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.set-lead { margin: 0 0 20px; color: var(--text-2); font-size: 12.5px; }
+.set-sub { margin: 22px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); }
 .set-body > .set-title:not(:has(+ .set-lead)) { margin-bottom: 20px; }
 
-.field { margin: 0 0 18px; }
-.field label { display: block; margin-bottom: 5px; color: var(--text-2); font-size: 13px; }
-.field input {
-  width: 100%; box-sizing: border-box; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--text);
-  background: var(--field); border: 1px solid var(--field-b); border-radius: 8px;
+/* the sections */
+.row.set-row { flex-direction: row; align-items: center; gap: 12px; padding: 9px 12px; }
+.tile {
+  width: 26px; height: 26px; flex: none; border-radius: var(--radius-s); color: var(--on-slate);
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.field input[type="number"] { max-width: 14ch; }
-.field input[aria-invalid="true"] { border-color: var(--warn); }
-.field-help { margin: 5px 0 0; color: var(--text-3); font-size: 12px; }
-.field-error { margin: 5px 0 0; color: var(--warn); font-size: 12.5px; }
+.tile svg { width: 15px; height: 15px; stroke-width: 1.8; }
+.tile-general { background: var(--tile-general); }
+.tile-pendant { background: var(--tile-pendant); }
+.tile-retention { background: var(--tile-storage); }
+.tile-model { background: var(--tile-model); }
+.tile-connectors { background: var(--tile-connectors); }
+.tile-appearance { background: var(--tile-appearance); }
+.row-chevron { display: inline-flex; flex: none; color: var(--text-2); }
+.row-chevron svg { width: 12px; height: 12px; }
+.row.selected .row-chevron { color: var(--on-accent); }
 
-.set-fact { margin: 0 0 14px; display: flex; gap: 12px; font-size: 13px; }
-.set-fact-label { width: 90px; flex: none; color: var(--text-2); }
-.set-fact .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+/* group boxes: a row per setting; the provider list, its details and each connector are groups too */
+.group, .providers, .prov-detail, .con {
+  margin: 0; padding: 0; border: 0; border-radius: var(--radius-l); background: var(--panel);
+  box-shadow: inset 0 0 0 0.5px var(--ring); overflow: hidden;
+}
+.group > *, .providers > *, .prov-detail > *, .con > * { margin: 0; padding: 8px 16px; min-height: 46px; box-sizing: border-box; }
+.group > * + *, .providers > * + *, .prov-detail > * + *, .con > * + * { border-top: 1px solid var(--hairline); }
+/* a fieldset's legend as a section head: floated, so the browser draws it as an ordinary child */
+.radios > legend { float: left; width: 100%; box-sizing: border-box; padding: 10px 16px 2px; min-height: 0; border: 0; color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.prov-detail > .radios > legend, .group > .radios > legend { padding-left: 0; padding-right: 0; }
+.group > .radios > legend { padding-left: 16px; padding-right: 16px; }
+.group > .radios { padding: 0; display: block; }
+.group > .radios > .radio { padding: 0 16px; min-height: 46px; border-top: 1px solid var(--hairline); }
+.group > .radios > legend + .radio { border-top: 0; }
+.con + .con { margin-top: 18px; }
+.con-title { display: flex; align-items: center; min-height: 40px; padding: 8px 16px 0; font-size: 13px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; }
 
-.radios { margin: 0 0 14px; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
-.radios legend { padding: 0; margin-bottom: 8px; color: var(--text-2); font-size: 13px; }
-.radio { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* a field in a row: the label at the left, the input at the right, help and errors under them */
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+.field label { margin: 0; color: var(--text); font-size: 12.5px; }
+.field input {
+  width: 220px; max-width: 100%; height: 26px; padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--text);
+  background: var(--control); border: 0; border-radius: var(--radius-s); box-shadow: inset 0 0 0 0.5px var(--ring);
+}
+.field input[type="number"] { width: 96px; }
+.field input[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--warn); }
+.field input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field-help { grid-column: 1 / -1; margin: 4px 0 0; color: var(--text-3); font-size: 12px; }
+.field-error { grid-column: 1 / -1; margin: 4px 0 0; color: var(--warn); font-size: 12.5px; }
+.key-field { display: block; }
+.key-row { display: flex; gap: 8px; align-items: center; margin: 6px 0 0; }
+.key-row input { flex: 1; min-width: 0; width: auto; }
+.key-state { display: flex; align-items: baseline; gap: 10px; }
+.key-state:empty { display: none; }
+
+.set-fact { display: flex; align-items: center; gap: 12px; font-size: 12.5px; }
+.set-fact-label { flex: 1; color: var(--text); }
+.set-fact .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-soft); overflow-wrap: anywhere; text-align: right; }
+
+.radios { display: flex; flex-direction: column; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.radio { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .radio input { accent-color: var(--accent); margin: 0; }
 
 .toast-row { position: sticky; bottom: 16px; margin-top: auto; padding-top: 24px; height: 28px; text-align: center; pointer-events: none; }
 .toast {
-  display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 12.5px;
-  background: var(--slate); color: var(--on-slate); opacity: 0; transition: opacity 0.18s linear;
+  display: inline-block; padding: 6px 14px; border-radius: var(--radius-xl); font-size: 12.5px;
+  background: var(--slate); color: var(--on-slate); box-shadow: var(--shadow-l); opacity: 0; transition: opacity 0.18s linear;
 }
 .toast.on { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 
-/* Settings › Model: the provider list, the chosen provider's sentence and cost under it, then its
-   model, key or endpoint, Test, and the automatic switch. */
-.providers { gap: 6px; }
-.prov-facts { margin: 4px 0 6px 21px; }
+/* Settings › Model: the provider list (a group), the chosen provider's sentence and cost under it, then its
+   details (a group): model, key or endpoint, Test, and the automatic switch. */
+.prov-option { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.prov-facts { margin: 0 0 0 21px; }
 .prov-sentence { margin: 0; color: var(--text-2); font-size: 12.5px; max-width: 58ch; }
 .prov-cost-line { margin: 4px 0 0; display: flex; gap: 12px; font-size: 12.5px; }
-.prov-cost-line .set-fact-label { width: auto; }
+.prov-cost-line .set-fact-label { flex: none; color: var(--text-2); }
 .prov-cost { color: var(--text); }
-.prov-detail { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--hairline); }
-.model-picker { margin-bottom: 18px; }
-.model-picker .field-help { margin: 0; }
-.model-picker .field-error { margin: 0; }
+.prov-detail { margin-top: 18px; }
+.model-picker { display: block; }
+.model-picker .radio { min-height: 32px; }
+.model-picker .field-help, .model-picker .field-error { margin: 0; }
 .model-radio { flex-wrap: wrap; column-gap: 8px; row-gap: 2px; }
 .model-rec { color: var(--accent); font-size: 12px; }
 .model-cost { color: var(--text-3); font-size: 12px; }
 
-.key-row { display: flex; gap: 8px; align-items: center; margin: 0; }
-.field .key-row input { flex: 1; min-width: 0; }
-.field input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-.key-state { display: flex; align-items: baseline; gap: 10px; }
-.key-state:empty { display: none; }
-
-.prov-test { margin: 0 0 18px; }
+.prov-test { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .prov-test .prov-bad { color: var(--warn); }
 
-.switch-field { margin: 0 0 18px; }
-.switch-row { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 13px; }
+/* a switch in a row: the words at the left, the switch at the right */
+.switch-field { display: flex; flex-direction: column; justify-content: center; }
+.switch-row { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; gap: 12px; color: var(--text); font-size: 12.5px; }
 .switch {
   -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0;
   width: 38px; height: 22px; border-radius: 11px; background: var(--control-3); cursor: default;
@@ -77,4 +108,11 @@
 .switch:checked { background: var(--accent); }
 .switch:checked::after { left: 18px; }
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.switch-field .field-help { margin-left: 46px; }
+.switch-field .field-help { margin: 4px 0 0; }
+
+/* the inspector's facts */
+.status-facts { margin: 0; display: flex; flex-direction: column; }
+.fact-row { display: flex; flex-direction: column; gap: 1px; padding: 7px 0; border-top: 1px solid var(--hairline); font-size: 12.5px; }
+.fact-row:first-child { border-top: 0; padding-top: 0; }
+.fact-row dt { color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.fact-row dd { margin: 0; color: var(--text-soft); line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

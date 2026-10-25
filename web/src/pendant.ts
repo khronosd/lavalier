@@ -1,7 +1,7 @@
 // The pendant card's words and rules. The card is read-only on device state: what it says comes
 // from the latest status read only, never from what an action was meant to do.
 
-import { ApiError, type DeviceStatus, type Status, type SyncActionResult, type ToggleResult } from "./api";
+import { ApiError, type DeviceStatus, type Status, type SyncActionResult, type SyncRun, type ToggleResult } from "./api";
 import { age, hm } from "./format";
 
 export type LampState = "listening" | "recording" | "muted" | "unknown";
@@ -159,4 +159,23 @@ export function pillLabel(status: Status | null, noAddress: boolean, busyWith: P
     if (pages) parts.push(`${pages} waiting`);
   }
   return `Pendant: ${parts.join(", ")}`;
+}
+
+/** What the last sync did and when: "Drained 212 pages at 09:31", "Nothing to drain at 09:31", "Pendant not in
+ *  range at 09:31", or its error; "No sync yet" with none. The words are syncResultLine's. */
+export function syncRunLine(run: SyncRun | null): string {
+  if (!run) return "No sync yet";
+  const when = hm(run.started_ms);
+  switch (run.outcome) {
+    case "drained":
+      return run.pages > 0 ? `Drained ${run.pages} ${run.pages === 1 ? "page" : "pages"} at ${when}` : `Nothing to drain at ${when}`;
+    case "skipped":
+      return `Nothing to drain at ${when}`;
+    case "not-in-range":
+      return `Pendant not in range at ${when}`;
+    case "locked":
+      return `Another process was using the pendant at ${when}`;
+    default:
+      return `${run.error || run.reason || `Sync ended: ${run.outcome}`} at ${when}`;
+  }
 }

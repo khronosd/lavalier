@@ -152,12 +152,34 @@ test("Appearance reverts and says why when the save fails", async () => {
   expect((screen.getByLabelText("System") as HTMLInputElement).checked).toBe(true);
 });
 
-test("the tab list names six tabs in order and marks the open one", async () => {
+test("the section rows name six sections in order, with the setting that says most about each, and mark the open one", async () => {
   render(<Settings tab="retention" />);
   await screen.findByLabelText("Keep audio for (days)");
   const links = screen.getAllByRole("link");
-  expect(links.map((l) => l.textContent)).toEqual(["General", "Pendant", "Retention", "Connectors", "Model", "Appearance"]);
+  expect(links.map((l) => l.querySelector(".row-title")!.textContent))
+    .toEqual(["General", "Pendant", "Storage", "Model", "Connectors", "Appearance"]);
+  expect(links.map((l) => l.querySelector(".row-sub")!.textContent))
+    .toEqual(["Every 5 min", "AAAA-BBBB", "14 days of audio", "None", "Off", "System"]);
   expect(links[2].getAttribute("aria-current")).toBe("page");
+  expect(links[2].querySelector(".tile-retention")).toBeTruthy();
+});
+
+test("the inspector lists the app's last status facts", async () => {
+  render(<Settings tab="general" />);
+  await screen.findByText("/Users/me/Pendant");
+  const aside = screen.getByRole("complementary", { name: "Status" });
+  const facts = [...aside.querySelectorAll(".fact-row")].map((r) => [r.querySelector("dt")!.textContent, r.querySelector("dd")!.textContent]);
+  expect(facts).toEqual([
+    ["App", "Version 0.3.0, process 1"],
+    ["Last read", "Listening just now, battery 94%"],
+    ["Last sync", "No sync yet"],
+    ["Pages waiting", "787 pages waiting, about 20 minutes of speech"],
+    ["Transcripts pending", "0"],
+    ["Failed clips", "0"],
+    ["Audio on disk", "0 kB"],
+    ["Next deletion", "None"],
+    ["Days with clips", "0"],
+  ]);
 });
 
 test("Pendant shows the last read line", async () => {

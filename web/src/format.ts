@@ -73,3 +73,16 @@ export function clock(seconds: number): string {
   const whole = Number.isFinite(seconds) ? Math.floor(seconds) : 0;
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
+
+/** A size on disk: "12 kB", "340 MB", "1.1 GB" (under 10 of a unit, one decimal). */
+export function bytes(n: number): string {
+  const units = ["kB", "MB", "GB", "TB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  const text = v < 10 && i > 0 ? v.toFixed(1).replace(/\.0$/, "") : String(Math.round(v));
+  return `${text} ${units[i]}`;
+}

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { age, clock, dayTitle, duration, hm, hms, isoDay, monthName } from "./format";
+import { age, bytes, clock, dayTitle, duration, hm, hms, isoDay, monthName } from "./format";
 
 test.each([
   [16_000, "16 s"],
@@ -41,4 +41,9 @@ test("monthName names the month, with the year only when it is not this year", (
 test("clock shows seconds as minutes and seconds, and nothing finite as 0:00", () => {
   expect([0, 7, 59.9, 60, 252.4, 3599, Number.NaN, Number.POSITIVE_INFINITY].map(clock))
     .toEqual(["0:00", "0:07", "0:59", "1:00", "4:12", "59:59", "0:00", "0:00"]);
+});
+
+test("bytes rounds to the unit that fits", () => {
+  expect([0, 512, 12_288, 340 * 1024 * 1024, 1_234_567_890, 12 * 1024 ** 3].map(bytes))
+    .toEqual(["0 kB", "1 kB", "12 kB", "340 MB", "1.1 GB", "12 GB"]);
 });

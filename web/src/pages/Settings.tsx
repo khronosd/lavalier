@@ -6,15 +6,20 @@ import { CalendarConnector } from "../components/CalendarConnector";
 import { NotionConnector } from "../components/NotionConnector";
 import { Field } from "../components/Field";
 import { Frame } from "../components/Frame";
+import { PendantIcon } from "../components/icons";
 import { ProviderPicker } from "../components/ProviderPicker";
 import { SettingsTabs } from "../components/SettingsTabs";
 import { Toast } from "../components/Toast";
+import { bytes, dayMonth } from "../format";
 import { MODEL_PRIVACY } from "../insights";
-import { lastReadLine } from "../pendant";
+import { lastReadLine, pagesSentence, syncRunLine } from "../pendant";
 import { minutesToSeconds, secondsToMinutes, validateLocally } from "../settings";
 import { applyAppearance } from "../theme";
 
 const TOAST_MS = 2000;
+
+/** The state folder with the home folder as "~", for the toolbar line. */
+const home = (path: string) => path.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
 
 const APPEARANCES: { id: Appearance; label: string }[] = [
   { id: "system", label: "System" }, { id: "light", label: "Light" }, { id: "dark", label: "Dark" },
@@ -139,6 +144,32 @@ function useSettings() {
   return { settings, setSettings, status, loadError, errors, toast, save, clearError };
 }
 
+/** The inspector: the app's last status facts, as the status route reports them. */
+function StatusFacts({ status }: { status: Status | null }) {
+  const head = <p class="insp-title"><PendantIcon /> Status</p>;
+  if (!status) return <>{head}<p class="insp-sub">Reading…</p></>;
+  const device = status.device;
+  const rows: [string, string][] = [
+    ["App", `Version ${status.app.version}, process ${status.app.pid}`],
+    ["Last read", lastReadLine(status)],
+    ["Last sync", syncRunLine(status.last_sync)],
+    ["Pages waiting", device && device.has_all_fields ? pagesSentence(device.pages_waiting) || "None" : "No reading yet"],
+    ["Transcripts pending", String(status.pending_transcripts)],
+    ["Failed clips", String(status.failed_clips)],
+    ["Audio on disk", bytes(status.audio_bytes)],
+    ["Next deletion", status.next_deletion ? dayMonth(status.next_deletion) : "None"],
+    ["Days with clips", String(status.days_with_clips.length)],
+  ];
+  return (
+    <>
+      {head}
+      <dl class="status-facts">
+        {rows.map(([name, value]) => <div class="fact-row" key={name}><dt>{name}</dt><dd>{value}</dd></div>)}
+      </dl>
+    </>
+  );
+}
+
 export function Settings({ tab }: { tab: string }) {
   const { settings, setSettings, status, loadError, errors, toast, save, clearError } = useSettings();
   // the live preview belongs to the field: it is ignored once the tab or the saved value has changed
@@ -157,40 +188,45 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Pendant" />
-            <Field key="pendant_address" name="pendant_address" onEdit={() => clearError("pendant_address")} label="Pendant address" value={settings.pendant_address}
-              help="The address this Mac knows the pendant by. Leave it as it is unless the app cannot find the pendant."
-              error={errors.pendant_address} onCommit={(t) => save({ pendant_address: t })} />
-            <Field key="require_firmware" name="require_firmware" onEdit={() => clearError("require_firmware")} label="Required firmware" value={settings.require_firmware}
-              help="The app only talks to a pendant on this firmware version. Leave blank to accept any."
-              error={errors.require_firmware} onCommit={(t) => save({ require_firmware: t })} />
-            <Field key="drain_pages_threshold" name="drain_pages_threshold" onEdit={() => clearError("drain_pages_threshold")} label="Drain when this many pages are waiting" number
-              value={String(settings.drain_pages_threshold)} help="Pages are about a second and a half of speech each."
-              error={errors.drain_pages_threshold}
-              onCommit={(t) => save({ drain_pages_threshold: t.trim() === "" ? Number.NaN : Number(t) })} />
-            <Field key="drain_after_hours" name="drain_after_hours" onEdit={() => clearError("drain_after_hours")} label="Drain at least every (hours)" number
-              value={String(settings.drain_after_hours)} error={errors.drain_after_hours}
-              onCommit={(t) => save({ drain_after_hours: t.trim() === "" ? Number.NaN : Number(t) })} />
-            <p class="set-fact"><span class="set-fact-label">Last read</span>{lastReadLine(status)}</p>
+            <div class="group">
+              <Field key="pendant_address" name="pendant_address" onEdit={() => clearError("pendant_address")} label="Pendant address" value={settings.pendant_address}
+                help="The address this Mac knows the pendant by. Leave it as it is unless the app cannot find the pendant."
+                error={errors.pendant_address} onCommit={(t) => save({ pendant_address: t })} />
+              <Field key="require_firmware" name="require_firmware" onEdit={() => clearError("require_firmware")} label="Required firmware" value={settings.require_firmware}
+                help="The app only talks to a pendant on this firmware version. Leave blank to accept any."
+                error={errors.require_firmware} onCommit={(t) => save({ require_firmware: t })} />
+              <Field key="drain_pages_threshold" name="drain_pages_threshold" onEdit={() => clearError("drain_pages_threshold")} label="Drain when this many pages are waiting" number
+                value={String(settings.drain_pages_threshold)} help="Pages are about a second and a half of speech each."
+                error={errors.drain_pages_threshold}
+                onCommit={(t) => save({ drain_pages_threshold: t.trim() === "" ? Number.NaN : Number(t) })} />
+              <Field key="drain_after_hours" name="drain_after_hours" onEdit={() => clearError("drain_after_hours")} label="Drain at least every (hours)" number
+                value={String(settings.drain_after_hours)} error={errors.drain_after_hours}
+                onCommit={(t) => save({ drain_after_hours: t.trim() === "" ? Number.NaN : Number(t) })} />
+            </div>
           </>
         );
         break;
       case "retention":
         body = (
           <>
-            <Heading title="Retention" />
-            <Field key="retention_days" name="retention_days" onEdit={() => clearError("retention_days")} label="Keep audio for (days)" number value={String(settings.retention_days)}
-              help={`Audio is deleted ${n === "" ? "…" : n} days after it was recorded; starred and pinned conversations are kept. Text is kept for good.`}
-              error={errors.retention_days} onInput={setDays} onGone={() => setPreview(null)}
-              onCommit={async (t) => {
-                const ok = await save({ retention_days: t.trim() === "" ? Number.NaN : Number(t) });
-                if (ok) setDays(null);
-                return ok;
-              }} />
+            <Heading title="Storage" />
+            <div class="group">
+              <Field key="retention_days" name="retention_days" onEdit={() => clearError("retention_days")} label="Keep audio for (days)" number value={String(settings.retention_days)}
+                help={`Audio is deleted ${n === "" ? "…" : n} days after it was recorded; starred and pinned conversations are kept. Text is kept for good.`}
+                error={errors.retention_days} onInput={setDays} onGone={() => setPreview(null)}
+                onCommit={async (t) => {
+                  const ok = await save({ retention_days: t.trim() === "" ? Number.NaN : Number(t) });
+                  if (ok) setDays(null);
+                  return ok;
+                }} />
+            </div>
             <h2 class="set-sub">Transcription</h2>
-            <Field key="whisper_language" name="whisper_language" onEdit={() => clearError("whisper_language")} label="Language (two letters)" value={settings.whisper_language}
-              help="The language the speech is transcribed as, such as en or de."
-              error={errors.whisper_language} onCommit={(t) => save({ whisper_language: t })} />
-            <p class="set-fact"><span class="set-fact-label">Model</span>{settings.readonly.whisper_model}</p>
+            <div class="group">
+              <Field key="whisper_language" name="whisper_language" onEdit={() => clearError("whisper_language")} label="Language (two letters)" value={settings.whisper_language}
+                help="The language the speech is transcribed as, such as en or de."
+                error={errors.whisper_language} onCommit={(t) => save({ whisper_language: t })} />
+              <p class="set-fact"><span class="set-fact-label">Model</span>{settings.readonly.whisper_model}</p>
+            </div>
           </>
         );
         break;
@@ -215,25 +251,27 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="Appearance" />
-            <fieldset class="radios">
-              <legend>Colors</legend>
-              {APPEARANCES.map((a) => (
-                <label key={a.id} class="radio" for={`a-${a.id}`}>
-                  <input type="radio" id={`a-${a.id}`} name="appearance" checked={settings.appearance === a.id}
-                    onChange={async () => {
-                      const before = settings.appearance;
-                      applyAppearance(a.id);
-                      setSettings({ ...settings, appearance: a.id });
-                      if (!(await save({ appearance: a.id }))) {
-                        applyAppearance(before);
-                        setSettings((s) => (s ? { ...s, appearance: before } : s));
-                      }
-                    }} />
-                  {a.label}
-                </label>
-              ))}
-            </fieldset>
-            {errors.appearance && <p class="field-error" role="alert">{errors.appearance}</p>}
+            <div class="group">
+              <fieldset class="radios">
+                <legend>Colors</legend>
+                {APPEARANCES.map((a) => (
+                  <label key={a.id} class="radio" for={`a-${a.id}`}>
+                    <input type="radio" id={`a-${a.id}`} name="appearance" checked={settings.appearance === a.id}
+                      onChange={async () => {
+                        const before = settings.appearance;
+                        applyAppearance(a.id);
+                        setSettings({ ...settings, appearance: a.id });
+                        if (!(await save({ appearance: a.id }))) {
+                          applyAppearance(before);
+                          setSettings((s) => (s ? { ...s, appearance: before } : s));
+                        }
+                      }} />
+                    {a.label}
+                  </label>
+                ))}
+              </fieldset>
+              {errors.appearance && <p class="field-error" role="alert">{errors.appearance}</p>}
+            </div>
           </>
         );
         break;
@@ -241,25 +279,24 @@ export function Settings({ tab }: { tab: string }) {
         body = (
           <>
             <Heading title="General" />
-            <p class="set-fact"><span class="set-fact-label">State folder</span><span class="path">{settings.readonly.state_root}</span></p>
-            <Field key="poll_interval_s" name="poll_interval_s" onEdit={() => clearError("poll_interval_s")} label="Check the pendant every (minutes)" number
-              value={secondsToMinutes(settings.poll_interval_s)} help="At least 1 minute."
-              error={errors.poll_interval_s} onCommit={(t) => save({ poll_interval_s: minutesToSeconds(t) })} />
-            {status && <p class="set-fact"><span class="set-fact-label">App</span>
-              {`Version ${status.app.version}, process ${status.app.pid}`}</p>}
+            <div class="group">
+              <p class="set-fact"><span class="set-fact-label">State folder</span><span class="path">{settings.readonly.state_root}</span></p>
+              <Field key="poll_interval_s" name="poll_interval_s" onEdit={() => clearError("poll_interval_s")} label="Check the pendant every (minutes)" number
+                value={secondsToMinutes(settings.poll_interval_s)} help="At least 1 minute."
+                error={errors.poll_interval_s} onCommit={(t) => save({ poll_interval_s: minutesToSeconds(t) })} />
+            </div>
           </>
         );
     }
   }
 
   return (
-    <Frame toolbar={{ title: "Settings", subtitle: settings ? `Saved to /config.toml` : undefined }}>
-      <div class="set-layout">
-        <SettingsTabs tab={tab} />
-        <div class="set-main">
-          <div class="set-body">{body}</div>
-          <Toast text={toast.n > 0 ? "Saved" : ""} on={toast.on} />
-        </div>
+    <Frame toolbar={{ title: "Settings", subtitle: settings ? `Saved to ${home(settings.readonly.state_root)}/config.toml` : undefined }}
+      list={<SettingsTabs tab={tab} settings={settings} />} listLabel="Settings sections"
+      inspector={<StatusFacts status={status} />} inspectorLabel="Status">
+      <div class="page set-main">
+        <div class="set-body">{body}</div>
+        <Toast text={toast.n > 0 ? "Saved" : ""} on={toast.on} />
       </div>
     </Frame>
   );
