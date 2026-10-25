@@ -28,7 +28,7 @@ from lavalier.insights import keys, registry, stage
 from lavalier.insights.prompt import MAX_CHARS
 from lavalier.insights.providers.anthropic import NO_KEY
 from lavalier.insights.providers.base import Provider, ProviderError
-from lavalier.jobs import JobFailed, JobRunning, JobTable
+from lavalier.jobs import JobFailed, JobRunning, JobTable, in_daemon_thread
 from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
 from lavalier.paths import Paths, default_root
@@ -277,6 +277,10 @@ class App:
         if reason is not None:
             raise ValueError(reason)
 
+    def _key_account(self, cfg: Optional[Config] = None) -> str:
+        """The Keychain account the key cache is kept under for the configured provider."""
+        return (cfg or self.cfg).insights_provider
+
     def _build_provider(self, cfg: Config) -> Provider:
         """Worker thread only: the Keychain read and the provider, with the key cache brought up to date."""
         name = cfg.insights_provider
@@ -327,12 +331,14 @@ class App:
             _log.warning("insights: %s skipped: %s", day.isoformat(), reason)
             self._attempted.add(day)
             return False
+        if self.cfg.insights_provider in registry.KEYED and self._key_present.get(self._key_account()) is not True:
+            return False  # not known either way yet: the start-up fill or Settings will tell
         self._attempted.add(day)
         cfg = self.cfg
-        await self._process_lock.acquire()  # free: returns without yielding
         self._insights_job = self.jobs.start(
-            "auto", f"day:{day.isoformat()}", lambda: self._generate_job(cfg, day),
-            lock=self._process_lock, holding=True, on_done=lambda job: self._auto_done(day, job))
+            "auto", f"day:{day.isoformat()}", lambda provider: self._generate_job(cfg, day, provider),
+            prepare=lambda: self._build_provider(cfg), lock=self._process_lock,
+            on_done=lambda job: self._auto_done(day, job))
         return True
 
     def _auto_done(self, day: date, job: dict) -> None:
@@ -355,10 +361,11 @@ class App:
             raise JobRunning(key)
         self._check_usable()
         cfg = self.cfg
-        return self.jobs.start("generate", key, lambda: self._generate_job(cfg, day), lock=self._process_lock)
+        return self.jobs.start("generate", key, lambda provider: self._generate_job(cfg, day, provider),
+                               prepare=lambda: self._build_provider(cfg), lock=self._process_lock)
 
-    def _generate_job(self, cfg: Config, day: date) -> dict:
-        provider = self._build_provider(cfg)
+    def _generate_job(self, cfg: Config, day: date, provider: Provider) -> dict:
+        """Worker thread, under the process lock; the provider was built before the lock was taken."""
         db = Database(self.paths.db)
         try:
             rec = stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
@@ -379,13 +386,16 @@ class App:
         return self.jobs.start_coro("generate_range", RANGE_KEY, lambda: self._range(cfg, todo))
 
     async def _range(self, cfg: Config, todo: list[date]) -> dict:
-        done, errors, built = 0, [], []
+        done, errors = 0, []
+        if not todo:
+            return {"done": done, "errors": errors}
+        provider = await in_daemon_thread(lambda: self._build_provider(cfg))  # before any lock is taken
         for d in todo:
             if self._stopping:
                 break
             await self._process_lock.acquire()
             try:
-                worker = asyncio.ensure_future(asyncio.to_thread(self._range_day, cfg, d, built))
+                worker = in_daemon_thread(lambda d=d: self._range_day(cfg, d, provider))
             except BaseException:
                 self._process_lock.release()
                 raise
@@ -399,15 +409,13 @@ class App:
                 errors.append({"day": d.isoformat(), "error": rec.error})
         return {"done": done, "errors": errors}
 
-    def _range_day(self, cfg: Config, day: date, built: list) -> Optional[InsightRecord]:
-        """Worker thread: one day of a range; the provider is built by the first day and reused."""
-        if not built:
-            built.append(self._build_provider(cfg))
+    def _range_day(self, cfg: Config, day: date, provider: Provider) -> Optional[InsightRecord]:
+        """Worker thread, under the process lock: one day of a range, with the provider built before."""
         db = Database(self.paths.db)
         try:
             if _is_done(db.insight(day)):  # generated on its own while the range waited
                 return None
-            return stage.generate_day(db, self.paths, cfg, built[0], day, now_ms=self._now_ms())
+            return stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
         finally:
             db.close()
 
@@ -419,10 +427,11 @@ class App:
         self._check_usable()
         cfg = self.cfg
         self._asks += 1
-        return self.jobs.start("ask", f"ask:{day.isoformat()}:{self._asks}", lambda: self._ask_job(cfg, day, q))
+        return self.jobs.start("ask", f"ask:{day.isoformat()}:{self._asks}",
+                               lambda provider: self._ask_job(cfg, day, q, provider),
+                               prepare=lambda: self._build_provider(cfg))
 
-    def _ask_job(self, cfg: Config, day: date, question: str) -> dict:
-        provider = self._build_provider(cfg)
+    def _ask_job(self, cfg: Config, day: date, question: str, provider: Provider) -> dict:
         db = Database(self.paths.db)
         try:
             return {"answer": stage.ask_day(db, cfg, provider, day, question, now_ms=self._now_ms())}

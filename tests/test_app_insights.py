@@ -11,7 +11,7 @@ from fake_pendant import FakePendant
 from fake_provider import FakeProvider
 from lavalier.insights import keys
 from lavalier.insights.providers.anthropic import NO_KEY
-from lavalier.jobs import JOB_KEEP_MS, JobRunning, JobTable
+from lavalier.jobs import JOB_KEEP_MS, JobFailed, JobRunning, JobTable
 
 DAY = date(2026, 10, 23)
 AFTER_DAY = int(datetime(2026, 10, 24, 5, 0).timestamp() * 1000)   # 2026-10-23 is complete at 04:00
@@ -94,6 +94,8 @@ async def test_insights_if_due_generates_one_due_day_under_the_lock(insights_app
     app.fake.gate = gate
     caplog.set_level(logging.INFO, logger="lavalier.app")
     assert await app.insights_if_due() is True
+    while not app.fake.calls:                         # the provider is built first, with no lock held
+        await asyncio.sleep(0.01)
     assert app._process_lock.locked()                 # held while the worker runs
     assert await app.insights_if_due() is False       # never twice at once
     gate.set()
@@ -409,19 +411,16 @@ async def test_auto_waits_for_a_key_and_says_a_keychain_refusal_once(insights_ap
     assert app.fake.calls == []
 
 
-async def test_a_missing_key_found_by_the_worker_is_tried_again_once_one_is_saved(insights_app, db, memory_keyring):
+async def test_a_key_missing_when_the_worker_reads_it_leaves_the_day_to_try_again(insights_app, db, memory_keyring):
     app = insights_app
     _due(app)
     app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
-    assert await app.insights_if_due() is True        # the cache does not know yet: the worker reads it
-    await app.jobs.wait(app._insights_job)
-    assert app.jobs.get(app._insights_job)["error"] == NO_KEY and db.insight(DAY) is None
-    assert await app.insights_if_due() is False       # the cache now says no key
-    keys.set_key("anthropic", "sk-test")
-    app.note_key("anthropic", True)                   # what the key route does
+    app.note_key("anthropic", True, seen=app._key_seen("anthropic"))   # known present, then removed elsewhere
     assert await app.insights_if_due() is True
     await app.jobs.wait(app._insights_job)
-    assert db.insight(DAY).state == "done"
+    assert app.jobs.get(app._insights_job)["error"] == NO_KEY and db.insight(DAY) is None
+    assert DAY not in app._attempted                  # tried again once a key is there
+    assert app._key_present["anthropic"] is False and await app.insights_if_due() is False
 
 
 @pytest.fixture
@@ -566,3 +565,113 @@ async def test_an_error_row_reports_the_chars_it_sent(insights_app, db):
     await app.jobs.wait(app.generate(DAY))
     row = app.insights_index()["days_without"][0]
     assert row["chars"] == db.insight(DAY).input_chars
+
+
+# --- final fix wave: job threads (R26) and the provider built before the lock (R25)
+
+def test_a_job_blocked_in_its_thread_does_not_hold_up_the_loop_shutdown():
+    gate = threading.Event()
+    started = threading.Event()
+
+    def blocked():
+        started.set()
+        gate.wait(30)
+
+    async def main():
+        jobs = JobTable(lambda: 0)
+        jobs.start("generate", "day:x", blocked)
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+
+    runner = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
+    try:
+        runner.start()
+        runner.join(3)
+        assert not runner.is_alive(), "asyncio.run waited for the job's thread"
+        job_threads = [t for t in threading.enumerate() if t.name.startswith("lavalier-job")]
+        assert job_threads and all(t.daemon for t in job_threads)
+    finally:
+        gate.set()
+
+
+async def test_the_lock_is_released_only_when_the_job_thread_finally_ends():
+    jobs = JobTable(lambda: 0)
+    lock = asyncio.Lock()
+    gate = threading.Event()
+    jid = jobs.start("generate", "day:x", lambda: gate.wait(10), lock=lock)
+    await asyncio.sleep(0.05)
+    assert lock.locked() and jobs.get(jid)["state"] == "running"
+    gate.set()
+    await jobs.wait(jid)
+    assert not lock.locked() and jobs.get(jid)["state"] == "done"
+
+
+async def test_a_prepare_step_runs_in_a_thread_before_the_lock_and_feeds_the_work():
+    jobs = JobTable(lambda: 0)
+    lock = asyncio.Lock()
+    loop_thread = threading.get_ident()
+    seen = []
+
+    def prepare():
+        seen.append(("prepare", lock.locked(), threading.get_ident() != loop_thread))
+        return "built"
+
+    def work(built):
+        seen.append(("work", lock.locked(), built))
+        return built
+
+    jid = jobs.start("generate", "day:x", work, prepare=prepare, lock=lock)
+    await jobs.wait(jid)
+    assert seen == [("prepare", False, True), ("work", True, "built")] and not lock.locked()
+
+    def refused():
+        raise JobFailed("No key saved.")
+    bad = jobs.start("generate", "day:y", work, prepare=refused, lock=lock)
+    await jobs.wait(bad)
+    assert jobs.get(bad)["error"] == "No key saved." and not lock.locked() and len(seen) == 2
+
+
+async def test_the_process_lock_is_free_while_a_provider_is_built(insights_app, second_speech_day):
+    app = insights_app
+    _due(app)
+    building, release = threading.Event(), threading.Event()
+    fake = app.fake
+
+    def slow_factory(cfg):          # a Keychain prompt nobody answers yet
+        building.set()
+        assert release.wait(10)
+        return fake
+    app.provider_factory = slow_factory
+    for start in (lambda: app.generate(DAY), lambda: app.generate_range(5)):
+        building.clear()
+        release.clear()
+        jid = start()
+        while not building.is_set():
+            await asyncio.sleep(0.01)
+        assert not app._process_lock.locked()
+        async with app._process_lock:   # a processing run gets in meanwhile
+            pass
+        release.set()
+        await app.jobs.wait(jid)
+        assert app.jobs.get(jid)["state"] == "done", app.jobs.get(jid)
+    assert not app._process_lock.locked()
+
+
+async def test_auto_runs_only_once_a_key_is_known_present(insights_app, db, memory_keyring):
+    app = insights_app
+    _due(app)
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    keys.set_key("anthropic", "sk-test")
+    assert await app.insights_if_due() is False       # not known either way: never at 04:00 on a guess
+    assert app._attempted == set() and app.fake.calls == []
+    app.note_key("anthropic", True, seen=app._key_seen("anthropic"))   # the start-up fill's answer
+    assert await app.insights_if_due() is True
+    await app.jobs.wait(app._insights_job)
+    assert db.insight(DAY).state == "done"
+
+
+async def test_auto_for_ollama_needs_no_key(insights_app):
+    app = insights_app
+    _due(app)
+    assert await app.insights_if_due() is True
+    await app.jobs.wait(app._insights_job)

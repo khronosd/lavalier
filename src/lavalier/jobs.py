@@ -1,13 +1,17 @@
 """Polled jobs: work the window or the CLI starts and then asks about by id.
 
-Loop-thread only. Each job runs its function in a worker thread; a job may first wait for a lock,
-which it releases when the thread ends (never when the waiting coroutine does), so a cancelled
-wait can never let a second holder in beside a running thread.
+Loop-thread only. Each job runs its functions on daemon threads of its own, never the loop's default
+executor: a provider call or a Keychain prompt nobody answers must not keep the process alive at exit
+(`asyncio.run` waits for the executor's threads, launchd would then kill the process). A job may first
+run a `prepare` step (no lock held) and then wait for a lock before its `work` starts; the lock is
+released when the work's thread ends (never when the waiting coroutine does), so a cancelled wait can
+never let a second holder in beside a running thread.
 """
 
 import asyncio
 import logging
 import secrets
+import threading
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
@@ -22,6 +26,35 @@ class JobRunning(Exception):
 
 class JobFailed(Exception):
     """An expected failure (the provider's own message): the job's error, logged without a traceback."""
+
+
+def in_daemon_thread(fn: Callable[[], object], *, name: str = "lavalier-job") -> asyncio.Future:
+    """Run `fn` on a new daemon thread; its result (or exception) lands in the returned Future, on this
+    loop. Nothing waits for the thread at exit, and an answer that arrives after the loop closed is
+    dropped: the process is going and nobody is waiting for it."""
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+
+    def settle(ok: bool, value) -> None:
+        if fut.done():
+            return
+        if ok:
+            fut.set_result(value)
+        else:
+            fut.set_exception(value)
+
+    def target() -> None:
+        try:
+            ok, value = True, fn()
+        except BaseException as e:  # handed to the loop, whatever it is
+            ok, value = False, e
+        try:
+            loop.call_soon_threadsafe(settle, ok, value)
+        except RuntimeError:
+            pass  # the loop is closed
+
+    threading.Thread(target=target, name=name, daemon=True).start()
+    return fut
 
 
 @dataclass
@@ -73,23 +106,14 @@ class JobTable:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    def start(self, kind: str, key: str, fn: Callable[[], object], *, lock: Optional[asyncio.Lock] = None,
-              holding: bool = False, on_done: Optional[Callable[[dict], None]] = None) -> str:
-        """Run `fn` in a worker thread, after waiting for `lock` when one is given (or with it already
-        acquired by the caller, `holding=True`); the lock is released when the thread ends. `on_done`
-        gets the finished job's dict, on the loop. Returns the job id."""
-        if not holding:
-            job = self._new(kind, key, on_done)
-            self._spawn(self._run(job, fn, lock))
-            return job.id
-        try:  # the caller holds the lock: the thread starts now, so nothing can strand the lock
-            job = self._new(kind, key, on_done)
-            worker = asyncio.ensure_future(asyncio.to_thread(fn))
-        except BaseException:
-            if lock is not None:
-                lock.release()
-            raise
-        worker.add_done_callback(lambda w: self._worker_done(job, w, lock))
+    def start(self, kind: str, key: str, work: Callable[..., object], *,
+              prepare: Optional[Callable[[], object]] = None, lock: Optional[asyncio.Lock] = None,
+              on_done: Optional[Callable[[dict], None]] = None) -> str:
+        """Run `prepare` (when given) on a daemon thread with no lock held, then wait for `lock` (when
+        given) and run `work` on another, passing it what `prepare` returned; the lock is released when
+        that thread ends. `on_done` gets the finished job's dict, on the loop. Returns the job id."""
+        job = self._new(kind, key, on_done)
+        self._spawn(self._run(job, work, prepare, lock))
         return job.id
 
     def start_coro(self, kind: str, key: str, make: Callable[[], Awaitable[object]], *,
@@ -119,33 +143,42 @@ class JobTable:
             except Exception:
                 _log.exception("%s job %s: the done callback failed", job.kind, job.key)
 
+    def _fail(self, job: _Job, e: BaseException) -> None:
+        if isinstance(e, JobFailed):
+            _log.info("%s job %s failed: %s", job.kind, job.key, e)
+            self._finish(job, error=str(e))
+        else:
+            _log.error("%s job %s failed", job.kind, job.key, exc_info=e)
+            self._finish(job, error=str(e) or type(e).__name__)
+
     async def _run_coro(self, job: _Job, make: Callable[[], Awaitable[object]]) -> None:
         try:
             result = await make()
         except asyncio.CancelledError:
             self._finish(job, error="cancelled")
             raise
-        except JobFailed as e:
-            _log.info("%s job %s failed: %s", job.kind, job.key, e)
-            self._finish(job, error=str(e))
         except Exception as e:
-            _log.error("%s job %s failed", job.kind, job.key, exc_info=e)
-            self._finish(job, error=str(e) or type(e).__name__)
+            self._fail(job, e)
         else:
             self._finish(job, result=result)
 
-    async def _run(self, job: _Job, fn: Callable[[], object], lock: Optional[asyncio.Lock]) -> None:
+    async def _run(self, job: _Job, work: Callable[..., object], prepare: Optional[Callable[[], object]],
+                   lock: Optional[asyncio.Lock]) -> None:
         try:
+            args = () if prepare is None else (await in_daemon_thread(prepare),)
             if lock is not None:
                 await lock.acquire()
-            try:
-                worker = asyncio.ensure_future(asyncio.to_thread(fn))
-            except BaseException:
-                if lock is not None:
-                    lock.release()
-                raise
         except asyncio.CancelledError:  # the app is shutting down while this waited
             self._finish(job, error="cancelled")
+            raise
+        except Exception as e:  # the prepare step failed: no lock was taken
+            self._fail(job, e)
+            return
+        try:
+            worker = in_daemon_thread(lambda: work(*args))
+        except BaseException:
+            if lock is not None:
+                lock.release()
             raise
         worker.add_done_callback(lambda w: self._worker_done(job, w, lock))
 
@@ -154,12 +187,7 @@ class JobTable:
             lock.release()
         if worker.cancelled():
             self._finish(job, error="cancelled")
-        elif isinstance(worker.exception(), JobFailed):
-            _log.info("%s job %s failed: %s", job.kind, job.key, worker.exception())
-            self._finish(job, error=str(worker.exception()))
         elif worker.exception() is not None:
-            e = worker.exception()
-            _log.error("%s job %s failed", job.kind, job.key, exc_info=e)
-            self._finish(job, error=str(e) or type(e).__name__)
+            self._fail(job, worker.exception())
         else:
             self._finish(job, result=worker.result())
