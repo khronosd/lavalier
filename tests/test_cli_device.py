@@ -13,7 +13,7 @@ _T = datetime.fromtimestamp(1792821367.981).strftime("%Y-%m-%d %H:%M")  # local 
 def test_sync_dry_run_prints_the_decision(cli_env, monkeypatch):
     monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 999)))
     r = cli_env.invoke(["sync", "--dry-run"])
-    assert r.exit_code == 0 and "Sync: dry-run (would drain: pages waiting 1000 >= 1000)" in r.output
+    assert r.exit_code == 0 and "Sync: dry-run (would drain: requested, 1000 page(s) waiting)" in r.output
 
 
 def test_sync_requires_an_address(cli_env_no_address):
@@ -22,7 +22,7 @@ def test_sync_requires_an_address(cli_env_no_address):
 
 
 def test_sync_skipped_exits_0(cli_env, monkeypatch):
-    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 9)))
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, -1)))  # nothing waiting
     r = cli_env.invoke(["sync"])
     assert r.exit_code == 0 and "Sync: skipped (nothing to do)" in r.output
 
@@ -42,7 +42,7 @@ def test_sync_drains_and_processes_a_capture(cli_env, monkeypatch, storage_paylo
     monkeypatch.setattr(cli, "MlxWhisperTranscriber", lambda m, l: FakeTranscriber({}, unavailable="test"))
     r = cli_env.invoke(["sync"])
     assert r.exit_code == 0, r.output
-    assert "Sync: drained (pages waiting 1000 >= 1000); 3 messages" in r.output
+    assert "Sync: drained (requested, 1000 page(s) waiting); 3 messages" in r.output
     assert "muted by recorder, unmute confirmed" in r.output and "Transcribed 0" in r.output
 
 
@@ -118,7 +118,7 @@ def test_status_shows_pending_unmute(cli_env, db_at_root):
 
 
 def test_status_shows_the_last_sync(cli_env, monkeypatch):
-    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, 9)))
+    monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(pages=(0, -1)))
     cli_env.invoke(["sync"])
     out = cli_env.invoke(["status"]).output
     assert "skipped (nothing to do)" in out and "Last sync: " in out and "(sync)" in out

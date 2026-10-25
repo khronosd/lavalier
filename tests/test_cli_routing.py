@@ -53,7 +53,7 @@ def serve(app):
 @pytest.mark.parametrize("args, pendant, expected", [
     (["mute"], dict(), "Pendant muted (NOT_RECORDING)\n"),
     (["unmute"], dict(state="NOT_RECORDING"), "Pendant unmuted (LISTENING)\n"),
-    (["sync"], dict(pages=(0, 9), state="NOT_RECORDING"), "Sync: skipped (nothing to do)\n"),
+    (["sync"], dict(pages=(0, -1), state="NOT_RECORDING"), "Sync: skipped (nothing to do)\n"),
 ])
 def test_output_through_the_app_matches_headless(cli_env, app_env, monkeypatch, args, pendant, expected):
     monkeypatch.setattr(cli, "pendant_factory", lambda cfg: FakePendant(**pendant))

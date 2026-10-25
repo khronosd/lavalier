@@ -60,7 +60,11 @@ class SyncReport:
 
 
 def decide_drain(snap: DeviceSnapshot, charger: ChargerDecision, last_drain_ok_ms: Optional[int], *,
-                 now_ms: int, cfg: Config) -> tuple[bool, str]:
+                 now_ms: int, cfg: Config, requested: bool = False) -> tuple[bool, str]:
+    """The scheduler's thresholds (charger, pages, hours) decide a scheduled sync; a sync the person
+    asked for (the CLI, the window's Sync now) drains whatever is waiting."""
+    if requested and snap.pages_waiting > 0:
+        return True, f"requested, {snap.pages_waiting} page(s) waiting"
     if charger.on_charger:
         return True, f"on charger ({charger.signal})"
     if snap.pages_waiting >= cfg.drain_pages_threshold:
@@ -387,7 +391,8 @@ async def _connected(run: _Run, dry_run: bool) -> None:
         if not dry_run:
             await run.retry_pending_unmute()
         # 5. decide
-        drain, reason = decide_drain(report.status, charger, db.last_drain_ok_ms(), now_ms=run.now_ms(), cfg=run.cfg)
+        drain, reason = decide_drain(report.status, charger, db.last_drain_ok_ms(), now_ms=run.now_ms(), cfg=run.cfg,
+                                     requested=not run.scheduled)
         report.reason = reason
         if not drain:
             report.outcome = "skipped"
