@@ -189,3 +189,18 @@ def test_facts_use_the_models_cost_or_a_fallback():
     assert f == {"sends": "each day's transcript text and your questions, never audio", "to": "Anthropic",
                  "cost": "about $0.005 per 3-hour day"}
     assert Anthropic("claude-future-9", "k", client=FakeAnthropicClient()).facts()["cost"] == "about $0.20 per 3-hour day"
+
+
+def test_the_catalogue_pins_labels_and_costs():
+    assert [(m.label, m.cost_per_day) for m in MODELS] == [
+        ("Claude Opus 5.5", "about $0.20 per 3-hour day"),
+        ("Claude Sonnet 5.5", "about $0.10 per 3-hour day"),
+        ("Claude Haiku 5.5", "about $0.005 per 3-hour day"),
+    ]
+
+
+@pytest.mark.parametrize("reply", [msg(""), msg(blocks=[]), msg("  \n")])
+def test_an_empty_ask_answer_is_a_provider_error(reply):
+    with pytest.raises(ProviderError) as e:
+        adapter(FakeAnthropicClient(reply)).ask(dt(), "q")
+    assert str(e.value) == "The model gave no answer"

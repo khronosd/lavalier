@@ -165,3 +165,11 @@ def test_check_uses_a_short_timeout():
         return io.BytesIO(b'{"models": []}')
     Ollama("m", opener=opener, timeout_s=300).check()
     assert seen == [10]
+
+
+@pytest.mark.parametrize("content", ["", "  \n"])
+def test_an_empty_ask_answer_is_a_provider_error(content):
+    with FakeOllama(chat_content=content) as f:
+        with pytest.raises(ProviderError) as e:
+            Ollama("m", url=f.url).ask(dt(), "q")
+    assert str(e.value) == "The model gave no answer"

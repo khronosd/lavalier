@@ -16,6 +16,8 @@ dependencies = [
     "tomli_w>=1.0",
     "pywebview>=6.2",
     "anthropic>=2.3",
+    "openai>=3.37",
+    "google-genai>=2.33",
 ]
 
 [project.optional-dependencies]

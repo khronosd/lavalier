@@ -76,7 +76,10 @@ class Anthropic:
         return out
 
     def ask(self, dt: DayText, question: str) -> str:
-        return "".join(self._final(2048, ask_messages(dt, question), {"effort": _EFFORT}))
+        answer = "".join(self._final(2048, ask_messages(dt, question), {"effort": _EFFORT}))
+        if not answer.strip():
+            raise ProviderError("The model gave no answer")
+        return answer
 
     def check(self) -> ProviderCheck:
         if self._client is None:

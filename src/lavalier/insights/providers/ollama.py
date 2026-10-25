@@ -106,7 +106,10 @@ class Ollama:
             raise ProviderError("The model did not reply with JSON") from None
 
     def ask(self, dt: DayText, question: str) -> str:
-        return self._chat(ask_messages(dt, question), dt, None)
+        answer = self._chat(ask_messages(dt, question), dt, None)
+        if not answer.strip():
+            raise ProviderError("The model gave no answer")
+        return answer
 
     def check(self) -> ProviderCheck:
         try:
