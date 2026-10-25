@@ -35,6 +35,23 @@ test.each([
   [{ whisper_language: "en\n" }, "whisper_language"],
   [{ whisper_language: "" }, "whisper_language"],
   [{ pendant_address: "ABC" }, null],
+  // insights (settings.py): a known provider, an empty or http(s) base URL, any model, a boolean
+  [{ insights_provider: "" }, null],
+  [{ insights_provider: "ollama" }, null],
+  [{ insights_provider: "google" }, null],
+  [{ insights_provider: "mistral" }, "insights_provider"],
+  [{ insights_base_url: "" }, null],
+  [{ insights_base_url: "http://localhost:1234/v1" }, null],
+  [{ insights_base_url: "https://example.test/v1" }, null],
+  [{ insights_base_url: "https://" }, "insights_base_url"],
+  [{ insights_base_url: "http://" }, "insights_base_url"],
+  [{ insights_base_url: "ftp://example.test" }, "insights_base_url"],
+  [{ insights_base_url: "localhost:1234" }, "insights_base_url"],
+  [{ insights_model: "" }, null],
+  [{ insights_model: "anything at all" }, null],
+  [{ insights_auto: true }, null],
+  [{ insights_auto: false }, null],
+  [{ insights_auto: "yes" }, "insights_auto"],
 ])("validateLocally %j", (patch, field) => {
   const got = validateLocally(patch as never);
   expect(got ? got.field : null).toBe(field);
@@ -50,4 +67,9 @@ test("the poll interval is edited in minutes and stored in seconds", () => {
   expect(secondsToMinutes(300)).toBe("5");
   expect(secondsToMinutes(90)).toBe("1.5");
   expect(validateLocally({ poll_interval_s: minutesToSeconds("0.5") })?.message).toBe("The poll interval must be at least 1 minute.");
+});
+
+test("the base URL rule says what to type", () => {
+  expect(validateLocally({ insights_base_url: "localhost" })?.message)
+    .toBe("The base URL must be empty or start with http:// or https://.");
 });

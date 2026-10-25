@@ -1,8 +1,8 @@
 // The day's Insights tab, as pure helpers: which state it shows, and the sentences and links in it.
 
-import { ApiError, JobError, UNAUTHORISED, type DayView, type FollowUp, type InsightDayState, type InsightRecord,
-  type ProviderFacts } from "./api";
-import { hm } from "./format";
+import { ApiError, JobError, UNAUTHORISED, type DayView, type DayWithout, type FollowUp, type InsightDayState,
+  type InsightRecord, type ProviderFacts, type RangeResult } from "./api";
+import { dayTitle, hm } from "./format";
 
 /** The privacy sentence for Insights, also shown on Settings > Model. */
 export const MODEL_PRIVACY =
@@ -23,10 +23,16 @@ export function hasSpeech(view: DayView): boolean {
   return view.conversations.some((c) => c.lines.length > 0);
 }
 
-/** What the tab shows. A done insight is shown even when Generate is refused now (a key removed since),
- *  and a running job wins over a refusal, since it is already under way. */
+/** No model is chosen: Generate and Ask cannot run. */
+export function noProvider(day: InsightDayState, facts: ProviderFacts): boolean {
+  return !facts.provider || day.reason === NO_MODEL;
+}
+
+/** What the tab shows. A done insight is shown whatever the provider setting and even when Generate is
+ *  refused now (a key removed since), and a running job wins over a refusal, since it is already under way. */
 export function tabState(day: InsightDayState, facts: ProviderFacts, view: DayView): TabState {
-  if (!facts.provider || day.reason === NO_MODEL) return "no-provider";
+  if (day.state === "done" && day.record?.insight) return "done";
+  if (noProvider(day, facts)) return "no-provider";
   if (!hasSpeech(view) || day.reason === NO_SPEECH) return "no-speech";
   if (day.state === "generating") return "generating";
   if (day.state === "done") return "done";
@@ -56,4 +62,66 @@ export function actionError(e: unknown): string {
   if (e instanceof JobError) return e.message;
   const why = e instanceof Error ? e.message : String(e);
   return `The app did not answer (${why}). Check that the lavalier app is running.`;
+}
+
+/** A job the app no longer knows: it restarted while the job ran. */
+export const VANISHED = "The app restarted before this finished. Try again.";
+
+/** What a failed poll of a job says; a 404 means the app restarted and forgot it. */
+export function pollError(e: unknown): string {
+  return e instanceof ApiError && e.status === 404 ? VANISHED : actionError(e);
+}
+
+// --- the range across days ---
+
+/** What stage.estimate assumes: the per-day cost figures are for 40k input tokens; a token is 4 characters. */
+const COST_TOKENS = 40_000;
+const DOLLARS = /\$([0-9]+(?:\.[0-9]+)?)/;
+export const FREE = "free, runs on this Mac";
+
+/** Two significant figures, cents shown below $10, whole dollars above (stage._money). */
+export function money(x: number): string {
+  if (!(x > 0)) return "$0";
+  const r = Number(x.toPrecision(2));
+  let decimals = Math.max(0, 1 - Math.floor(Math.log10(r)));
+  if (r < 10) decimals = Math.max(decimals, 2);
+  return `$${r.toFixed(decimals)}`;
+}
+
+/** 500, 480k, 1.2M. */
+function tokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${Number((n / 1_000_000).toFixed(1))}M`;
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** What generating the last `n` days would send and cost. The server takes the newest `n` complete days
+ *  without an insight, which is the front of `without` (newest first). */
+export function rangeEstimate(without: DayWithout[], n: number, facts: ProviderFacts): { days: number; text: string } {
+  const todo = without.slice(0, n);
+  if (todo.length === 0) return { days: 0, text: "Nothing to generate" };
+  const tokens = todo.reduce((sum, d) => sum + Math.floor(d.chars / 4), 0);
+  const costText = facts.facts?.cost ?? "";
+  const label = facts.models.find((m) => m.id === facts.model)?.label ?? facts.model;
+  const m = DOLLARS.exec(costText);
+  let cost: string;
+  if (facts.provider === "ollama" || costText.startsWith("free")) cost = FREE;
+  else if (m) cost = `about ${money((Number(m[1]) * tokens) / COST_TOKENS)} with ${label}`;
+  else cost = costText ? `cost ${costText}` : `with ${label}`;
+  return { days: todo.length, text: `${plural(todo.length, "day")}, about ${tokenCount(tokens)} tokens, ${cost}` };
+}
+
+/** "Generated 11 days; 1 failed: Tuesday, 20 October: rate limited". */
+export function rangeResult(r: RangeResult): string {
+  const done = `Generated ${plural(r.done, "day")}`;
+  if (r.errors.length === 0) return `${done}.`;
+  const failed = r.errors.map((e) => `${dayTitle(e.day)}: ${e.error ?? "failed"}`).join("; ");
+  return `${done}; ${r.errors.length} failed: ${failed}`;
+}
+
+/** A day's Insights tab, for the links from people and topics. */
+export function dayInsightsHref(day: string): string {
+  return `#/day/${day}?tab=insights`;
 }

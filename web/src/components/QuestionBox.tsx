@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, pollJob, type AskResult } from "../api";
-import { actionError } from "../insights";
+import { actionError, pollError } from "../insights";
 
 type Reply = { phase: "idle" } | { phase: "thinking" } | { phase: "answer" | "error"; text: string };
 
@@ -21,12 +21,18 @@ export function QuestionBox({ day }: { day: string }) {
     const ctl = new AbortController();
     running.current = ctl;
     setReply({ phase: "thinking" });
+    let job: string;
     try {
-      const { job } = await api<{ job: string }>("POST", "/api/ask", { day, question: q });
+      ({ job } = await api<{ job: string }>("POST", "/api/ask", { day, question: q }));
+    } catch (err) {
+      if (!ctl.signal.aborted) setReply({ phase: "error", text: actionError(err) });
+      return;
+    }
+    try {
       const done = await pollJob(job, { signal: ctl.signal });
       setReply({ phase: "answer", text: (done.result as AskResult).answer });
     } catch (err) {
-      if (!ctl.signal.aborted) setReply({ phase: "error", text: actionError(err) });
+      if (!ctl.signal.aborted) setReply({ phase: "error", text: pollError(err) });
     }
   }
 

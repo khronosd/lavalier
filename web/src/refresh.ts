@@ -32,3 +32,23 @@ export function useOnVersionChange(version: string | null, onChange: () => void)
 export function useOnDataChange(onChange: () => void): void {
   useOnVersionChange(useContext(DataVersion), onChange);
 }
+
+// Insights change without a sync or a processing run (a Generate, a range): whoever ran one says so,
+// and the sidebar's count reads the index again.
+const insightsListeners = new Set<() => void>();
+
+/** Tell the window that a day's insight may have changed. */
+export function notifyInsightsChanged(): void {
+  for (const listener of [...insightsListeners]) listener();
+}
+
+/** Calls onChange after each notifyInsightsChanged, until the component unmounts. */
+export function useOnInsightsChange(onChange: () => void): void {
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => {
+    const listener = () => latest.current();
+    insightsListeners.add(listener);
+    return () => { insightsListeners.delete(listener); };
+  }, []);
+}

@@ -38,3 +38,43 @@
 }
 .toast.on { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+/* Settings › Model: the provider list, the chosen provider's sentence and cost under it, then its
+   model, key or endpoint, Test, and the automatic switch. */
+.providers { gap: 6px; }
+.prov-facts { margin: 4px 0 6px 21px; }
+.prov-sentence { margin: 0; color: var(--text-2); font-size: 12.5px; max-width: 58ch; }
+.prov-cost-line { margin: 4px 0 0; display: flex; gap: 12px; font-size: 12.5px; }
+.prov-cost-line .set-fact-label { width: auto; }
+.prov-cost { color: var(--text); }
+.prov-detail { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--hairline); }
+.model-picker { margin-bottom: 18px; }
+.model-picker .field-help { margin: 0; }
+.model-picker .field-error { margin: 0; }
+.model-radio { flex-wrap: wrap; column-gap: 8px; row-gap: 2px; }
+.model-rec { color: var(--accent); font-size: 12px; }
+.model-cost { color: var(--text-3); font-size: 12px; }
+
+.key-row { display: flex; gap: 8px; align-items: center; margin: 0; }
+.field .key-row input { flex: 1; min-width: 0; }
+.field input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.key-state { display: flex; align-items: baseline; gap: 10px; }
+.key-state:empty { display: none; }
+
+.prov-test { margin: 0 0 18px; }
+.prov-test .prov-bad { color: var(--warn); }
+
+.switch-field { margin: 0 0 18px; }
+.switch-row { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 13px; }
+.switch {
+  -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0;
+  width: 36px; height: 21px; border-radius: 11px; background: var(--field-b); cursor: default;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--hairline); box-sizing: border-box;
+}
+.switch:checked { background: var(--ok); }
+.switch:checked::after { left: 17px; }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch-field .field-help { margin-left: 46px; }

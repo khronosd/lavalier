@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, type DaySummary, explainError } from "./api";
+import { api, type DaySummary, explainError, type InsightsIndex, type Status } from "./api";
 import { PendantCard } from "./components/PendantCard";
 import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
@@ -8,7 +8,7 @@ import { Insights } from "./pages/Insights";
 import { Search } from "./pages/Search";
 import { Settings } from "./pages/Settings";
 import { StarredPage } from "./pages/Starred";
-import { DataVersion, dataVersion, useOnVersionChange } from "./refresh";
+import { DataVersion, dataVersion, useOnInsightsChange, useOnVersionChange } from "./refresh";
 import { type Route, useRoute } from "./router";
 import { usePendantStatus } from "./usePendantStatus";
 
@@ -40,6 +40,26 @@ function useToday(): string {
   return today;
 }
 
+/** The days still without an insight, for the sidebar: read only while a provider is set, again when
+ *  the data, the provider or the days being generated change, and after a Generate in this window. */
+function useInsightsTodo(status: Status | null, version: string | null): number {
+  const [todo, setTodo] = useState(0);
+  const provider = status?.insights?.provider ?? "";
+  const key = provider ? `${version}|${provider}|${status?.insights?.generating.join(",") ?? ""}` : null;
+  const [bump, setBump] = useState(0);
+  useOnInsightsChange(() => setBump((n) => n + 1));
+  useEffect(() => {
+    if (key === null) {
+      setTodo(0);
+      return;
+    }
+    let live = true;
+    api<InsightsIndex>("GET", "/api/insights").then((i) => live && setTodo(i.days_without.length), () => undefined);
+    return () => { live = false; };
+  }, [key, bump]);
+  return todo;
+}
+
 export function App() {
   const route = useRoute();
   const today = useToday();
@@ -47,6 +67,7 @@ export function App() {
   const version = dataVersion(pendant.status);
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const insightsTodo = useInsightsTodo(pendant.status, version);
 
   /** The first load shows its failure; a refetch after new data keeps the list it has if it fails. */
   function loadDays(quiet: boolean) {
@@ -65,7 +86,8 @@ export function App() {
 
   return (
     <DataVersion.Provider value={version}>
-      <Shell route={route} days={days} today={today} pendant={<PendantCard pendant={pendant} />}>
+      <Shell route={route} days={days} today={today} pendant={<PendantCard pendant={pendant} />}
+        insightsTodo={insightsTodo}>
         {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
         <Page route={route} today={today} days={days} />
       </Shell>

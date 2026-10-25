@@ -4,8 +4,10 @@ import {
   type ProviderFacts,
 } from "../api";
 import {
-  actionError, generatedLine, generateSentence, MODEL_PRIVACY, MODEL_TAB, NO_PROVIDER, NO_SPEECH, tabState,
+  actionError, generatedLine, generateSentence, MODEL_PRIVACY, MODEL_TAB, NO_PROVIDER, NO_SPEECH, noProvider,
+  pollError, tabState,
 } from "../insights";
+import { notifyInsightsChanged } from "../refresh";
 import { Empty } from "./Empty";
 import { FollowUps } from "./FollowUps";
 import { QuestionBox } from "./QuestionBox";
@@ -101,8 +103,12 @@ export function InsightsTab({ day, view }: { day: string; view: DayView }) {
         // a failed regenerate is not stored: the day keeps its earlier insight, and the error shows above it
         setRunError(r && !r.stored && r.record.state === "error" ? r.record.error : null);
       },
-      (e) => { if (!ctl.signal.aborted) setRunError(actionError(e)); },
-    ).then(() => { if (!ctl.signal.aborted) return refresh(); });
+      (e) => { if (!ctl.signal.aborted) setRunError(pollError(e)); },
+    ).then(() => {
+      if (ctl.signal.aborted) return;
+      notifyInsightsChanged();
+      return refresh();
+    });
     return () => ctl.abort();
   }, [jobId]);
 
@@ -131,6 +137,7 @@ export function InsightsTab({ day, view }: { day: string; view: DayView }) {
   if (shown === "no-speech") return <Empty title={NO_SPEECH} />;
 
   const sentence = generateSentence(facts);
+  const unset = noProvider(state, facts); // only a done insight is shown this way
   const alert = runError && <p class="ins-error" role="alert">{runError}</p>;
   return (
     <div class="insights">
@@ -158,13 +165,15 @@ export function InsightsTab({ day, view }: { day: string; view: DayView }) {
           <Done day={day} record={state.record} />
           <section class="ins-block ins-foot">
             <p class="ins-meta">{generatedLine(state.record)}</p>
-            {state.reason
-              ? <p class="ins-reason">{state.reason} <ModelTabLink /></p>
-              : <Action label="Regenerate" sentence={sentence} busy={starting} onClick={generate} />}
+            {unset
+              ? <p class="ins-reason">{NO_PROVIDER} <ModelTabLink /></p>
+              : state.reason
+                ? <p class="ins-reason">{state.reason} <ModelTabLink /></p>
+                : <Action label="Regenerate" sentence={sentence} busy={starting} onClick={generate} />}
           </section>
         </>
       )}
-      {shown !== "unusable" && !state.reason && <QuestionBox day={day} />}
+      {shown !== "unusable" && !state.reason && !unset && <QuestionBox day={day} />}
     </div>
   );
 }

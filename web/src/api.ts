@@ -273,6 +273,17 @@ export interface Status {
   busy: boolean;
   next_poll_ms: number;
   app: { version: string; pid: number; started_ms: number };
+  /** The insights settings and the days a `day:` job is generating (app.snapshot). */
+  insights?: StatusInsights;
+}
+
+export interface StatusInsights {
+  days_done: number;
+  days_error: number;
+  provider: string;
+  model: string;
+  auto: boolean;
+  generating: IsoDate[];
 }
 
 export type Appearance = "system" | "light" | "dark";
@@ -288,6 +299,13 @@ export interface Settings {
   whisper_language: string;
   appearance: Appearance;
   window_size: string;
+  /** "" (none), "ollama", "anthropic", "openai" or "google". */
+  insights_provider: string;
+  /** "" for the provider's default. */
+  insights_model: string;
+  /** OpenAI only: "" for OpenAI itself, else an OpenAI-compatible endpoint. */
+  insights_base_url: string;
+  insights_auto: boolean;
   readonly: { state_root: string; whisper_model: string; bundle_id: string };
 }
 
@@ -375,4 +393,46 @@ export interface ProviderFacts {
   sentence: string;
   display: string;
   check: unknown;
+}
+
+/** POST /api/insights/check: the provider answered or not, and the models it lists (Ollama's pulled ones). */
+export interface ProviderCheck {
+  ok: boolean;
+  detail: string;
+  models: ModelInfo[];
+}
+
+/** A follow-up across days (app.insights_index). */
+export interface DayFollowUp extends FollowUp {
+  day: IsoDate;
+}
+
+/** A person or a topic with the days it appears on, newest first. */
+export interface NamedDays {
+  name: string;
+  days: IsoDate[];
+}
+
+/** A complete day with speech and no done insight; `chars` estimates what it would send. */
+export interface DayWithout {
+  day: IsoDate;
+  chars: number;
+  error: string | null;
+}
+
+/** GET /api/insights: app.insights_index. `days_without` is newest first. */
+export interface InsightsIndex {
+  follow_ups: DayFollowUp[];
+  people: NamedDays[];
+  topics: NamedDays[];
+  days_without: DayWithout[];
+  generating: IsoDate[];
+  due: IsoDate[];
+  auto: boolean;
+}
+
+/** A generate_range job's result. */
+export interface RangeResult {
+  done: number;
+  errors: { day: IsoDate; error: string | null }[];
 }

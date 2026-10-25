@@ -11,17 +11,22 @@ function When({ day, fu }: { day: string; fu: FollowUp }) {
     : <time class="time" dateTime={iso}>{hms(fu.at_ms)}</time>;
 }
 
-/** The day's follow-ups on the margin grid: the time links to the line it points at, when there is one. */
+/** One follow-up on the margin grid: the time links to the line it points at, when there is one. */
+export function FollowUpLine({ day, fu }: { day: string; fu: FollowUp }) {
+  return (
+    <div class="line">
+      <When day={day} fu={fu} />
+      <p>{fu.text}</p>
+    </div>
+  );
+}
+
+/** The day's follow-ups on the margin grid. */
 export function FollowUps({ day, items }: { day: string; items: FollowUp[] }) {
   return (
     <section class="ins-block follow-ups">
       <h2 class="section-title">Follow-ups</h2>
-      {items.map((fu, i) => (
-        <div class="line" key={i}>
-          <When day={day} fu={fu} />
-          <p>{fu.text}</p>
-        </div>
-      ))}
+      {items.map((fu, i) => <FollowUpLine key={i} day={day} fu={fu} />)}
     </section>
   );
 }

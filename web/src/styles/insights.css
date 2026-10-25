@@ -42,3 +42,23 @@ a.fu-jump:hover { color: var(--accent); text-decoration: underline; }
 .ask-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .ask .ins-quiet, .ask .ins-error { margin: 12px 0 0; }
 .ask-answer { margin: 12px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* The Insights section across days: follow-ups grouped under each day's title on the margin grid,
+   people and topics in two columns, and the range control with its estimate before anything is sent. */
+.xd-page .insights, .xd-page .xd-range { max-width: 72ch; }
+.xd-page .insights { margin-top: 10px; }
+.xd-follow-ups .day-group:first-of-type .group-title { margin-top: 4px; }
+.xd-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+@media (max-width: 640px) { .xd-columns { grid-template-columns: minmax(0, 1fr); row-gap: 18px; } }
+.xd-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.xd-list li { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+.xd-name { color: var(--text); overflow-wrap: anywhere; }
+.xd-days { display: inline-flex; flex-wrap: wrap; column-gap: 8px; font-size: 12px; }
+.xd-day { color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.xd-day:hover { color: var(--accent); text-decoration: underline; }
+.xd-range { border-top: 1px solid var(--hairline); margin-top: 8px; }
+.xd-range-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.xd-range .btn[aria-pressed="true"] { color: var(--text); background: var(--chip); }
+.xd-generating { margin: 0 0 10px; }
+.xd-confirm, .xd-status { margin-top: 12px; }
+.xd-range .ins-error.xd-status { margin-bottom: 0; }
