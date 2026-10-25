@@ -337,8 +337,18 @@ def _app_cfg(srv):
     return srv.call(lambda: srv.app_like.cfg)
 
 
+def _note_key(srv, provider: str, present, error=None) -> None:
+    """Tell the app what is known of a key (never the key), so it never reads the Keychain on its loop."""
+    note = getattr(srv.app_like, "note_key", None)
+    if note is not None:
+        note(provider, present, error)
+
+
 def _providers(srv, req):
-    return _json({**registry.provider_facts(_app_cfg(srv)), "check": None})
+    facts = registry.provider_facts(_app_cfg(srv))
+    if facts["key_present"] is not None or facts["keychain_error"] is not None:
+        _note_key(srv, facts["provider"], facts["key_present"], facts["keychain_error"])
+    return _json({**facts, "check": None})
 
 
 def _check(srv, req):
@@ -367,6 +377,7 @@ def _put_key(srv, req):
         keys.set_key(name, key)
     except keys.KeychainError as e:
         raise _KeychainRefused(str(e)) from None
+    _note_key(srv, name, bool(key.strip()))
     return _Response(204, b"")
 
 
@@ -376,6 +387,7 @@ def _delete_key(srv, req):
         keys.delete_key(name)
     except keys.KeychainError as e:
         raise _KeychainRefused(str(e)) from None
+    _note_key(srv, name, False)
     return _Response(204, b"")
 
 

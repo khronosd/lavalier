@@ -24,7 +24,7 @@ from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, InsightRecord, now_ms as _now_ms
 from lavalier.insights import keys, registry, stage
-from lavalier.insights.prompt import day_text
+from lavalier.insights.prompt import MAX_CHARS
 from lavalier.insights.providers.anthropic import NO_KEY
 from lavalier.insights.providers.base import Provider, ProviderError
 from lavalier.jobs import JobFailed, JobRunning, JobTable
@@ -96,7 +96,10 @@ class App:
         self.jobs = JobTable(lambda: self._now_ms())
         # builds the configured provider on the loop (one Keychain read); tests hand back a fake
         self.provider_factory: Callable[[Config], Optional[Provider]] = lambda cfg: registry.make_provider(cfg)
-        self._insights_worker: Optional[asyncio.Future] = None  # the loop's latest automatic run
+        self._insights_job: Optional[str] = None  # the loop's latest automatic run
+        self._attempted: set[date] = set()          # days the automatic run tried in this process
+        self._key_present: dict[str, Optional[bool]] = {}  # see note_key; never the key itself
+        self._key_errors: dict[str, str] = {}
         self._asks = 0
 
     # state
@@ -194,31 +197,64 @@ class App:
                 del self._audio_locks[clip_id]
 
 
-    # insights: the loop's automatic run, and the jobs the window and the CLI start and poll
+    # insights: the loop's automatic run, and the jobs the window and the CLI start and poll.
+    # The loop never reads the Keychain or builds a provider (a Keychain prompt would stall the loop that
+    # owns the pendant): workers do, and what they learn of a key lands in a small cache read here.
+
+    def note_key(self, provider: str, present: Optional[bool], error: Optional[str] = None) -> None:
+        """What the app knows of a provider's key. Written by the key routes (server thread), by every worker
+        that reads a key, and once at start-up; plain dict writes, safe from any thread. Never the key."""
+        self._key_present[provider] = present
+        if error is None:
+            self._key_errors.pop(provider, None)
+        else:
+            self._key_errors[provider] = error
+
+    def _read_key_presence(self, provider: str) -> None:
+        """Worker thread only: read the Keychain once and note what it said."""
+        try:
+            self.note_key(provider, keys.has_key(provider))
+        except keys.KeychainError as e:
+            self.note_key(provider, None, str(e))
 
     def _unusable_reason(self) -> Optional[str]:
-        """Why Generate and Ask are refused, without any call to the provider; None when usable."""
+        """Why Generate and Ask are refused, from the config and the key cache only; None when usable. A key
+        not known either way counts as present: the worker reads it and reports NO_KEY itself."""
         name = self.cfg.insights_provider
         if not name:
             return NO_MODEL
         if name in registry.KEYED:
-            try:
-                if not keys.has_key(name):
-                    return NO_KEY
-            except keys.KeychainError as e:
-                return str(e)
+            if name in self._key_errors:
+                return self._key_errors[name]
+            if self._key_present.get(name) is False:
+                return NO_KEY
         return None
 
-    def _usable_provider(self) -> Provider:
+    def _check_usable(self) -> None:
+        if self._stopping:
+            raise AppStopping()
         reason = self._unusable_reason()
         if reason is not None:
             raise ValueError(reason)
+
+    def _build_provider(self, cfg: Config) -> Provider:
+        """Worker thread only: the Keychain read and the provider, with the key cache brought up to date."""
+        name = cfg.insights_provider
+        if name in registry.KEYED:
+            try:
+                present = keys.has_key(name)
+            except keys.KeychainError as e:
+                self.note_key(name, None, str(e))
+                raise JobFailed(str(e)) from None
+            self.note_key(name, present)
+            if not present:
+                raise JobFailed(NO_KEY)
         try:
-            provider = self.provider_factory(self.cfg)
+            provider = self.provider_factory(cfg)
         except (keys.KeychainError, ValueError) as e:
-            raise ValueError(str(e)) from None
+            raise JobFailed(str(e)) from None
         if provider is None:
-            raise ValueError(NO_MODEL)
+            raise JobFailed(NO_MODEL)
         return provider
 
     def _generating_days(self) -> list[str]:
@@ -231,57 +267,47 @@ class App:
                 if stage.day_is_complete(d, now) and not _is_done(self.db.insight(d))]
 
     async def insights_if_due(self) -> bool:
-        """One due day per loop turn, like retention: under the process lock, never waiting for it (a
-        due day that finds it held is tried on a later turn). The worker thread is not awaited, so a
-        slow model never holds up the scheduled drain; the lock is released when the thread ends.
-        True when a run was started."""
-        if not self.cfg.insights_provider or not self._process_lock_free():
+        """One due day per loop turn, like retention: under the process lock, never waiting for it (a due
+        day that finds it held is tried on a later turn). It runs as a `day:` job, so a Generate for the
+        same day is refused meanwhile and the day reads "generating"; the job is not awaited, so a slow
+        model never holds up the scheduled drain. Each day is tried at most once per process, whatever
+        the outcome, except when the key was missing (it is tried again once one is saved). True when a
+        run was started."""
+        if self._stopping or not self.cfg.insights_provider or not self._process_lock_free():
             return False
         raw = self.db.get_status("insights_enabled_at_ms")
         due = [d for d in stage.due_days(self.db, self.cfg, now_ms=self._now_ms(),
                                          enabled_at_ms=int(raw) if raw else None)
-               if self.jobs.running(f"day:{d.isoformat()}") is None]
+               if d not in self._attempted and self.jobs.running(f"day:{d.isoformat()}") is None]
         if not due:
             return False
         day = due[0]
-        try:
-            provider = self.provider_factory(self.cfg)
-        except (keys.KeychainError, ValueError) as e:
-            _log.warning("insights: %s skipped: %s", day.isoformat(), e)
+        reason = self._unusable_reason()
+        if reason == NO_KEY:
+            return False  # waits for a key; Settings show why
+        if reason is not None:  # a Keychain refusal: said once for the day
+            _log.warning("insights: %s skipped: %s", day.isoformat(), reason)
+            self._attempted.add(day)
             return False
-        if provider is None:
-            return False
+        self._attempted.add(day)
         cfg = self.cfg
         await self._process_lock.acquire()  # free: returns without yielding
-        try:
-            worker = asyncio.ensure_future(asyncio.to_thread(self._insights_tick, cfg, provider, day))
-        except BaseException:
-            self._process_lock.release()
-            raise
-        worker.add_done_callback(lambda w: self._insights_finished(day, w))
-        self._insights_worker = worker
+        self._insights_job = self.jobs.start(
+            "auto", f"day:{day.isoformat()}", lambda: self._generate_job(cfg, day),
+            lock=self._process_lock, holding=True, on_done=lambda job: self._auto_done(day, job))
         return True
 
-    def _insights_tick(self, cfg: Config, provider: Provider, day: date) -> InsightRecord:
-        """Runs in a worker thread, on its own connection, like _retention."""
-        db = Database(self.paths.db)
-        try:
-            return stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
-        finally:
-            db.close()
-
-    def _insights_finished(self, day: date, worker: asyncio.Future) -> None:
-        self._process_lock.release()
-        if worker.cancelled():
+    def _auto_done(self, day: date, job: dict) -> None:
+        if job["state"] == "error":
+            if job["error"] == NO_KEY:
+                self._attempted.discard(day)  # tried again once a key is saved
+            _log.warning("insights: %s failed: %s", day.isoformat(), job["error"])
             return
-        if worker.exception() is not None:
-            _log.error("insights: %s failed", day.isoformat(), exc_info=worker.exception())
-            return
-        rec = worker.result()
-        if rec.state == "done":
-            _log.info("insights: %s done by %s", day.isoformat(), rec.model)
+        rec = job["result"]["record"]
+        if rec["state"] == "done":
+            _log.info("insights: %s done by %s", day.isoformat(), rec["model"])
         else:
-            _log.warning("insights: %s failed: %s", day.isoformat(), rec.error)
+            _log.warning("insights: %s failed: %s", day.isoformat(), rec["error"])
 
     def generate(self, day: date) -> str:
         """Generate (or regenerate) one day as a job. It waits for the process lock before its thread
@@ -289,11 +315,12 @@ class App:
         key = f"day:{day.isoformat()}"
         if self.jobs.running(key) is not None:
             raise JobRunning(key)
-        provider, cfg = self._usable_provider(), self.cfg
-        return self.jobs.start("generate", key, lambda: self._generate_job(cfg, provider, day),
-                               lock=self._process_lock)
+        self._check_usable()
+        cfg = self.cfg
+        return self.jobs.start("generate", key, lambda: self._generate_job(cfg, day), lock=self._process_lock)
 
-    def _generate_job(self, cfg: Config, provider: Provider, day: date) -> dict:
+    def _generate_job(self, cfg: Config, day: date) -> dict:
+        provider = self._build_provider(cfg)
         db = Database(self.paths.db)
         try:
             rec = stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
@@ -302,43 +329,62 @@ class App:
             db.close()
 
     def generate_range(self, days: int) -> str:
-        """One job for the newest `days` complete days with speech and no done row, generated oldest first."""
+        """One job for the newest `days` complete days with speech and no done row, generated oldest
+        first. It takes the process lock for one day at a time, so drains and processing interleave
+        with a long backfill."""
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= RANGE_MAX_DAYS:
             raise ValueError(f"days must be a whole number from 1 to {RANGE_MAX_DAYS}")
         if self.jobs.running(RANGE_KEY) is not None:
             raise JobRunning(RANGE_KEY)
-        provider, cfg = self._usable_provider(), self.cfg
-        todo = self._days_without_done()[-days:]
-        return self.jobs.start("generate_range", RANGE_KEY, lambda: self._range_job(cfg, provider, todo),
-                               lock=self._process_lock)
+        self._check_usable()
+        cfg, todo = self.cfg, self._days_without_done()[-days:]
+        return self.jobs.start_coro("generate_range", RANGE_KEY, lambda: self._range(cfg, todo))
 
-    def _range_job(self, cfg: Config, provider: Provider, todo: list[date]) -> dict:
+    async def _range(self, cfg: Config, todo: list[date]) -> dict:
+        done, errors, built = 0, [], []
+        for d in todo:
+            if self._stopping:
+                break
+            await self._process_lock.acquire()
+            try:
+                worker = asyncio.ensure_future(asyncio.to_thread(self._range_day, cfg, d, built))
+            except BaseException:
+                self._process_lock.release()
+                raise
+            worker.add_done_callback(lambda w: self._process_lock.release())  # when the thread ends
+            rec = await asyncio.shield(worker)
+            if rec is None:
+                continue
+            if rec.state == "done":
+                done += 1
+            else:
+                errors.append({"day": d.isoformat(), "error": rec.error})
+        return {"done": done, "errors": errors}
+
+    def _range_day(self, cfg: Config, day: date, built: list) -> Optional[InsightRecord]:
+        """Worker thread: one day of a range; the provider is built by the first day and reused."""
+        if not built:
+            built.append(self._build_provider(cfg))
         db = Database(self.paths.db)
-        done, errors = 0, []
         try:
-            for d in todo:
-                if _is_done(db.insight(d)):  # generated on its own while this job waited for the lock
-                    continue
-                rec = stage.generate_day(db, self.paths, cfg, provider, d, now_ms=self._now_ms())
-                if rec.state == "done":
-                    done += 1
-                else:
-                    errors.append({"day": d.isoformat(), "error": rec.error})
+            if _is_done(db.insight(day)):  # generated on its own while the range waited
+                return None
+            return stage.generate_day(db, self.paths, cfg, built[0], day, now_ms=self._now_ms())
         finally:
             db.close()
-        return {"done": done, "errors": errors}
 
     def ask(self, day: date, question: str) -> str:
         """A question about one day, as a job. It only reads, so it takes no lock."""
         q = question.strip() if isinstance(question, str) else ""
         if not q:
             raise ValueError(NO_QUESTION)
-        provider, cfg = self._usable_provider(), self.cfg
+        self._check_usable()
+        cfg = self.cfg
         self._asks += 1
-        return self.jobs.start("ask", f"ask:{day.isoformat()}:{self._asks}",
-                               lambda: self._ask_job(cfg, provider, day, q))
+        return self.jobs.start("ask", f"ask:{day.isoformat()}:{self._asks}", lambda: self._ask_job(cfg, day, q))
 
-    def _ask_job(self, cfg: Config, provider: Provider, day: date, question: str) -> dict:
+    def _ask_job(self, cfg: Config, day: date, question: str) -> dict:
+        provider = self._build_provider(cfg)
         db = Database(self.paths.db)
         try:
             return {"answer": stage.ask_day(db, cfg, provider, day, question, now_ms=self._now_ms())}
@@ -369,11 +415,12 @@ class App:
         follow_ups = sorted(({"day": r.day.isoformat(), "text": f.text, "at_ms": f.at_ms, "line_id": f.line_id}
                              for r in done for f in r.insight.follow_ups),
                             key=lambda f: (f["day"], f["at_ms"] or 0), reverse=True)
+        chars = self.db.day_text_chars()
         without = []
         for d in reversed(self._days_without_done()):  # newest first
             rec = self.db.insight(d)
-            chars = rec.input_chars if rec is not None else day_text(self.db, d, self.cfg, now_ms=now).chars
-            without.append({"day": d.isoformat(), "chars": chars, "error": rec.error if rec is not None else None})
+            without.append({"day": d.isoformat(), "chars": min(chars.get(d, 0), MAX_CHARS),
+                            "error": rec.error if rec is not None else None})
         raw = self.db.get_status("insights_enabled_at_ms")
         due = stage.due_days(self.db, self.cfg, now_ms=now, enabled_at_ms=int(raw) if raw else None)
         return {"follow_ups": follow_ups, "people": _by_name(done, "people"), "topics": _by_name(done, "topics"),
@@ -625,6 +672,9 @@ class App:
         closed = self.db.close_running_sync_runs(self._now_ms())
         if closed:
             _log.warning("closed %d sync run(s) left running by an earlier process", closed)
+        if self.cfg.insights_provider and self.db.get_status("insights_enabled_at_ms") is None:
+            # a provider set in config.toml by hand: automatic insights start from now, not never
+            self.db.set_status("insights_enabled_at_ms", str(self._now_ms()))
 
     async def run(self) -> None:
         self._stopping = False
@@ -635,6 +685,8 @@ class App:
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
+            if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop
+                await asyncio.to_thread(self._read_key_presence, self.cfg.insights_provider)
             try:
                 await self.process_pending_if_any()
             except Exception:

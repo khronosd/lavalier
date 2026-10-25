@@ -18,6 +18,7 @@ from lavalier.actions import another_process as _another_process
 from lavalier.charger import cdc_present, read_ioreg
 from lavalier.config import Config, load_config
 from lavalier.dayfile import render_day, write_day
+from lavalier.insights.stage import NO_SPEECH
 from lavalier.db import Database, SchemaTooNewError, now_ms
 from lavalier.device import Pendant
 from lavalier.logsetup import quiet_fork_chatter
@@ -534,6 +535,9 @@ def insights_cmd(day: Optional[datetime], force: bool) -> None:
                     busy=f"Insights for {d} are already being generated")["job"]
     result = _finished_job(token, job)
     record = result["record"]
+    if record["state"] != "done" and record["error"] == NO_SPEECH:
+        click.echo(f"Nothing to summarise for {d}", err=True)
+        raise SystemExit(1)
     if record["state"] != "done":
         kept = "; the earlier insights stay" if not result["stored"] else ""
         raise click.ClickException(f"{record['error']}{kept}")

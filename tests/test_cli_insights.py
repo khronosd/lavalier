@@ -78,3 +78,18 @@ def test_cli_prints_the_reason_without_a_provider(cli_env, served):
 def test_cli_insights_and_ask_need_the_app(cli_env, args):
     r = cli_env.invoke(args)
     assert r.exit_code == 1 and NOT_RUNNING in r.output
+
+
+def test_cli_insights_for_a_day_without_speech_says_so_only(cli_env, served):
+    r = cli_env.invoke(["insights", "2026-10-20"])
+    assert r.exit_code == 1 and r.output.strip() == "Nothing to summarise for 2026-10-20"
+
+
+def test_poll_job_gives_up_after_its_cap(cli_env, monkeypatch):
+    from lavalier import client
+    monkeypatch.setattr(client, "call", lambda *a, **k: {"state": "running"})
+    now = [0.0]
+    def sleep(s): now[0] += 600
+    with pytest.raises(client.AppUnavailable, match="no answer after 30 minutes"):
+        client.poll_job(cli_env.root.root / ".server.json", "j", sleep=sleep, clock=lambda: now[0])
+    assert now[0] == 1800

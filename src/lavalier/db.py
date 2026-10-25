@@ -842,6 +842,14 @@ class Database:
         counts.update({r["state"]: r["n"] for r in rows})
         return counts
 
+    def day_text_chars(self) -> dict[date, int]:
+        """Each speech day's transcript size in characters (its speech clips' segments), in one query: a
+        cheap stand-in for the length of the day's text."""
+        rows = self._conn.execute(
+            "SELECT c.day AS day, SUM(LENGTH(s.text)) AS n FROM segments s JOIN clips c ON c.clip_id = s.clip_id "
+            "WHERE c.classification = 'speech' GROUP BY c.day").fetchall()
+        return {date.fromisoformat(r["day"]): int(r["n"] or 0) for r in rows}
+
     def days_with_speech(self) -> list[date]:
         rows = self._conn.execute(
             "SELECT DISTINCT day FROM clips WHERE classification = 'speech' ORDER BY day").fetchall()

@@ -127,7 +127,9 @@ def test_keys_put_never_echoes_and_get_providers_shows_only_presence(app_env, db
         r = get(srv, "/api/insights/providers")
         assert "sk-secret-1" not in r.read().decode() and _body(r)["key_present"] is True
         assert "sk-secret-1" not in json.dumps(_body(get(srv, "/api/status")))
+        assert _body(get(srv, f"/api/insights/{DAY}"))["reason"] is None       # the route noted the key
         assert delete(srv, "/api/keys/anthropic").status == 204 and keys.get_key("anthropic") is None
+        assert _body(get(srv, f"/api/insights/{DAY}"))["reason"] == "No key saved. Add one in Settings › Model."
         assert put(srv, "/api/keys/ollama", {"key": "x"}).status == 400
         assert put(srv, "/api/keys/nope", {"key": "x"}).status == 400
         assert put(srv, "/api/keys/anthropic", {"key": 5}).status == 400
@@ -172,3 +174,9 @@ def test_choosing_a_provider_records_when(server_no_provider):
 def test_the_status_carries_the_insights_block(insights_server):
     s = _body(get(insights_server, "/api/status"))["insights"]
     assert s["provider"] == "ollama" and s["generating"] == [] and s["auto"] is True
+
+
+def test_a_stopping_app_refuses_new_insights_work_with_503(insights_server):
+    insights_server.app._app._stopping = True
+    assert post(insights_server, f"/api/insights/generate/{DAY}").status == 503
+    assert post(insights_server, "/api/ask", {"day": DAY, "question": "who?"}).status == 503

@@ -90,8 +90,13 @@ def call(token_path: Path, method: str, route: str, *, body: Optional[dict] = No
     return data
 
 
-def poll_job(token_path: Path, job_id: str, *, every_s: float = 1.0, sleep=time.sleep) -> dict:
+POLL_CAP_S = 1800  # a job still running after 30 minutes is given up on (it may still finish in the app)
+
+
+def poll_job(token_path: Path, job_id: str, *, every_s: float = 1.0, sleep=time.sleep,
+             clock=time.monotonic, cap_s: float = POLL_CAP_S) -> dict:
     """GET the job every `every_s` seconds until it is no longer running; returns the job."""
+    deadline = clock() + cap_s
     while True:
         try:
             job = call(token_path, "GET", f"/api/jobs/{job_id}", timeout_s=30)
@@ -101,4 +106,6 @@ def poll_job(token_path: Path, job_id: str, *, every_s: float = 1.0, sleep=time.
             raise
         if job["state"] != "running":
             return job
+        if clock() >= deadline:
+            raise AppUnavailable(f"no answer after {cap_s / 60:g} minutes; the job may still finish in the app")
         sleep(every_s)

@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 import pytest
 
-from conftest import APP_CLOCK_MS, BrokenKeyring
+from conftest import APP_CLOCK_MS, BrokenKeyring, _real_transcript
 from fake_pendant import FakePendant
 from fake_provider import FakeProvider
 from lavalier.insights import keys
@@ -97,7 +97,7 @@ async def test_insights_if_due_generates_one_due_day_under_the_lock(insights_app
     assert app._process_lock.locked()                 # held while the worker runs
     assert await app.insights_if_due() is False       # never twice at once
     gate.set()
-    await app._insights_worker
+    await app.jobs.wait(app._insights_job)
     assert not app._process_lock.locked()
     assert db.insight(DAY).state == "done" and app.fake.calls == [("summarize", DAY)]
     assert "insights: 2026-10-23 done by fake-model" in caplog.text
@@ -121,7 +121,7 @@ async def test_insights_if_due_logs_a_failure_and_stores_the_error(insights_app,
     app.fake.error = "Ollama is not running"
     caplog.set_level(logging.INFO, logger="lavalier.app")
     assert await app.insights_if_due() is True
-    await app._insights_worker
+    await app.jobs.wait(app._insights_job)
     assert db.insight(DAY).state == "error" and "insights: 2026-10-23 failed: Ollama is not running" in caplog.text
 
 
@@ -176,16 +176,64 @@ async def test_generate_refuses_without_a_usable_provider(insights_app, memory_k
     with pytest.raises(ValueError, match="^No model chosen.$"):
         app.generate(DAY)
     app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    app.note_key("anthropic", False)                  # what the key routes or a worker last saw
     with pytest.raises(ValueError) as e:
         app.ask(DAY, "who?")
-    assert str(e.value) == NO_KEY
-    assert app.insights_day(DAY)["reason"] == NO_KEY
-    keys.set_key("anthropic", "sk-test")
+    assert str(e.value) == NO_KEY and app.insights_day(DAY)["reason"] == NO_KEY
+    app.note_key("anthropic", True)
     assert app.insights_day(DAY)["reason"] is None
-    import keyring
-    keyring.set_keyring(BrokenKeyring())
+    app.note_key("anthropic", None, "The Keychain refused: locked")
     with pytest.raises(ValueError, match="The Keychain refused"):
         app.generate(DAY)
+
+
+async def test_a_key_not_known_either_way_is_read_by_the_worker(insights_app, memory_keyring):
+    app = insights_app
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    assert app.insights_day(DAY)["reason"] is None    # unknown counts as present
+    jid = app.generate(DAY)
+    await app.jobs.wait(jid)
+    assert app.jobs.get(jid)["state"] == "error" and app.jobs.get(jid)["error"] == NO_KEY
+    assert app.insights_day(DAY)["reason"] == NO_KEY  # the worker noted it
+    import keyring
+    keyring.set_keyring(BrokenKeyring())
+    app.note_key("anthropic", None)
+    jid = app.ask(DAY, "who?")
+    await app.jobs.wait(jid)
+    assert app.jobs.get(jid)["error"].startswith("The Keychain refused")
+    assert app.insights_day(DAY)["reason"].startswith("The Keychain refused")
+
+
+async def test_the_loop_thread_never_reads_the_keychain(insights_app, memory_keyring, monkeypatch):
+    app = insights_app
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    keys.set_key("anthropic", "sk-test")
+    loop_thread = threading.get_ident()
+    reads = []
+
+    def guarded_get_key(provider):
+        reads.append(threading.get_ident())
+        assert threading.get_ident() != loop_thread, "the Keychain was read on the loop"
+        return "sk-test"
+    monkeypatch.setattr(keys, "get_key", guarded_get_key)
+    fake = app.fake
+    app.provider_factory = lambda cfg: (keys.get_key(cfg.insights_provider), fake)[1]   # reads, like the real one
+    app.insights_day(DAY)
+    app.insights_index()
+    await app.jobs.wait(app.generate(DAY))
+    await app.jobs.wait(app.ask(DAY, "who?"))
+    await app.jobs.wait(app.generate_range(5))
+    app.snapshot()
+    assert reads and loop_thread not in reads
+
+
+async def test_start_up_fills_the_key_cache_off_the_loop(app_env, memory_keyring):
+    app = app_env(FakePendant())
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="openai")
+    async def fake_sleep(s): app.stop()
+    app._sleep = fake_sleep
+    await app.run()
+    assert app._key_present == {"openai": False}
 
 
 async def test_ask_takes_no_lock_and_its_result_is_the_answer(insights_app):
@@ -316,3 +364,139 @@ async def test_the_loop_stages_skip_while_a_generate_job_is_queued_for_the_lock(
     assert await app.insights_if_due() is False and await app.retention_if_due() is False
     await app.jobs.wait(jid)
     assert not app._process_lock.locked()
+
+
+# --- fix round 1
+
+async def test_the_automatic_run_is_a_day_job(insights_app):
+    app = insights_app
+    _due(app)
+    app.fake.gate = threading.Event()
+    assert await app.insights_if_due() is True
+    assert app.jobs.get(app._insights_job)["kind"] == "auto"
+    assert app.insights_day(DAY)["state"] == "generating"
+    with pytest.raises(JobRunning):
+        app.generate(DAY)
+    app.fake.gate.set()
+    await app.jobs.wait(app._insights_job)
+    assert not app._process_lock.locked()
+
+
+async def test_an_unexpected_failure_is_not_sent_again_every_turn(insights_app, db):
+    app = insights_app
+    _due(app)
+    def broken(cfg):
+        raise RuntimeError("the adapter broke")
+    app.provider_factory = broken
+    assert await app.insights_if_due() is True
+    await app.jobs.wait(app._insights_job)
+    assert app.jobs.get(app._insights_job)["state"] == "error" and db.insight(DAY) is None
+    assert await app.insights_if_due() is False       # tried once in this process
+    assert not app._process_lock.locked()
+
+
+async def test_auto_waits_for_a_key_and_says_a_keychain_refusal_once(insights_app, caplog):
+    app = insights_app
+    _due(app)
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    app.note_key("anthropic", False)
+    assert await app.insights_if_due() is False and app.fake.calls == []
+    app.note_key("anthropic", None, "The Keychain refused: locked")
+    caplog.set_level(logging.INFO, logger="lavalier.app")
+    assert await app.insights_if_due() is False
+    assert await app.insights_if_due() is False
+    assert caplog.text.count("insights: 2026-10-23 skipped: The Keychain refused: locked") == 1
+    assert app.fake.calls == []
+
+
+async def test_a_missing_key_found_by_the_worker_is_tried_again_once_one_is_saved(insights_app, db, memory_keyring):
+    app = insights_app
+    _due(app)
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    assert await app.insights_if_due() is True        # the cache does not know yet: the worker reads it
+    await app.jobs.wait(app._insights_job)
+    assert app.jobs.get(app._insights_job)["error"] == NO_KEY and db.insight(DAY) is None
+    assert await app.insights_if_due() is False       # the cache now says no key
+    keys.set_key("anthropic", "sk-test")
+    app.note_key("anthropic", True)                   # what the key route does
+    assert await app.insights_if_due() is True
+    await app.jobs.wait(app._insights_job)
+    assert db.insight(DAY).state == "done"
+
+
+@pytest.fixture
+def second_speech_day(db, clip, cfg):
+    from lavalier.group import rebuild_day
+    first = int(datetime(2026, 10, 22, 15, 0).timestamp() * 1000)
+    c = clip(first, first + 16000)
+    db.add_clip(dataclasses.replace(c, classification=None, transcribed_at=None))
+    db.set_transcript(c.clip_id, _real_transcript(), "speech", first + 60000)
+    rebuild_day(db, date(2026, 10, 22), cfg)
+    return date(2026, 10, 22)
+
+
+async def test_a_range_takes_the_lock_one_day_at_a_time(insights_app, second_speech_day):
+    app = insights_app
+    app._now_ms = lambda: AFTER_DAY
+    order = []
+    app.fake.gate = threading.Event()
+    real = app.fake.summarize
+    def summarize(dt):
+        order.append(dt.day)
+        return real(dt)
+    app.fake.summarize = summarize
+    jid = app.generate_range(5)
+    while not order:
+        await asyncio.sleep(0.01)
+    async def drain_processing():                     # a processing run queued behind the first day
+        async with app._process_lock:
+            order.append("processing")
+    waiter = asyncio.ensure_future(drain_processing())
+    await asyncio.sleep(0.01)
+    app.fake.gate.set()
+    await app.jobs.wait(jid)
+    await waiter
+    assert order == [second_speech_day, "processing", DAY]
+    assert app.jobs.get(jid)["result"] == {"done": 2, "errors": []} and not app._process_lock.locked()
+
+
+async def test_nothing_new_starts_while_the_app_is_stopping(insights_app):
+    from lavalier.server import AppStopping
+    app = insights_app
+    _due(app)
+    app._stopping = True
+    assert await app.insights_if_due() is False
+    for start in (lambda: app.generate(DAY), lambda: app.generate_range(3), lambda: app.ask(DAY, "who?")):
+        with pytest.raises(AppStopping):
+            start()
+    assert app.fake.calls == []
+
+
+def test_day_text_chars_is_one_query_over_speech_segments(db, seeded_2026_10_23_subset):
+    assert db.day_text_chars() == {DAY: 2 * len(" test test test one two three")}
+
+
+async def test_start_up_records_a_provider_chosen_by_hand(app_env):
+    app = app_env(FakePendant())
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="ollama")
+    async def fake_sleep(s): app.stop()
+    app._sleep = fake_sleep
+    await app.run()
+    from lavalier.db import Database
+    db = Database(app.paths.db)
+    try:
+        assert db.get_status("insights_enabled_at_ms") == str(APP_CLOCK_MS)
+    finally:
+        db.close()
+
+
+async def test_start_up_keeps_an_earlier_enabled_moment_and_none_without_a_provider(app_env):
+    app = app_env(FakePendant())
+    app.db.set_status("insights_enabled_at_ms", "5")
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="ollama")
+    app._startup_housekeeping()
+    assert app.db.get_status("insights_enabled_at_ms") == "5"
+    other = app_env(FakePendant())
+    other.db.clear_status("insights_enabled_at_ms")
+    other._startup_housekeeping()
+    assert other.db.get_status("insights_enabled_at_ms") is None
