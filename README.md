@@ -364,6 +364,9 @@ conversation's heading in the day file, and in the text the Insights prompt
 is given. Names are set at each processing run. Turning the connector off in
 Settings clears every name at once: the window shows none straight away, and
 each day file that had one is rewritten without it at the next processing run.
+The calendar is read only on this Mac, but the names travel with the day's text
+wherever that text goes: to Notion when that connector is on, and to a cloud
+Insights provider when you use one.
 
 ## Building the app bundle
 

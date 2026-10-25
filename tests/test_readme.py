@@ -46,6 +46,7 @@ def test_readme_documents_the_connectors():
     assert "Export again" in text and "stopped" in text and "Limitless" not in text
     assert "dedicated database" in text
     assert "clears every name at once" in text
+    assert "the names travel with the day's text" in text
 
 
 def test_bundle_readme_notes_eventkit_and_the_calendar_prompt():
