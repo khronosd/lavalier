@@ -12,7 +12,7 @@ from lavalier.insights.keys import KeychainError
 from lavalier.insights.providers.base import ProviderCheck, ProviderError
 from lavalier.insights.schema import PROMPT_VERSION, Insight
 from lavalier.insights.stage import (
-    DAY_COMPLETE_HOUR, NO_SPEECH, ask_day, day_is_complete, due_days, estimate, generate_day,
+    DAY_COMPLETE_HOUR, NO_SPEECH, ask_day, day_is_complete, due_days, generate_day,
 )
 from lavalier.models import Transcript
 from lavalier.pipeline import status_summary
@@ -278,7 +278,7 @@ def test_due_days_is_empty_when_auto_is_off(db, cfg, five_speech_days):
     assert due_days(db, _cfg(cfg), now_ms=now, enabled_at_ms=None) == []
 
 
-# --- ask_day and estimate
+# --- ask_day
 
 def test_ask_day_answers_from_the_provider(db, seeded_2026_10_23_subset, cfg):
     p = FakeProvider(answer="You counted to three.")
@@ -296,36 +296,9 @@ def test_ask_day_lets_provider_errors_through(db, seeded_2026_10_23_subset, cfg)
         ask_day(db, cfg, FakeProvider(error="timed out"), DAY, "Q?", now_ms=NOW)
 
 
-def test_estimate_scales_the_cost_by_tokens(db, seeded_2026_10_23_subset, cfg, monkeypatch):
-    real = stage.day_text
-
-    def big(db, day, cfg, *, now_ms):
-        return dataclasses.replace(real(db, day, cfg, now_ms=now_ms), chars=80_000)  # 20k tokens
-
-    monkeypatch.setattr(stage, "day_text", big)
-    e = estimate(db, cfg, [DAY, DAY], FakeProvider(), now_ms=NOW)
-    assert e == {"days": 2, "tokens": 40_000, "cost": "about $0.20"}
-    e = estimate(db, cfg, [DAY], FakeProvider(cost="about $0.0048 per 3-hour day"), now_ms=NOW)
-    assert e["cost"] == "about $0.0024"
-    e = estimate(db, cfg, [DAY] * 30, FakeProvider(cost="about $0.48 per 3-hour day"), now_ms=NOW)
-    assert e["cost"] == "about $7.20"
-    e = estimate(db, cfg, [DAY] * 300, FakeProvider(cost="about $0.48 per 3-hour day"), now_ms=NOW)
-    assert e["cost"] == "about $72"
-
-
-def test_estimate_uses_the_real_day_text(db, seeded_2026_10_23_subset, cfg):
-    from lavalier.insights.prompt import day_text, estimate_tokens
-    chars = day_text(db, DAY, cfg, now_ms=NOW).chars
-    e = estimate(db, cfg, [DAY], FakeProvider(), now_ms=NOW)
-    assert e["days"] == 1 and e["tokens"] == estimate_tokens(chars) and e["cost"].startswith("about $")
-
-
-def test_estimate_free_and_unpriced(db, seeded_2026_10_23_subset, cfg):
-    assert estimate(db, cfg, [DAY], FakeProvider(cost="free, runs on this Mac"), now_ms=NOW)["cost"] == \
-        "free, runs on this Mac"
-    assert estimate(db, cfg, [DAY], FakeProvider(cost="set by that endpoint"), now_ms=NOW)["cost"] == \
-        "set by that endpoint"
-    assert estimate(db, cfg, [], FakeProvider(), now_ms=NOW) == {"days": 0, "tokens": 0, "cost": "about $0"}
+def test_the_window_alone_estimates_a_range():
+    # the range estimate is computed by the window (insights.ts rangeEstimate); the stage keeps no copy
+    assert not hasattr(stage, "estimate") and not hasattr(stage, "_money")
 
 
 # --- status

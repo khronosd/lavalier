@@ -1,8 +1,6 @@
 """The insights stage: one day's text to the chosen provider, the reply stored, the day file rewritten."""
 
-import re
 from datetime import date, datetime, time, timedelta
-from math import floor, log10
 from typing import Optional
 
 from lavalier.config import Config
@@ -10,7 +8,7 @@ from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database, InsightRecord
 from lavalier.insights.keys import KeychainError
 from lavalier.insights.names import provider_id
-from lavalier.insights.prompt import day_text, estimate_tokens, resolve_moment
+from lavalier.insights.prompt import day_text, resolve_moment
 from lavalier.insights.providers.base import Provider, ProviderError
 from lavalier.insights.schema import PROMPT_VERSION, FollowUp, Insight, InsightError, parse_reply
 from lavalier.journal import day_view
@@ -18,9 +16,6 @@ from lavalier.paths import Paths
 
 NO_SPEECH = "Nothing to summarise for this day"
 DAY_COMPLETE_HOUR = 4
-FREE = "free, runs on this Mac"
-_COST_TOKENS = 40_000  # the per-day cost figures are for 40k input tokens
-_DOLLARS = re.compile(r"\$([0-9]+(?:\.[0-9]+)?)")
 
 
 def _complete_ms(day: date) -> int:
@@ -98,26 +93,3 @@ def ask_day(db: Database, cfg: Config, provider: Provider, day: date, question: 
     if not dt.has_speech:
         return NO_SPEECH
     return provider.ask(dt, question)
-
-
-def _money(x: float) -> str:
-    """Two significant figures; cents shown below $10, whole dollars above."""
-    if x <= 0:
-        return "$0"
-    r = float(f"{x:.2g}")
-    decimals = max(0, 1 - floor(log10(r)))
-    if r < 10:
-        decimals = max(decimals, 2)
-    return f"${r:.{decimals}f}"
-
-
-def estimate(db: Database, cfg: Config, days: list[date], provider: Provider, *, now_ms: int) -> dict:
-    tokens = sum(estimate_tokens(day_text(db, d, cfg, now_ms=now_ms).chars) for d in days)
-    cost_text = provider.facts().get("cost") or ""
-    if cost_text.startswith("free"):
-        cost = FREE
-    elif m := _DOLLARS.search(cost_text):
-        cost = f"about {_money(float(m[1]) * tokens / _COST_TOKENS)}"
-    else:
-        cost = cost_text
-    return {"days": len(days), "tokens": tokens, "cost": cost}

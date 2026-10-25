@@ -74,12 +74,12 @@ export function pollError(e: unknown): string {
 
 // --- the range across days ---
 
-/** What stage.estimate assumes: the per-day cost figures are for 40k input tokens; a token is 4 characters. */
+/** The per-day cost figures are for 40k input tokens; a token is 4 characters (prompt.estimate_tokens). */
 const COST_TOKENS = 40_000;
 const DOLLARS = /\$([0-9]+(?:\.[0-9]+)?)/;
 export const FREE = "free, runs on this Mac";
 
-/** Two significant figures, cents shown below $10, whole dollars above (stage._money). */
+/** Two significant figures, cents shown below $10, whole dollars above. */
 export function money(x: number): string {
   if (!(x > 0)) return "$0";
   const r = Number(x.toPrecision(2));
