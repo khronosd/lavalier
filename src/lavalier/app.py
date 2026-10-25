@@ -562,10 +562,18 @@ class App:
 
     def _note_connectors_change(self, before: Config) -> None:
         """Turning Notion on reads whether a token is saved, off the loop, so automatic exports can start.
-        Another database forgets every export row, so each day goes fresh into the new database instead of
+        Turning Calendar off clears every label and marks those days dirty. Another database forgets every export row, so each day goes fresh into the new database instead of
         following its page in the old one."""
         if self.cfg.notion_enabled and not before.notion_enabled and self._key_present.get(NOTION) is None:
             self._fill_key_cache(NOTION)
+        if before.calendar_enabled and not self.cfg.calendar_enabled:
+            # the window loses the names at once; each day's file is rewritten at the next process
+            with self.db.transaction():
+                days = self.db.clear_all_labels()
+                for day in days:
+                    self.db.mark_day_dirty(day)
+            if days:
+                _log.info("calendar: turned off; labels cleared on %d day(s)", len(days))
         if self.cfg.notion_database_id != before.notion_database_id:
             gone = self.db.delete_exports(NOTION)
             if gone:

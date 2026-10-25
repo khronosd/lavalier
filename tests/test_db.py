@@ -511,6 +511,18 @@ def test_set_conversation_label_shows_in_the_day_view_and_clears(db, cfg, seeded
     assert db.conversation(cid).label is None
 
 
+def test_clear_all_labels_clears_in_one_go_and_names_the_days(db):
+    from lavalier.group import Conversation
+    d1, d2, d3 = date(2026, 10, 21), date(2026, 10, 22), date(2026, 10, 23)
+    db.replace_conversations(d1, [Conversation("c-1", d1, 1, 9, 5, [], [], label="Standup"),
+                                  Conversation("c-2", d1, 10, 19, 5, [], [], label="Lunch")])
+    db.replace_conversations(d2, [Conversation("c-3", d2, 1, 9, 5, [], [])])
+    db.replace_conversations(d3, [Conversation("c-4", d3, 1, 9, 5, [], [], label="1:1")])
+    assert db.clear_all_labels() == [d1, d3]
+    assert all(db.conversation(c).label is None for c in ("c-1", "c-2", "c-3", "c-4"))
+    assert db.clear_all_labels() == []
+
+
 def test_a_rebuild_carries_the_label_of_a_conversation_that_persists(db):
     """Ruling R2: same id (same start) keeps its label; a new id starts unlabelled; an explicit label wins."""
     d1 = date(2026, 10, 23)

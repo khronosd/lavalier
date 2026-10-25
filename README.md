@@ -361,8 +361,9 @@ A conversation takes the title of the timed event that overlaps it most (the
 earlier event wins a tie); all-day events are ignored, and a conversation that
 overlaps nothing gets no name. The name shows in the window, in the
 conversation's heading in the day file, and in the text the Insights prompt
-is given. Names are set at each processing run. Turning the connector off
-clears the names at the next processing run.
+is given. Names are set at each processing run. Turning the connector off in
+Settings clears every name at once: the window shows none straight away, and
+each day file that had one is rewritten without it at the next processing run.
 
 ## Building the app bundle
 

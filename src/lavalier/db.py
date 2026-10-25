@@ -850,6 +850,13 @@ class Database:
             self._conn.execute("UPDATE conversations SET label = ? WHERE conversation_id = ?",
                                (label, conversation_id))
 
+    def clear_all_labels(self) -> list[date]:
+        """Clear every conversation's label in one UPDATE; returns the days that had one, oldest first."""
+        with self._write_scope():
+            rows = self._conn.execute(
+                "UPDATE conversations SET label = NULL WHERE label IS NOT NULL RETURNING day").fetchall()
+        return sorted({date.fromisoformat(r["day"]) for r in rows})
+
     def last_drain_ok_ms(self) -> Optional[int]:
         r = self._conn.execute("SELECT MAX(ended_ms) AS m FROM sync_runs WHERE outcome = 'drained'").fetchone()
         return r["m"]

@@ -339,6 +339,26 @@ async def test_turning_notion_on_reads_the_token_presence_off_the_loop(app_env, 
 
 # --- the calendar
 
+async def test_turning_the_calendar_off_clears_every_label_at_once(app_env, db, seeded_2026_10_23_subset):
+    from lavalier.config import save_config
+    from lavalier.journal import day_view
+    app = app_env(FakePendant())
+    app.cfg = dataclasses.replace(app.cfg, calendar_enabled=True)
+    save_config(app.cfg, app.paths.config)
+    cid = db.conversations_for_day(DAY)[0].conversation_id
+    db.set_conversation_label(cid, "Weekly sync")
+    db.mark_day_clean(DAY)
+    app.update_settings({"calendar_ids": "work"})          # another calendar setting: labels stay
+    assert db.conversation(cid).label == "Weekly sync" and DAY not in db.days_dirty()
+    app.update_settings({"calendar_enabled": False})
+    assert db.conversation(cid).label is None
+    assert DAY in db.days_dirty()                          # its day file follows at the next process
+    assert all(c.label is None for c in day_view(db, DAY, app.cfg, now_ms=0).conversations)
+    db.set_conversation_label(cid, "Kept")                 # already off: saving again clears nothing
+    app.update_settings({"calendar_enabled": False})
+    assert db.conversation(cid).label == "Kept"
+
+
 async def test_the_calendar_source_is_built_lazily_in_a_worker(app_env):
     app = app_env(FakePendant())
     loop_thread = threading.get_ident()
