@@ -22,6 +22,7 @@ class FakeProvider:
         self.reply = REPLY if reply is None else reply
         self.error, self.answer, self.gate = error, answer, gate
         self.calls: list[tuple] = []
+        self.texts: list = []  # the DayText of each summarize or ask, in order
         self.checks = 0
 
     def _wait(self):
@@ -37,6 +38,7 @@ class FakeProvider:
 
     def ask(self, dt, question):
         self.calls.append(("ask", dt.day, question))
+        self.texts.append(dt)
         self._wait()
         if self.error is not None:
             raise ProviderError(self.error)

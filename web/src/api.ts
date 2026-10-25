@@ -375,8 +375,19 @@ export interface GenerateResult {
   stored: boolean;
 }
 
+/** Where an answer across days came from: a line, linked as a jump. */
+export interface AskSource {
+  day: IsoDate;
+  conversation_id: string;
+  line_id: string;
+  at_ms: number;
+}
+
+/** An ask job's result; one across days (POST /api/ask-days) carries its sources and how many days they span. */
 export interface AskResult {
   answer: string;
+  sources?: AskSource[];
+  days?: number;
 }
 
 export interface ModelInfo {

@@ -819,3 +819,17 @@ async def test_a_range_goes_on_past_another_failure(insights_app, second_speech_
     await app.jobs.wait(jid)
     r = app.jobs.get(jid)["result"]
     assert len(r["errors"]) == 2 and r["stopped"] is None and r["not_sent"] == 0
+
+
+async def test_ask_days_is_its_own_job_whose_result_carries_the_sources(insights_app):
+    app = insights_app
+    app.fake.answer = "You counted to three."
+    jid = app.ask_days("  when did I count to three?  ")
+    await app.jobs.wait(jid)
+    j = app.jobs.get(jid)
+    assert j["kind"] == "ask_days" and j["key"].startswith("ask-days:")
+    assert j["result"]["answer"] == "You counted to three." and j["result"]["days"] == 1
+    assert j["result"]["sources"][0]["day"] == "2026-10-23"
+    assert app.fake.calls == [("ask", DAY, "when did I count to three?")]
+    with pytest.raises(ValueError):
+        app.ask_days("   ")

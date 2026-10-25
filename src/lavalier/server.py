@@ -332,6 +332,13 @@ def _ask(srv, req):
     return _json({"job": _refused_as_400(srv, srv.app_like.ask, day, body["question"])}, 202)
 
 
+def _ask_days(srv, req):
+    body = _body_object(req)
+    if not isinstance(body.get("question"), str):
+        raise _BadRequest("question is required")
+    return _json({"job": _refused_as_400(srv, srv.app_like.ask_days, body["question"])}, 202)
+
+
 def _job(srv, req):
     return _json(srv.call(srv.app_like.job, req.groups[0]))
 
@@ -547,6 +554,7 @@ _API_ROUTES = [
     ("POST", r"/api/insights/generate-range", _generate_range),
     ("POST", r"/api/insights/check", _check),
     ("POST", r"/api/ask", _ask),
+    ("POST", r"/api/ask-days", _ask_days),
     ("GET", r"/api/jobs/([A-Za-z0-9_-]+)", _job),
     ("GET", r"/api/connectors", _connectors),
     ("POST", r"/api/connectors/notion/check", _notion_check),

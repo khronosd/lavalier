@@ -3,7 +3,7 @@
 import json
 from typing import Optional
 
-from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages
+from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages, system_prompt
 from lavalier.insights.providers.base import ModelInfo, ProviderCheck, ProviderError
 from lavalier.insights.schema import INSIGHT_SCHEMA
 
@@ -60,10 +60,10 @@ class OpenAI:
 
             self._client = sdk.OpenAI(api_key=api_key, base_url=base_url or None, timeout=timeout_s)
 
-    def _text(self, user_text: str, text_format: Optional[dict]) -> str:
+    def _text(self, user_text: str, text_format: Optional[dict], system: str = SYSTEM_PROMPT) -> str:
         if self._client is None:
             raise ProviderError(NO_KEY)
-        kwargs = {"model": self.model, "instructions": SYSTEM_PROMPT, "input": user_text}
+        kwargs = {"model": self.model, "instructions": system, "input": user_text}
         if text_format is not None:
             kwargs["text"] = {"format": text_format}
         try:
@@ -82,7 +82,7 @@ class OpenAI:
         return out
 
     def ask(self, dt: DayText, question: str) -> str:
-        answer = self._text(ask_messages(dt, question)[0]["content"], None)
+        answer = self._text(ask_messages(dt, question)[0]["content"], None, system_prompt(dt))
         if not answer.strip():
             raise ProviderError(NO_ANSWER)
         return answer

@@ -32,6 +32,16 @@ _SUMMARIZE = (
 )
 _ASK = "Answer the question from this day's text only. If the text does not say, say so."
 
+SYSTEM_PROMPT_DAYS = (
+    "You read passages from several days of a person's own transcribed conversations, recorded by a "
+    "microphone they wear: the passages that match the words of their question, each under its day and its "
+    "conversation, every line with the time of day as [HH:MM:SS]; […] marks where a conversation goes on. "
+    "Write for that person, in plain language, in their own words where you can. "
+    "Never invent names, events or decisions that are not in the passages. "
+    "Answer only from the passages; when they do not say, say so. Name the day when it matters."
+)
+_ASK_DAYS = "Answer the question from these passages only. If they do not say, say so."
+
 
 @dataclass(frozen=True)
 class DayText:
@@ -41,6 +51,7 @@ class DayText:
     truncated: bool
     day_start_ms: int
     has_speech: bool
+    across: bool = False  # passages from several days, not one day's text
 
 
 def _cut_front(text: str) -> str:
@@ -70,8 +81,14 @@ def summarize_messages(dt: DayText) -> list[dict]:
     return [{"role": "user", "content": f"{_SUMMARIZE}\n\n{dt.text}"}]
 
 
+def system_prompt(dt: DayText) -> str:
+    """What the model is told it reads: one day's text, or passages from several days."""
+    return SYSTEM_PROMPT_DAYS if dt.across else SYSTEM_PROMPT
+
+
 def ask_messages(dt: DayText, question: str) -> list[dict]:
-    return [{"role": "user", "content": f"{_ASK}\n\nQuestion: {question}\n\n{dt.text}"}]
+    ask = _ASK_DAYS if dt.across else _ASK
+    return [{"role": "user", "content": f"{ask}\n\nQuestion: {question}\n\n{dt.text}"}]
 
 
 def resolve_moment(view: DayView, at_ms: int) -> Optional[str]:

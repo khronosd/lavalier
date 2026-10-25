@@ -61,6 +61,7 @@ beforeEach(() => {
     if (key === "GET /api/jobs/j1") return json(jobs.length > 1 ? jobs.shift() : jobs[0]);
     if (key === "POST /api/insights/generate-range") return post();
     if (key.startsWith("POST /api/insights/generate/")) return json({ job: "j2" }, 202);
+    if (key === "POST /api/ask-days") return json({ job: "j1" }, 202);
     if (key === "PUT /api/settings") return json({});
     const day = /^GET \/api\/insights\/(\d{4}-\d{2}-\d{2})$/.exec(key)?.[1];
     if (day) return json(dayStates[day] ?? dayState());
@@ -365,4 +366,27 @@ test("without a provider the inspector says to choose a model and offers nothing
   expect(aside.getByText("Choose a model")).toBeTruthy();
   expect(aside.queryByRole("switch")).toBeNull();
   expect(aside.queryByRole("button")).toBeNull();
+});
+
+test("All days asks across every day: the question goes to /api/ask-days, the answer shows with its sources as jumps", async () => {
+  jobs = [job({ kind: "ask_days", state: "done", result: {
+    answer: "You counted to three on Friday.", days: 1,
+    sources: [{ day: "2026-10-23", conversation_id: "c-20261023-225600", line_id: "clip_b-0", at_ms: at(22, 56, 9) }],
+  } })];
+  await show();
+  const input = screen.getByRole("textbox", { name: "Ask across every day" }) as HTMLInputElement;
+  fireEvent.input(input, { target: { value: "when did I count?" } });
+  fireEvent.submit(input.closest("form")!);
+  await flush();
+  expect(calls.find((c) => c.key === "POST /api/ask-days")!.body).toEqual({ question: "when did I count?" });
+  await tick();
+  expect(screen.getByText("You counted to three on Friday.")).toBeTruthy();
+  const source = screen.getByRole("link", { name: "23 October 22:56:09" });
+  expect(source.getAttribute("href")).toBe("#/day/2026-10-23?at=clip_b-0");
+});
+
+test("without a provider All days has no question box", async () => {
+  facts = noProvider;
+  await show();
+  expect(screen.queryByRole("textbox", { name: "Ask across every day" })).toBeNull();
 });

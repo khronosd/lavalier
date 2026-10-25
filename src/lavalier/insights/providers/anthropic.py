@@ -3,7 +3,7 @@
 import json
 from typing import Optional
 
-from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages
+from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages, system_prompt
 from lavalier.insights.providers.base import ModelInfo, ProviderCheck, ProviderError
 from lavalier.insights.schema import INSIGHT_SCHEMA
 
@@ -49,11 +49,11 @@ class Anthropic:
 
             self._client = sdk.Anthropic(api_key=api_key, timeout=timeout_s, max_retries=2)
 
-    def _final(self, max_tokens: int, messages: list[dict], output_config: dict):
+    def _final(self, max_tokens: int, messages: list[dict], output_config: dict, system: str = SYSTEM_PROMPT):
         if self._client is None:
             raise ProviderError(NO_KEY)
         try:
-            with self._client.messages.stream(model=self.model, max_tokens=max_tokens, system=SYSTEM_PROMPT,
+            with self._client.messages.stream(model=self.model, max_tokens=max_tokens, system=system,
                                               messages=messages, output_config=output_config) as s:
                 msg = s.get_final_message()
         except Exception as e:
@@ -76,7 +76,7 @@ class Anthropic:
         return out
 
     def ask(self, dt: DayText, question: str) -> str:
-        answer = "".join(self._final(2048, ask_messages(dt, question), {"effort": _EFFORT}))
+        answer = "".join(self._final(2048, ask_messages(dt, question), {"effort": _EFFORT}, system_prompt(dt)))
         if not answer.strip():
             raise ProviderError("The model gave no answer")
         return answer

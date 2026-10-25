@@ -299,6 +299,13 @@ automatic run. A done insight is never replaced by a failed retry. The day
 file gets an "## Insights" section after the conversations, with the summary,
 follow-ups, people and topics, and a line naming the model and the time.
 
+Asking across days: the question box on Insights › All days (and `lavalier ask-days
+"question"`) finds the lines whose words match the question in the app's own search
+index, takes the lines around each hit inside its conversation, and sends those passages,
+each under its day and time, to the model you chose; the answer comes back with the
+moments it drew on, linked. Nothing matching sends nothing. Only transcript text goes, to
+the provider you chose; never audio.
+
 ## Connectors
 
 Both connectors are off until you turn them on in Settings › Connectors, and

@@ -565,6 +565,20 @@ def ask_cmd(day: datetime, question: str) -> None:
     click.echo(_finished_job(token, job)["answer"])
 
 
+@main.command("ask-days")
+@click.argument("question")
+def ask_days_cmd(question: str) -> None:
+    """Ask a question across every day, through the app; the answer, then where it came from."""
+    paths, _ = _paths_cfg()
+    token = _app_token(paths)
+    job = _app_call(token, "POST", "/api/ask-days", {"question": question})["job"]
+    result = _finished_job(token, job)
+    click.echo(result["answer"])
+    for s in result.get("sources", []):
+        when = datetime.fromtimestamp(s["at_ms"] / 1000).strftime("%H:%M:%S")
+        click.echo(f"  {s['day']} {when}  ({s['conversation_id']})")
+
+
 _EXPORT_LINE = {"exported": "exported", "unchanged": "unchanged", "not_sent": "not sent"}
 
 

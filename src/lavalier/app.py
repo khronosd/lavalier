@@ -514,6 +514,27 @@ class App:
                                lambda provider: self._ask_job(cfg, day, q, provider),
                                prepare=lambda: self._build_provider(cfg))
 
+    def ask_days(self, question: str) -> str:
+        """A question across every day, as a job. It only reads, so it takes no lock."""
+        q = question.strip() if isinstance(question, str) else ""
+        if not q:
+            raise ValueError(NO_QUESTION)
+        self._check_usable()
+        cfg = self.cfg
+        self._asks += 1
+        return self.jobs.start("ask_days", f"ask-days:{self._asks}",
+                               lambda provider: self._ask_days_job(cfg, q, provider),
+                               prepare=lambda: self._build_provider(cfg))
+
+    def _ask_days_job(self, cfg: Config, question: str, provider: Provider) -> dict:
+        db = Database(self.paths.db)
+        try:
+            return stage.ask_days(db, cfg, provider, question, now_ms=self._now_ms())
+        except (ProviderError, keys.KeychainError) as e:
+            raise JobFailed(str(e)) from None
+        finally:
+            db.close()
+
     def _ask_job(self, cfg: Config, day: date, question: str, provider: Provider) -> dict:
         db = Database(self.paths.db)
         try:

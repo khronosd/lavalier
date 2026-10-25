@@ -8,6 +8,7 @@ import { FollowUpLine } from "../components/FollowUps";
 import { Frame } from "../components/Frame";
 import { InsightsIcon } from "../components/icons";
 import { InsightsTab } from "../components/InsightsTab";
+import { QuestionBox } from "../components/QuestionBox";
 import { AUTO_LABEL } from "../components/ProviderPicker";
 import { useDayView } from "../dayCache";
 import { dayMonth, dayTitle } from "../format";
@@ -347,6 +348,7 @@ export function Insights({ days = null, today = "", day }: Props) {
             </div>
           </div>
         )}
+        {facts.provider && <div class="insights xd-ask"><QuestionBox /></div>}
       </>
     );
   }

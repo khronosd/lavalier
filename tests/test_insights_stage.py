@@ -375,3 +375,38 @@ def test_an_endpoint_run_is_stored_under_the_endpoint(root, db, seeded_2026_10_2
     p.error = "rate limited"
     assert generate_day(db, root, cfg, p, DAY, now_ms=NOW).provider == "openai@llm.example.net"
     assert generate_day(db, root, cfg, FakeProvider(name="openai"), DAY, now_ms=NOW).provider == "openai"
+
+
+# --- ask_days
+
+def test_ask_days_sends_the_matching_passages_marked_across_and_returns_the_sources(db, seeded_2026_10_23_subset, cfg):
+    from lavalier.insights.stage import ask_days
+    seen = []
+
+    class Capture(FakeProvider):
+        def ask(self, dt, question):
+            seen.append(dt)
+            return super().ask(dt, question)
+
+    p = Capture(answer="You counted to three, twice.")
+    out = ask_days(db, cfg, p, "When did I count to three?", now_ms=NOW)
+    assert out["answer"] == "You counted to three, twice." and out["days"] == 1
+    assert [s["day"] for s in out["sources"]] == ["2026-10-23"]
+    assert out["sources"][0]["line_id"].startswith("clip_") and out["sources"][0]["conversation_id"].startswith("c-")
+    assert p.calls == [("ask", DAY, "When did I count to three?")]
+    dt = seen[-1]
+    assert dt.across and dt.text.startswith("# Friday, 23 October 2026\n## ") and "[22:56:09] test test test one two three" in dt.text
+
+
+def test_ask_days_sends_nothing_when_no_word_matches(db, seeded_2026_10_23_subset, cfg):
+    from lavalier.insights.stage import NO_MATCH, ask_days
+    p = FakeProvider()
+    assert ask_days(db, cfg, p, "Any zebras?", now_ms=NOW) == {"answer": NO_MATCH, "sources": [], "days": 0}
+    assert ask_days(db, cfg, p, "What? Who?", now_ms=NOW)["answer"] == NO_MATCH
+    assert p.calls == []
+
+
+def test_ask_days_lets_provider_errors_through(db, seeded_2026_10_23_subset, cfg):
+    from lavalier.insights.stage import ask_days
+    with pytest.raises(ProviderError, match="timed out"):
+        ask_days(db, cfg, FakeProvider(error="timed out"), "three?", now_ms=NOW)

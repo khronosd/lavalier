@@ -3,7 +3,7 @@
 import json
 from typing import Optional
 
-from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages
+from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, summarize_messages, system_prompt
 from lavalier.insights.providers.base import ModelInfo, ProviderCheck, ProviderError
 from lavalier.insights.schema import INSIGHT_SCHEMA
 
@@ -58,10 +58,10 @@ class Google:
 
             self._client = sdk.Client(api_key=api_key, http_options={"timeout": int(timeout_s * 1000)})
 
-    def _text(self, user_text: str, extra: dict) -> str:
+    def _text(self, user_text: str, extra: dict, system: str = SYSTEM_PROMPT) -> str:
         if self._client is None:
             raise ProviderError(NO_KEY)
-        config = {"system_instruction": SYSTEM_PROMPT, **extra, "temperature": 0.2}
+        config = {"system_instruction": system, **extra, "temperature": 0.2}
         try:
             return self._client.models.generate_content(model=self.model, contents=user_text, config=config).text or ""
         except Exception as e:
@@ -79,7 +79,7 @@ class Google:
         return out
 
     def ask(self, dt: DayText, question: str) -> str:
-        answer = self._text(ask_messages(dt, question)[0]["content"], {})
+        answer = self._text(ask_messages(dt, question)[0]["content"], {}, system_prompt(dt))
         if not answer.strip():
             raise ProviderError(NO_ANSWER)
         return answer

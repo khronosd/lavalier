@@ -8,13 +8,15 @@ from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database, InsightRecord
 from lavalier.insights.keys import KeychainError
 from lavalier.insights.names import provider_id
-from lavalier.insights.prompt import day_text, resolve_moment
+from lavalier.insights import retrieval
+from lavalier.insights.prompt import DayText, day_text, resolve_moment
 from lavalier.insights.providers.base import Provider, ProviderError
 from lavalier.insights.schema import PROMPT_VERSION, FollowUp, Insight, InsightError, parse_reply
 from lavalier.journal import day_view
 from lavalier.paths import Paths
 
 NO_SPEECH = "Nothing to summarise for this day"
+NO_MATCH = "Nothing in your days matches the words of that question."
 DAY_COMPLETE_HOUR = 4
 
 
@@ -93,3 +95,18 @@ def ask_day(db: Database, cfg: Config, provider: Provider, day: date, question: 
     if not dt.has_speech:
         return NO_SPEECH
     return provider.ask(dt, question)
+
+
+def ask_days(db: Database, cfg: Config, provider: Provider, question: str, *, now_ms: int) -> dict:
+    """A question across every day: the passages whose words match it go to the provider, each under its
+    day and time; the answer comes back with its sources. Nothing matching sends nothing."""
+    terms = retrieval.question_terms(question)
+    passages = retrieval.gather(db, cfg, terms, now_ms=now_ms) if terms else []
+    if not passages:
+        return {"answer": NO_MATCH, "sources": [], "days": 0}
+    text = retrieval.render(passages)
+    newest = max(p.day for p in passages)
+    start = int(datetime.combine(newest, datetime.min.time()).timestamp() * 1000)
+    dt = DayText(newest, text, len(text), False, start, True, across=True)
+    return {"answer": provider.ask(dt, question), "sources": retrieval.sources(passages),
+            "days": len({p.day for p in passages})}

@@ -233,3 +233,19 @@ def test_a_providers_read_that_finds_a_key_while_presence_is_unknown_keeps_the_e
     assert put(srv, "/api/keys/anthropic", {"key": "sk-2"}).status == 204   # a save while unknown still counts
     get(srv, "/api/insights")
     assert srv.app.db.get_status("insights_enabled_at_ms") != "5"
+
+
+def test_ask_days_returns_a_job_whose_result_is_the_answer_with_its_sources(insights_server, fake_provider):
+    fake_provider.answer = "You counted to three."
+    r = post(insights_server, "/api/ask-days", {"question": "when did I count to three?"})
+    assert r.status == 202
+    j = _wait_job(insights_server, _body(r)["job"])
+    assert j["state"] == "done" and j["kind"] == "ask_days"
+    assert j["result"]["answer"] == "You counted to three." and j["result"]["sources"][0]["day"] == DAY
+    assert post(insights_server, "/api/ask-days", {"question": "  "}).status == 400
+    assert post(insights_server, "/api/ask-days", {}).status == 400
+
+
+def test_ask_days_without_a_usable_provider_is_400_with_the_reason(server_no_provider):
+    r = post(server_no_provider, "/api/ask-days", {"question": "who?"})
+    assert r.status == 400 and _body(r)["error"] == "No model chosen."

@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
-from lavalier.insights.prompt import SYSTEM_PROMPT, DayText, ask_messages, estimate_tokens, summarize_messages
+from lavalier.insights.prompt import DayText, ask_messages, estimate_tokens, summarize_messages, system_prompt
 from lavalier.insights.providers.base import ModelInfo, ProviderCheck, ProviderError
 from lavalier.insights.schema import INSIGHT_SCHEMA
 
@@ -86,7 +86,7 @@ class Ollama:
             raise ProviderError("Ollama sent a reply that could not be read") from None
 
     def _chat(self, messages: list[dict], dt: DayText, schema: Optional[dict]) -> str:
-        body = {"model": self.model, "messages": [{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+        body = {"model": self.model, "messages": [{"role": "system", "content": system_prompt(dt)}, *messages],
                 "stream": False, "options": {"num_ctx": num_ctx(dt.chars), "temperature": 0.2}}
         if schema is not None:
             body["format"] = schema
