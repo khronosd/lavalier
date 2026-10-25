@@ -5,7 +5,7 @@ transcripts and Markdown day files. It decodes the audio, drops noise clips,
 transcribes speech with a local Whisper model, groups clips into conversations
 and writes one Markdown file per day.
 
-Audio never leaves this Mac. This version makes no network connection at all except `doctor --download-model`.
+Audio never leaves this Mac. Unless you turn on Insights with a cloud model or the Notion connector (see "Insights" and "Connectors"), it makes no network connection at all except `doctor --download-model`.
 
 ## The device
 
@@ -55,6 +55,7 @@ once to fetch the speech model.
 - `day <YYYY-MM-DD> [--open] [--keep-noise]`: print that day's Markdown; `--open` writes the file and opens it; `--keep-noise` appends dropped noise clips (print mode only).
 - `pin <conversation-id>` / `unpin <conversation-id>`: keep that conversation's audio for good, or release it.
 - `retry-failed`: put failed clips back in the queue; the next `process` retries them.
+- `export [DAY] [--days N] [--force]`: export days to Notion through the running app (see "Connectors").
 - `retention --now`: apply the retention policy immediately (`--now` is required).
 
 `sync`, `status --live`, `mute` and `unmute` need `pendant_address` in `config.toml`. When the background app is running, they go through it. `sync --dry-run` and `doctor` run in the CLI under the same lock, and skip or refuse when the app holds the pendant. The lock is what guarantees one Bluetooth link at a time.
@@ -223,7 +224,7 @@ Starred, pinned and failed clips are kept.
 
 `lavalier window` opens a native window on the background app. It shows the
 Journal (days and conversations), the Transcript for a day, Search,
-Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights is described below; Connectors is a placeholder in this release.
+Starred clips, Audio, and the pendant card (the lamp state and its age, battery and pages waiting, with Sync now and Mute/Unmute). Insights and Connectors are described below.
 
 - It needs the background app. If the app is not running it prints how to start
   it and exits 1; it never starts one itself.
@@ -283,6 +284,76 @@ A failed generation shows its error on that day and is not retried by the
 automatic run. A done insight is never replaced by a failed retry. The day
 file gets an "## Insights" section after the conversations, with the summary,
 follow-ups, people and topics, and a line naming the model and the time.
+
+## Connectors
+
+Both connectors are off until you turn them on in Settings › Connectors, and
+neither ever receives audio. Notion sends text out; Calendar only reads.
+
+### Notion
+
+Sends each day's text, and its Insights once generated, to a Notion database
+you choose. Under the switch Settings shows this sentence:
+
+"Sends each day's text, and its Insights once generated, to the Notion database you choose. Audio is never sent."
+
+Set up:
+
+1. In Notion, create an internal integration and copy its secret.
+2. Share your database with that integration (the database's menu, Connections).
+3. In Settings › Connectors, paste the secret under "Integration token" and
+   press Save token. It goes to the macOS Keychain under the service
+   `io.github.khronosd.lavalier`, account `notion`, never to `config.toml`.
+4. Paste the database's URL or its id under "Database". A `notion.so` link or
+   a 32-character id (dashed or not) is accepted and stored as 32 lower-case hex.
+5. Press Test. It shows the database's title and which properties will be
+   added. Then turn "Send days to Notion" on.
+
+What it writes: one page per day, titled with the ISO date (`2026-10-23`). The
+database gets the properties Date, Speech (min), Conversations and Stars when
+they are missing (a property of that name with another type is never retyped:
+the export stops with a message until you rename it). The day's text, then its
+Insights, go inside one callout block the connector owns, marked:
+
+"Written by lavalier. Edits inside this block are overwritten; add your notes outside it."
+
+Anything else on the page is never touched. A day without speech gets no page.
+
+When it writes: after each processing run that wrote day files, and after each
+insight, when the switch is on, a database is chosen and a token is saved; a
+day just exported is not exported again within a minute. Only days whose
+content changed are written. "Export the last 7 days" in Settings, and
+`lavalier export`, do it on demand.
+
+The hand-edit rule: if the owned block no longer reads as the connector last
+wrote it, exports for that day stop, and Settings shows the day as "stopped".
+Nothing is overwritten. "Export again" on that day overwrites the block once
+and resumes. Edits outside the block never stop anything.
+
+- `export [DAY] [--days N] [--force]`: through the running app. Without `DAY`
+  it exports the newest 7 days with speech; `--days N` (1 to 365) changes that.
+  `DAY` is `YYYY-MM-DD`, and `--force` (only with `DAY`) is "Export again".
+  It prints one line per day and a total, and exits 1 if any day failed.
+
+### Calendar
+
+Names a conversation after the calendar event it overlaps. Under the switch
+Settings shows this sentence:
+
+"Reads the calendars you pick on this Mac to name conversations after the event they overlap. Nothing leaves this Mac."
+
+It reads through EventKit and never writes to a calendar. The macOS permission
+prompt appears once, from the app, when you press "Allow access" in Settings
+(shown while access is not yet asked); the bundle carries the usage
+descriptions it needs. Settings then lists your calendars: tick the ones to
+read, or tick none to read all of them.
+
+A conversation takes the title of the timed event that overlaps it most (the
+earlier event wins a tie); all-day events are ignored, and a conversation that
+overlaps nothing gets no name. The name shows in the window, in the
+conversation's heading in the day file, and in the text the Insights prompt
+is given. Names are set at each processing run. Turning the connector off
+clears the names at the next processing run.
 
 ## Building the app bundle
 

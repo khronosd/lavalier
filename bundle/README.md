@@ -54,6 +54,12 @@ dependencies in the same venv, so `paths.txt` covers them too. The first API key
 read by the bundled app shows one Keychain prompt; "Always Allow" is expected.
 Re-signing the bundle may prompt again.
 
+`notion-client` and `pyobjc-framework-EventKit` are normal dependencies in the same venv too, so `paths.txt`
+covers them. The bundle's `Info.plist` carries `NSCalendarsFullAccessUsageDescription` and
+`NSCalendarsUsageDescription`; the Calendar connector's permission prompt appears once, from the app, when
+"Allow access" is pressed in Settings. Re-signing the bundle may prompt again, as with Bluetooth and the
+Keychain.
+
 pywebview is a normal dependency in the same venv, so `paths.txt` already covers it. The
 window (`lavalier window`) is a separate process started from the CLI; it is not part of
 the bundle.

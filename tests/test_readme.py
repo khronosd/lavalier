@@ -30,3 +30,23 @@ def test_readme_says_what_the_range_control_shows_and_when_a_day_goes_out():
     assert "how many days, roughly how many tokens and what it would cost" in text
     assert "after the first drain that follows" in text
     assert "openai@<host>" in text and "not encrypted" in text
+
+
+NOTION_SENTENCE = ("Sends each day's text, and its Insights once generated, to the Notion database you choose. "
+                   "Audio is never sent.")
+CALENDAR_SENTENCE = ("Reads the calendars you pick on this Mac to name conversations after the event they overlap. "
+                     "Nothing leaves this Mac.")
+
+
+def test_readme_documents_the_connectors():
+    text = (Path(__file__).parent.parent / "README.md").read_text()
+    assert "## Connectors" in text and "`lavalier export" in text
+    assert NOTION_SENTENCE in text and CALENDAR_SENTENCE in text
+    assert "Written by lavalier. Edits inside this block are overwritten; add your notes outside it." in text
+    assert "Export again" in text and "stopped" in text and "Limitless" not in text
+
+
+def test_bundle_readme_notes_eventkit_and_the_calendar_prompt():
+    text = (Path(__file__).parent.parent / "bundle" / "README.md").read_text()
+    assert "pyobjc-framework-EventKit" in text and "notion-client" in text
+    assert "NSCalendarsFullAccessUsageDescription" in text and "Limitless" not in text
