@@ -127,11 +127,12 @@ async def status_live(db: Database, paths: Paths, cfg: Config, pendant_factory: 
 
 
 def process_after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport,
-                       make_transcriber: Callable[[], Transcriber], *, now_ms: int) -> Optional[ProcessReport]:
+                       make_transcriber: Callable[[], Transcriber], *, now_ms: int,
+                       calendar=None) -> Optional[ProcessReport]:
     """Process what a sync brought in (any outcome) and record it as the last process."""
     if not brought_audio(report):
         return None
-    processed = after_sync(db, paths, cfg, report, make_transcriber(), now_ms=now_ms)
+    processed = after_sync(db, paths, cfg, report, make_transcriber(), now_ms=now_ms, calendar=calendar)
     if processed is not None:
         # the time makes every run's record distinct: the window refetches its data when it changes
         db.set_status("last_process", json.dumps({**processed.to_json_dict(), "processed_ms": now_ms}))

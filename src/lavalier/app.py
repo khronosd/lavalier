@@ -7,6 +7,7 @@ in its own threads and hands everything to this process's loop.
 
 import argparse
 import asyncio
+import dataclasses
 import importlib.metadata
 import json
 import logging
@@ -23,6 +24,9 @@ from typing import Callable, Optional
 from lavalier import actions, audio, client, journal, pipeline, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
+from lavalier.connectors.calendar import CalendarSource, EventKitSource, chosen_calendar_ids, event_kit_available
+from lavalier.connectors.export import CONNECTOR as NOTION, NO_DATABASE, days_to_export, export_day
+from lavalier.connectors.notion import NO_TOKEN, Notion, NotionError
 from lavalier.db import Database, InsightRecord, now_ms as _now_ms
 from lavalier.insights import keys, registry, stage
 from lavalier.insights.names import provider_id
@@ -46,6 +50,13 @@ NO_MODEL = "No model chosen."
 NO_QUESTION = "Ask a question."
 RANGE_MAX_DAYS = 365
 RANGE_KEY = "range"
+EXPORT_KEY = "export"
+EXPORT_MAX_DAYS = 365
+EXPORT_DEDUP_MS = 60_000   # a day is exported automatically at most once a minute
+EXPORT_LAST = 30           # the export rows the connectors state lists
+CALENDARS_TTL_MS = 60_000  # the calendars list is read at most once a minute
+NOTION_OFF = "Notion export is off. Turn it on in Settings › Connectors."
+UNAVAILABLE = "unavailable"  # the calendar's authorization when EventKit cannot be loaded
 
 _log = logging.getLogger("lavalier.app")
 
@@ -63,6 +74,28 @@ def _cdc_from_ioreg() -> bool:
 
 def _whisper(cfg: Config) -> Transcriber:
     return MlxWhisperTranscriber(cfg.whisper_model, cfg.whisper_language)
+
+
+def _event_kit() -> Optional[CalendarSource]:
+    """The real calendars when pyobjc's EventKit loads; never called on the loop (the import is heavy)."""
+    return EventKitSource() if event_kit_available() else None
+
+
+class _NoCalendar:
+    """What process gets without EventKit: never allowed, so nothing is labelled, and with the connector
+    off the labels are still cleared."""
+
+    def authorization(self) -> str:
+        return UNAVAILABLE
+
+    def request_access(self) -> str:
+        return UNAVAILABLE
+
+    def calendars(self) -> list:
+        return []
+
+    def events(self, day: date) -> list:
+        return []
 
 
 class App:
@@ -108,6 +141,18 @@ class App:
         self._key_fill: Optional[threading.Thread] = None
         self._key_arrived_ms: Optional[int] = None         # a key became present for the active provider
         self._asks = 0
+        # connectors: the Notion client is built by an export job's prepare step (tests hand back a fake SDK);
+        # the calendar source is built once, by the first worker that needs it, never on the loop
+        self.notion_factory: Callable[[str], Notion] = lambda token: Notion(token)
+        self.calendar_factory: Callable[[], Optional[CalendarSource]] = _event_kit
+        self._calendar_source: Optional[CalendarSource] = None
+        self._calendar_built = False
+        self._calendar_lock = threading.Lock()   # guards the source, its build and the two caches below
+        self._calendar_auth: Optional[str] = None             # the last authorization a worker read
+        self._calendars: Optional[tuple[int, list[dict]]] = None  # (read at ms, calendars) while allowed
+        self._export_pending: set[date] = set()  # days an automatic export could not start yet
+        self._export_started: dict[date, int] = {}  # when each day's last automatic export started
+        self._export_timer: Optional[asyncio.TimerHandle] = None
 
     # state
 
@@ -139,6 +184,8 @@ class App:
                                "model": self.cfg.insights_model, "auto": self.cfg.insights_auto,
                                "generating": self._generating_days()}
         return {**summary, "busy": self.busy, "next_poll_ms": self.next_poll_ms,
+                "connectors": {"notion_enabled": self.cfg.notion_enabled, "calendar_enabled": self.cfg.calendar_enabled,
+                               "exporting": self._exporting()},
                 "app": {"version": _package_version(), "pid": os.getpid(), "started_ms": self.started_ms}}
 
     # the window's data; called on the loop, the only thread that uses self.db
@@ -179,6 +226,7 @@ class App:
             raise RuntimeError(f"not saved: {e}") from e
         self.config_error = None
         self._note_insights_change(before)
+        self._note_connectors_change(before)
         if (before.insights_model, before.insights_base_url) != (self.cfg.insights_model, self.cfg.insights_base_url):
             self._attempted.clear()  # another model may well manage the days the last one failed
         return self.get_settings()
@@ -387,6 +435,7 @@ class App:
         rec = job["result"]["record"]
         if rec["state"] == "done":
             _log.info("insights: %s done by %s", day.isoformat(), rec["model"])
+            self._auto_export([day])
         else:
             _log.warning("insights: %s failed: %s", day.isoformat(), rec["error"])
 
@@ -399,7 +448,12 @@ class App:
         self._check_usable()
         cfg = self.cfg
         return self.jobs.start("generate", key, lambda provider: self._generate_job(cfg, day, provider),
-                               prepare=lambda: self._build_provider(cfg), lock=self._process_lock)
+                               prepare=lambda: self._build_provider(cfg), lock=self._process_lock,
+                               on_done=lambda job: self._generated(day, job))
+
+    def _generated(self, day: date, job: dict) -> None:
+        if job["state"] == "done" and job["result"]["stored"] and job["result"]["record"]["state"] == "done":
+            self._auto_export([day])
 
     def _generate_job(self, cfg: Config, day: date, provider: Provider) -> dict:
         """Worker thread, under the process lock; the provider was built before the lock was taken."""
@@ -444,6 +498,7 @@ class App:
                 continue
             if rec.state == "done":
                 done += 1
+                self._auto_export([d])
                 continue
             errors.append({"day": d.isoformat(), "error": rec.error})
             if _stops_a_range(rec.error):
@@ -519,6 +574,267 @@ class App:
                 "due": [d.isoformat() for d in due],
                 "auto": bool(self.cfg.insights_auto and self.cfg.insights_provider)}
 
+    # connectors: Notion exports (a job that only reads the database, so it takes no lock) and the calendar.
+    # As for insights, the loop never reads the Keychain, calls Notion or touches EventKit: workers do.
+
+    def _note_connectors_change(self, before: Config) -> None:
+        """Turning Notion on reads whether a token is saved, off the loop, so automatic exports can start."""
+        if self.cfg.notion_enabled and not before.notion_enabled and self._key_present.get(NOTION) is None:
+            self._fill_key_cache(NOTION)
+
+    def _exporting(self) -> bool:
+        return self.jobs.running(EXPORT_KEY) is not None
+
+    def _export_refusal(self) -> Optional[str]:
+        """Why an export is refused, from the config and the key cache only; a token not known either way
+        counts as present (the job's prepare step reads it)."""
+        if not self.cfg.notion_enabled:
+            return NOTION_OFF
+        if not self.cfg.notion_database_id:
+            return NO_DATABASE
+        if self._key_present.get(NOTION) is False:
+            return NO_TOKEN
+        return None
+
+    def export_days(self, days: list[date], *, force: bool = False) -> str:
+        """Export these days to Notion, in turn, as one job (one at a time). Refused (ValueError) when the
+        connector is off, has no database, or its token is known absent."""
+        if self._stopping:
+            raise AppStopping()
+        if self.jobs.running(EXPORT_KEY) is not None:
+            raise JobRunning(EXPORT_KEY)
+        reason = self._export_refusal()
+        if reason is not None:
+            raise ValueError(reason)
+        return self._start_export(list(days), force=force, changed_only=False)
+
+    def export_recent(self, days: int, *, force: bool = False) -> str:
+        """The newest `days` days with speech, exported oldest first."""
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= EXPORT_MAX_DAYS:
+            raise ValueError(f"days must be a whole number from 1 to {EXPORT_MAX_DAYS}")
+        return self.export_days(self.db.days_with_speech()[-days:], force=force)
+
+    def _start_export(self, days: list[date], *, force: bool, changed_only: bool) -> str:
+        cfg = self.cfg
+        return self.jobs.start("export", EXPORT_KEY,
+                               lambda prepared: self._export_job(cfg, days, force, changed_only, prepared),
+                               prepare=lambda: self._prepare_export(cfg), on_done=self._export_done)
+
+    def _prepare_export(self, cfg: Config) -> tuple[Notion, object]:
+        """Daemon thread, no lock: the token (one Keychain read, noted in the cache), the client, and one
+        check of the database with its missing properties added."""
+        notion = self._notion_client()
+        try:
+            info = notion.check(cfg.notion_database_id)
+            notion.ensure_properties(info)
+        except NotionError as e:
+            raise JobFailed(str(e)) from None
+        return notion, info
+
+    def _notion_client(self) -> Notion:
+        """Off the loop only: the Keychain read and the client; JobFailed without a usable token."""
+        seen = self._key_seen(NOTION)
+        try:
+            token = keys.get_key(NOTION)
+        except keys.KeychainError as e:
+            self.note_key(NOTION, None, str(e), seen=seen)
+            raise JobFailed(str(e)) from None
+        self.note_key(NOTION, token is not None, seen=seen)
+        if token is None:
+            raise JobFailed(NO_TOKEN)
+        return self.notion_factory(token)
+
+    def _export_job(self, cfg: Config, days: list[date], force: bool, changed_only: bool, prepared) -> dict:
+        """Worker thread, on its own connection: each day in turn. An automatic run (`changed_only`) sends
+        only the days whose content changed since their last export."""
+        notion, info = prepared
+        out = {"done": 0, "unchanged": 0, "stopped": [], "errors": [], "days": []}
+
+        def note(day: date, outcome: str, error: Optional[str] = None) -> None:
+            out["days"].append({"day": day.isoformat(), "outcome": outcome, "error": error})
+            if outcome == "exported":
+                out["done"] += 1
+            elif outcome == "unchanged":
+                out["unchanged"] += 1
+            elif outcome == "stopped":
+                out["stopped"].append(day.isoformat())
+            else:
+                out["errors"].append({"day": day.isoformat(), "error": error})
+
+        db = Database(self.paths.db)
+        try:
+            todo = set(days_to_export(db, cfg, days)) if changed_only else set(days)
+            for day in days:
+                if self._stopping:
+                    break
+                before = db.export(day, NOTION)
+                if day not in todo:
+                    if before is not None and before.state == "stopped":
+                        note(day, "stopped", before.error)
+                    else:
+                        note(day, "unchanged")
+                    continue
+                rec = export_day(db, cfg, notion, day, now_ms=self._now_ms(), force=force, info=info)
+                if rec.state == "stopped":
+                    note(day, "stopped", rec.error)
+                elif rec.state != "done":
+                    note(day, "error", rec.error)
+                elif not force and rec == before:
+                    note(day, "unchanged")
+                else:
+                    note(day, "exported")
+            return out
+        finally:
+            db.close()
+
+    def _export_done(self, job: dict) -> None:
+        """Loop: log what went wrong, then start what was kept pending while this ran."""
+        if job["state"] == "error":
+            _log.warning("notion: export failed: %s", job["error"])
+        else:
+            for d in job["result"]["stopped"]:
+                _log.info("notion: %s stopped: the block was edited by hand", d)
+            for e in job["result"]["errors"]:
+                _log.warning("notion: %s failed: %s", e["day"], e["error"])
+        self._auto_export(())
+
+    def _auto_export(self, days) -> None:
+        """Loop: export these days (and any kept pending) when Notion is on and its token is known present.
+        While an export runs, the days are kept and go when it ends; a day exported automatically less than
+        a minute ago waits out the minute. Never raises."""
+        cfg = self.cfg
+        if self._stopping or not (cfg.notion_enabled and cfg.notion_database_id) \
+                or self._key_present.get(NOTION) is not True:
+            return
+        self._export_pending.update(days)
+        if not self._export_pending:
+            return
+        if self._exporting():
+            _log.debug("notion: export already running; %d day(s) kept for later", len(self._export_pending))
+            return
+        now = self._now_ms()
+        since = {d: now - self._export_started[d] for d in self._export_pending if d in self._export_started}
+        ready = sorted(d for d in self._export_pending if since.get(d, EXPORT_DEDUP_MS) >= EXPORT_DEDUP_MS)
+        waiting = self._export_pending.difference(ready)
+        if waiting:
+            self._retry_export_in(min(EXPORT_DEDUP_MS - since[d] for d in waiting))
+        if not ready:
+            return
+        try:
+            self._start_export(ready, force=False, changed_only=True)
+        except Exception:
+            _log.exception("notion: the automatic export did not start")
+            return
+        self._export_pending.difference_update(ready)
+        for d in ready:
+            self._export_started[d] = now
+
+    def _retry_export_in(self, ms: int) -> None:
+        if self._export_timer is not None:
+            return
+        def fire() -> None:
+            self._export_timer = None
+            self._auto_export(())
+        self._export_timer = asyncio.get_running_loop().call_later(max(ms, 0) / 1000 + 0.05, fire)
+
+    def notion_check(self, cfg: Config):
+        """Off the loop only (the server's capped thread): the token and one check of the chosen database.
+        Raises NotionError with text for the owner, or KeychainError."""
+        if not cfg.notion_database_id:
+            raise NotionError(NO_DATABASE)
+        seen = self._key_seen(NOTION)
+        try:
+            token = keys.get_key(NOTION)
+        except keys.KeychainError as e:
+            self.note_key(NOTION, None, str(e), seen=seen)
+            raise
+        self.note_key(NOTION, token is not None, seen=seen)
+        if token is None:
+            raise NotionError(NO_TOKEN)
+        return self.notion_factory(token).check(cfg.notion_database_id)
+
+    @property
+    def calendar_source(self) -> Optional[CalendarSource]:
+        """The calendar source once a worker built it (None before, and without EventKit). Reading it never
+        builds it; only `_calendar`, off the loop, does."""
+        return self._calendar_source
+
+    @calendar_source.setter
+    def calendar_source(self, source: Optional[CalendarSource]) -> None:
+        with self._calendar_lock:
+            self._calendar_source, self._calendar_built = source, True
+            self._calendars = None
+
+    def _calendar(self) -> Optional[CalendarSource]:
+        """Off the loop only: the source, built on first use."""
+        with self._calendar_lock:
+            if not self._calendar_built:
+                try:
+                    self._calendar_source = self.calendar_factory()
+                except Exception:
+                    _log.exception("the calendar could not be loaded")
+                    self._calendar_source = None
+                self._calendar_built = True
+            return self._calendar_source
+
+    def _calendar_for_process(self) -> CalendarSource:
+        """Worker thread: what process labels from; it reads it only with the connector on."""
+        return self._calendar() or _NoCalendar()
+
+    def calendar_facts(self) -> dict:
+        """Off the loop only: the authorization and, when allowed, the calendars (read at most once a minute)."""
+        source = self._calendar()
+        if source is None:
+            auth, cals = UNAVAILABLE, []
+        else:
+            auth = source.authorization()
+            cals = []
+            if auth == "allowed":
+                now = self._now_ms()
+                with self._calendar_lock:
+                    cached = self._calendars
+                if cached is not None and now - cached[0] < CALENDARS_TTL_MS:
+                    cals = cached[1]
+                else:
+                    cals = [dataclasses.asdict(c) for c in source.calendars()]
+                    with self._calendar_lock:
+                        self._calendars = (now, cals)
+        with self._calendar_lock:
+            self._calendar_auth = auth
+        return {"authorization": auth, "calendars": list(cals)}
+
+    def request_calendar_access(self) -> str:
+        """Off the loop only: ask macOS for calendar access (blocks until answered); the new status."""
+        source = self._calendar()
+        if source is None:
+            return UNAVAILABLE
+        auth = source.request_access()
+        with self._calendar_lock:
+            self._calendar_auth, self._calendars = auth, None
+        return auth
+
+    def connectors_state(self, calendar: Optional[dict] = None) -> dict:
+        """Loop: the connectors as Settings show them. `calendar` is what `calendar_facts` read just before in
+        a thread; without it, the last authorization a worker read (None when none has)."""
+        cfg = self.cfg
+        if calendar is None:
+            with self._calendar_lock:
+                auth = self._calendar_auth
+                cals = self._calendars[1] if self._calendars is not None and auth == "allowed" else []
+            calendar = {"authorization": auth, "calendars": list(cals)}
+        last = []
+        for rec in self.db.exports_all(NOTION)[:EXPORT_LAST]:
+            row = journal.to_json(rec)
+            row.pop("plain_text", None)
+            last.append(row)
+        return {
+            "notion": {"enabled": cfg.notion_enabled, "database_id": cfg.notion_database_id,
+                       "token_present": self._key_present.get(NOTION), "last": last, "exporting": self._exporting()},
+            "calendar": {"enabled": cfg.calendar_enabled, "authorization": calendar["authorization"],
+                         "calendars": calendar["calendars"] if calendar["authorization"] == "allowed" else [],
+                         "chosen": sorted(chosen_calendar_ids(cfg.calendar_ids))},
+        }
+
     # device work, always under self._device_lock
 
     def reload_config(self) -> bool:
@@ -533,6 +849,7 @@ class App:
             return False
         self.config_error = None
         self._note_insights_change(before)
+        self._note_connectors_change(before)
         return True
 
     def _make_pendant(self, cfg: Config):
@@ -549,7 +866,7 @@ class App:
         db = Database(self.paths.db)
         try:
             return actions.process_after_sync(db, self.paths, self.cfg, report, self._make_transcriber,
-                                              now_ms=self._now_ms())
+                                              now_ms=self._now_ms(), calendar=self._calendar_for_process())
         finally:
             db.close()
 
@@ -587,6 +904,7 @@ class App:
             _log.error("processing after the sync failed", exc_info=worker.exception())
         elif worker.result() is not None:
             self.last_process = worker.result()
+            self._auto_export(worker.result().days_written)
 
     # start-up: finish what an earlier run left pending
 
@@ -616,7 +934,8 @@ class App:
         db = Database(self.paths.db)
         try:
             now = self._now_ms()
-            report = pipeline.process(db, self.paths, self.cfg, self._make_transcriber(), now_ms=now)
+            report = pipeline.process(db, self.paths, self.cfg, self._make_transcriber(), now_ms=now,
+                                      calendar=self._calendar_for_process())
             db.set_status("last_process", json.dumps({**report.to_json_dict(), "processed_ms": now}))
             return report
         finally:
@@ -633,6 +952,7 @@ class App:
         self.last_process = r
         _log.info("start-up processing: %d transcribed, %d failed, %d day file(s) written",
                   r.transcribed, r.failed, len(r.days_written))
+        self._auto_export(r.days_written)
 
     def _process_lock_free(self) -> bool:
         """Whether acquiring the process lock now returns without yielding. A generate job queued for
@@ -780,6 +1100,8 @@ class App:
             server.start()
             if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop, not awaited
                 self._fill_key_cache(self._key_account())
+            if self.cfg.notion_enabled:
+                self._fill_key_cache(NOTION)
             try:
                 await self.process_pending_if_any()
             except Exception:

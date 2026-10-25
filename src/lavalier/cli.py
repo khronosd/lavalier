@@ -33,7 +33,7 @@ from lavalier.sync import run_sync
 from lavalier.transcribe import MlxWhisperTranscriber
 
 UNMUTE_SETTLE_S = 1.0  # tests patch this to 0
-JOB_POLL_S = 1.0       # how often insights and ask poll their job; tests patch it
+JOB_POLL_S = 1.0       # how often insights, ask and export poll their job; tests patch it
 SERVER_FILE = ".server.json"
 
 # Tests monkeypatch this to hand back a FakePendant.
@@ -553,6 +553,31 @@ def ask_cmd(day: datetime, question: str) -> None:
     token = _app_token(paths)
     job = _app_call(token, "POST", "/api/ask", {"day": day.date().isoformat(), "question": question})["job"]
     click.echo(_finished_job(token, job)["answer"])
+
+
+_EXPORT_LINE = {"exported": "exported", "unchanged": "unchanged"}
+
+
+@main.command("export")
+@click.argument("day", required=False, type=click.DateTime(formats=["%Y-%m-%d"]))
+@click.option("--days", type=click.IntRange(1, 365), default=None,
+              help="The newest N days with speech (default 7).")
+@click.option("--force", is_flag=True, help="Export again, also a day stopped by a hand edit.")
+def export_cmd(day: Optional[datetime], days: Optional[int], force: bool) -> None:
+    """Export days to Notion through the app; without DAY, the newest 7 days with speech."""
+    if day is not None and days is not None:
+        raise click.UsageError("give DAY or --days, not both")
+    paths, _ = _paths_cfg()
+    token = _app_token(paths)
+    body = {"day": day.date().isoformat(), "force": force} if day is not None else {"days": days or 7, "force": force}
+    job = _app_call(token, "POST", "/api/connectors/notion/export", body, busy="An export is already running")["job"]
+    result = _finished_job(token, job)
+    for d in result["days"]:
+        outcome = d["outcome"]
+        text = _EXPORT_LINE.get(outcome) or f"{outcome}: {d['error']}"
+        click.echo(f"{d['day']}: {text}")
+    click.echo(f"Exported {result['done']}, unchanged {result['unchanged']}, stopped {len(result['stopped'])}, "
+               f"errors {len(result['errors'])}")
 
 
 @main.command("retention")

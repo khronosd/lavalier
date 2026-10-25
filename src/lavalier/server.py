@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from lavalier.connectors.notion import NotionError
 from lavalier.insights import keys, registry
 from lavalier.jobs import JobRunning
 from lavalier.journal import to_json
@@ -33,7 +34,10 @@ from lavalier.settings import SettingsError
 ACTION_TIMEOUT_S = 900
 DATA_TIMEOUT_S = 30
 AUDIO_TIMEOUT_S = 120     # a first play waits for ffmpeg
-CHECK_TIMEOUT_S = 20      # a provider check is a real call: capped
+CHECK_TIMEOUT_S = 20      # a provider or Notion check is a real call: capped
+ACCESS_TIMEOUT_S = 60     # the calendar access prompt waits for the owner
+CALENDAR_READ_TIMEOUT_S = 20
+NOTION_ACCOUNT = "notion"  # the Notion token's Keychain account
 MAX_BODY = 65536
 ACTIONS = ("sync", "mute", "unmute", "status-live")
 SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX = 50, 200
@@ -378,8 +382,11 @@ def _check(srv, req):
 
 def _key_account(srv, req) -> str:
     """The Keychain account a key route acts on: the provider's own, or for "openai" the current
-    endpoint's (`openai@<host>` when a base URL is set), so a key is only ever sent where it was saved for."""
+    endpoint's (`openai@<host>` when a base URL is set), so a key is only ever sent where it was saved for;
+    "notion" for the Notion token."""
     name = req.groups[0]
+    if name == NOTION_ACCOUNT:
+        return NOTION_ACCOUNT
     if name not in registry.KEYED:
         raise _BadRequest("unknown provider")
     return registry.key_account(_app_cfg(srv), name)
@@ -406,6 +413,78 @@ def _delete_key(srv, req):
         raise _KeychainRefused(str(e)) from None
     _note_key(srv, account, False)
     return _Response(204, b"")
+
+
+def _capped(fn: Callable, timeout_s: float, *, name: str):
+    """Run `fn` on a daemon thread of its own and wait up to `timeout_s` (FutureTimeout past it: 504). Past
+    the cap the thread is left to end on its own, and nothing waits for it at exit."""
+    fut: concurrent.futures.Future = concurrent.futures.Future()
+
+    def target() -> None:
+        try:
+            fut.set_result(fn())
+        except BaseException as e:  # handed to the waiting server thread, whatever it is
+            fut.set_exception(e)
+    threading.Thread(target=target, name=name, daemon=True).start()
+    return fut.result(timeout_s)
+
+
+def _refuse_while_stopping(srv) -> None:
+    if getattr(srv.app_like, "stopping", False):
+        raise AppStopping()
+
+
+def _connectors(srv, req):
+    """The calendar is read in a thread first (capped: a stuck EventKit shows the last known state), then
+    the rest on the loop."""
+    _refuse_while_stopping(srv)
+    try:
+        facts = _capped(srv.app_like.calendar_facts, CALENDAR_READ_TIMEOUT_S, name="lavalier-calendar")
+    except FutureTimeout:
+        _log.warning("the calendar did not answer within %ss", CALENDAR_READ_TIMEOUT_S)
+        facts = None
+    except Exception:
+        _log.exception("reading the calendar failed")
+        facts = None
+    return _json(srv.call(srv.app_like.connectors_state, facts))
+
+
+def _notion_check(srv, req):
+    _refuse_while_stopping(srv)
+    cfg = _app_cfg(srv)
+    try:
+        info = _capped(lambda: srv.app_like.notion_check(cfg), CHECK_TIMEOUT_S, name="lavalier-notion-check")
+    except NotionError as e:
+        raise _BadRequest(str(e)) from None
+    except keys.KeychainError as e:
+        raise _KeychainRefused(str(e)) from None
+    return _json(to_json(info))
+
+
+def _notion_export(srv, req):
+    body = _body_object(req)
+    force = body.get("force", False)
+    if not isinstance(force, bool):
+        raise _BadRequest("force must be true or false")
+    if ("day" in body) == ("days" in body):
+        raise _BadRequest("give either day or days")
+    if "day" in body:
+        if not isinstance(body["day"], str):
+            raise _BadRequest("bad date")
+        day = _parse_day(body["day"])
+        job = _refused_as_400(srv, lambda: srv.app_like.export_days([day], force=force))
+    else:
+        days = body["days"]
+        if isinstance(days, bool) or not isinstance(days, int):
+            raise _BadRequest("days must be a whole number")
+        job = _refused_as_400(srv, lambda: srv.app_like.export_recent(days, force=force))
+    return _json({"job": job}, 202)
+
+
+def _calendar_access(srv, req):
+    _refuse_while_stopping(srv)
+    auth = _capped(srv.app_like.request_calendar_access, ACCESS_TIMEOUT_S, name="lavalier-calendar-access")
+    return _json({"authorization": auth})
 
 
 def _audio(srv, req):
@@ -466,6 +545,10 @@ _API_ROUTES = [
     ("POST", r"/api/insights/check", _check),
     ("POST", r"/api/ask", _ask),
     ("GET", r"/api/jobs/([A-Za-z0-9_-]+)", _job),
+    ("GET", r"/api/connectors", _connectors),
+    ("POST", r"/api/connectors/notion/check", _notion_check),
+    ("POST", r"/api/connectors/notion/export", _notion_export),
+    ("POST", r"/api/connectors/calendar/access", _calendar_access),
     ("PUT", r"/api/keys/([^/]+)", _put_key),          # the body is never logged or echoed
     ("DELETE", r"/api/keys/([^/]+)", _delete_key),
 ]

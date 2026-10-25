@@ -434,8 +434,8 @@ def brought_audio(report: SyncReport) -> bool:
 
 
 def after_sync(db: Database, paths: Paths, cfg: Config, report: SyncReport, transcriber: Transcriber, *,
-               now_ms: int) -> Optional[ProcessReport]:
+               now_ms: int, calendar=None) -> Optional[ProcessReport]:
     """Process what a sync brought in, whatever its outcome; no capture and no orphan means nothing came in."""
     if not brought_audio(report):
         return None
-    return process(db, paths, cfg, transcriber, now_ms=now_ms)
+    return process(db, paths, cfg, transcriber, now_ms=now_ms, calendar=calendar)
