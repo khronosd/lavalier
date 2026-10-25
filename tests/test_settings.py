@@ -134,3 +134,50 @@ def test_settings_insights_model_and_auto(tmp_path):
     assert (c.insights_model, c.insights_auto) == ("llama3", False)
     with pytest.raises(SettingsError):
         apply(Config(), {"insights_auto": "no"}, tmp_path / "c.toml")
+
+
+HEX = "1a2b3c4d5e6f40718293a4b5c6d7e8f9"
+DASHED = "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9"
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("", ""),
+    (HEX, HEX),
+    (HEX.upper(), HEX),
+    (DASHED, HEX),
+    (DASHED.upper(), HEX),
+    (f"https://www.notion.so/me/Journal-{HEX}?v=abc", HEX),
+    (f"https://notion.so/{HEX}", HEX),
+    (f"https://www.notion.so/me/{HEX.upper()}#frag", HEX),
+])
+def test_normalise_notion_id_accepts(raw, want):
+    from lavalier.settings import normalise_notion_id
+    assert normalise_notion_id(raw) == want
+
+
+@pytest.mark.parametrize("raw", ["nope", HEX[:-1], HEX + "0", "z" * 32, f"https://example.com/{HEX}",
+                                 "https://www.notion.so/me/Journal", f"https://evilnotion.so/{HEX}"])
+def test_normalise_notion_id_refuses(raw):
+    from lavalier.settings import normalise_notion_id
+    with pytest.raises(SettingsError, match="notion_database_id must be a Notion database id or URL") as e:
+        normalise_notion_id(raw)
+    assert e.value.field == "notion_database_id"
+
+
+def test_connector_settings_are_editable_and_the_id_is_stored_normalised(cfg, tmp_path):
+    for f in ("notion_enabled", "notion_database_id", "calendar_enabled", "calendar_ids"):
+        assert f in EDITABLE
+    p = tmp_path / "c.toml"
+    new = apply(cfg, {"notion_enabled": True, "notion_database_id": DASHED, "calendar_ids": "a, b\nc"}, p)
+    assert new.notion_database_id == HEX and new.calendar_ids == "a, b\nc"
+    assert load_config(p).notion_database_id == HEX and load_config(p).notion_enabled is True
+
+
+def test_connector_settings_refuse_a_bad_id_and_wrong_types(cfg, tmp_path):
+    with pytest.raises(SettingsError) as e:
+        apply(cfg, {"notion_database_id": "nope"}, tmp_path / "c.toml")
+    assert e.value.field == "notion_database_id" and not (tmp_path / "c.toml").exists()
+    with pytest.raises(SettingsError):
+        apply(cfg, {"notion_enabled": "yes"}, tmp_path / "c.toml")
+    with pytest.raises(SettingsError):
+        apply(cfg, {"calendar_ids": 3}, tmp_path / "c.toml")

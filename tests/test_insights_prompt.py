@@ -125,3 +125,12 @@ def test_resolve_moment_outside_any_line_gives_none(view):
     assert resolve_moment(view, _sec(lines[0].at_ms) - 1) is None
     assert resolve_moment(view, _sec(lines[-1].at_ms) + 61_000) is None  # the window is 60 whole seconds
     assert resolve_moment(view, _sec(lines[-1].at_ms) + 60_999) is not None
+
+
+def test_day_text_heading_carries_a_conversation_label(db, seeded_2026_10_23_subset, cfg):
+    cid = db.conversations_for_day(DAY)[0].conversation_id
+    db.set_conversation_label(cid, "Weekly sync")
+    text = day_text(db, DAY, cfg, now_ms=T(23, 30, 0)).text
+    heads = [ln for ln in text.splitlines() if ln.startswith("### ")]
+    assert heads[0].endswith(" · Weekly sync") and "{#" not in heads[0]
+    assert all("Weekly sync" not in h for h in heads[1:])

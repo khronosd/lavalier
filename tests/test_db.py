@@ -446,3 +446,58 @@ def test_days_with_speech_skips_noise_only_days(db, clip):
         db.add_clip(c)
     db.add_clip(clip(T(11, 0, 0) - 86_400_000, T(11, 1, 0) - 86_400_000))  # second speech clip, same day
     assert db.days_with_speech() == [earlier.day, later.day]
+
+
+def test_migration_8_creates_exports_and_keeps_rows(root, monkeypatch):
+    root.ensure()
+    monkeypatch.setattr(db_module, "MIGRATIONS", db_module.MIGRATIONS[:7])
+    with Database(root.db) as dbx:
+        dbx.migrate()
+        assert dbx._conn.execute("SELECT name FROM sqlite_master WHERE name = 'exports'").fetchone() is None
+        dbx.set_status("kept", "yes")
+        monkeypatch.undo()
+        dbx.migrate()
+        assert dbx.get_status("schema_version") == str(len(db_module.MIGRATIONS)) and len(db_module.MIGRATIONS) >= 8
+        assert dbx.get_status("kept") == "yes"
+        cols = [r["name"] for r in dbx._conn.execute("PRAGMA table_info(exports)")]
+        assert cols == ["day", "connector", "page_id", "block_id", "content_hash", "plain_text", "exported_ms",
+                        "state", "error"]
+
+
+def _rec(day, **kw):
+    from lavalier.db import ExportRecord
+    base = dict(day=day, connector="notion", page_id="p", block_id="b", content_hash="h", plain_text="t",
+                exported_ms=5, state="done", error=None)
+    return ExportRecord(**{**base, **kw})
+
+
+def test_exports_round_trip_and_upsert(db):
+    d = date(2026, 10, 23)
+    assert db.export(d, "notion") is None
+    db.set_export(_rec(d))
+    assert db.export(d, "notion") == _rec(d)
+    db.set_export(_rec(d, state="error", error="boom", content_hash=None, plain_text=None))
+    r = db.export(d, "notion")
+    assert r.state == "error" and r.error == "boom" and r.plain_text is None and r.page_id == "p"
+    assert db.export(d, "calendar") is None
+    assert db._conn.execute("SELECT COUNT(*) AS n FROM exports").fetchone()["n"] == 1
+
+
+def test_exports_all_is_newest_day_first_per_connector(db):
+    for day in (date(2026, 10, 21), date(2026, 10, 23), date(2026, 10, 22)):
+        db.set_export(_rec(day))
+    db.set_export(_rec(date(2026, 10, 24), connector="calendar"))
+    assert [r.day.day for r in db.exports_all("notion")] == [23, 22, 21]
+    assert [r.day.day for r in db.exports_all("calendar")] == [24]
+
+
+def test_set_conversation_label_shows_in_the_day_view_and_clears(db, cfg, seeded_2026_10_23_subset):
+    from conftest import T
+    from lavalier.journal import day_view
+    d = date(2026, 10, 23)
+    cid = db.conversations_for_day(d)[0].conversation_id
+    db.set_conversation_label(cid, "Weekly sync")
+    assert db.conversation(cid).label == "Weekly sync"
+    assert day_view(db, d, cfg, now_ms=T(23, 30, 0)).conversations[0].label == "Weekly sync"
+    db.set_conversation_label(cid, None)
+    assert db.conversation(cid).label is None

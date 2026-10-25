@@ -1,6 +1,7 @@
 """The whitelisted, validated subset of the configuration the window may read and write."""
 
 import re
+from urllib.parse import urlsplit
 from dataclasses import fields, replace
 from pathlib import Path
 
@@ -9,7 +10,8 @@ from lavalier.paths import Paths
 
 EDITABLE = ("pendant_address", "retention_days", "poll_interval_s", "drain_pages_threshold", "drain_after_hours",
             "require_firmware", "whisper_language", "appearance", "window_size",
-            "insights_provider", "insights_model", "insights_base_url", "insights_auto")
+            "insights_provider", "insights_model", "insights_base_url", "insights_auto",
+            "notion_enabled", "notion_database_id", "calendar_enabled", "calendar_ids")
 
 # Kept equal to bundle.build_app.BUNDLE_ID by a test; the bundle builder runs outside the package.
 BUNDLE_ID = "io.github.khronosd.lavalier"
@@ -19,6 +21,10 @@ APPEARANCES = {"system", "light", "dark"}
 _WINDOW_SIZE = re.compile(r"^\d{3,4}x\d{3,4}$")
 _LANGUAGE = re.compile(r"[a-z]{2,3}")  # a whisper language code; matched whole
 MAX_RETENTION_DAYS = 36500
+_HEX32 = re.compile(r"[0-9a-fA-F]{32}")
+_UUID = re.compile(r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+_URL_ID = re.compile(r"(?:^|-)([0-9a-fA-F]{32})$")
+_NOTION_HOSTS = ("notion.so", "www.notion.so")
 
 
 class SettingsError(ValueError):
@@ -29,13 +35,36 @@ class SettingsError(ValueError):
         self.field = field
 
 
+def normalise_notion_id(value: str) -> str:
+    """A Notion database id as 32 lower-case hex: from the raw id, a dashed uuid, or a notion.so URL."""
+    bad = SettingsError("notion_database_id must be a Notion database id or URL", "notion_database_id")
+    if value == "":
+        return ""
+    if _HEX32.fullmatch(value):
+        return value.lower()
+    if _UUID.fullmatch(value):
+        return value.replace("-", "").lower()
+    try:
+        url = urlsplit(value)
+        host = url.hostname
+    except ValueError:
+        raise bad from None
+    if url.scheme in ("http", "https") and host in _NOTION_HOSTS:
+        segments = [x for x in url.path.split("/") if x]
+        m = _URL_ID.search(segments[-1]) if segments else None
+        if m:
+            return m.group(1).lower()
+    raise bad
+
+
 def read_settings(cfg: Config, paths: Paths) -> dict:
     out = {name: getattr(cfg, name) for name in EDITABLE}
     out["readonly"] = {"state_root": str(paths.root), "whisper_model": cfg.whisper_model, "bundle_id": BUNDLE_ID}
     return out
 
 
-def _check_value(name: str, value) -> None:
+def _check_value(name: str, value):
+    """Refuse a bad value; return the value to store (`notion_database_id` is normalised)."""
     if name == "appearance" and value not in APPEARANCES:
         raise SettingsError(f"appearance must be one of {', '.join(sorted(APPEARANCES))}", name)
     if name == "retention_days" and not 0 <= value <= MAX_RETENTION_DAYS:
@@ -54,6 +83,7 @@ def _check_value(name: str, value) -> None:
         raise SettingsError(f"insights_provider must be one of {', '.join(repr(p) for p in PROVIDERS)}", name)
     if name == "insights_base_url" and value and (value in ("http://", "https://") or not value.startswith(("http://", "https://"))):
         raise SettingsError("insights_base_url must be empty or start with http:// or https://", name)
+    return normalise_notion_id(value) if name == "notion_database_id" else value
 
 
 def apply(cfg: Config, patch: dict, path: Path) -> Config:
@@ -64,6 +94,7 @@ def apply(cfg: Config, patch: dict, path: Path) -> Config:
     is the base only while no file exists yet. An unreadable file raises ConfigError and is left alone."""
     defaults = Config()
     known = {f.name for f in fields(Config)}
+    checked = {}
     for name, value in patch.items():
         if name not in EDITABLE:
             raise SettingsError(f"{name} is not an editable setting" if name in known else f"unknown setting {name}",
@@ -71,8 +102,8 @@ def apply(cfg: Config, patch: dict, path: Path) -> Config:
         if not _type_ok(value, getattr(defaults, name)):
             raise SettingsError(f"{name} must be {type(getattr(defaults, name)).__name__}, got {type(value).__name__}",
                                 name)
-        _check_value(name, value)
+        checked[name] = _check_value(name, value)
     base = load_config(path) if path.exists() else cfg
-    new_cfg = replace(base, **patch)
+    new_cfg = replace(base, **checked)
     save_config(new_cfg, path)
     return new_cfg

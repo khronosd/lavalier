@@ -139,3 +139,19 @@ def test_newlines_in_a_summary_or_a_follow_up_are_collapsed(root, db, cfg, seede
     out = render_day(db, date(2026, 10, 23), cfg, now_ms=gen)
     assert "First line. ## Not a heading last\n" in out and "\n## Not a heading" not in out
     assert "- Call back soon\n" in out
+
+
+def test_labelled_heading(root, db, cfg, clip_record):
+    _speech(db, clip_record)
+    rebuild_day(db, DAY, cfg)
+    db.set_conversation_label("c-20261023-225609", "Weekly sync")
+    assert "### 22:56–22:56 · 16 s speech · Weekly sync {#c-20261023-225609}" in render_day(db, DAY, cfg, now_ms=0)
+    db.pin("c-20261023-225609")
+    assert "16 s speech · Weekly sync (pinned) {#c-20261023-225609}" in render_day(db, DAY, cfg, now_ms=0)
+
+
+def test_labelled_heading_with_stars_and_a_multiline_label_stays_one_line(db, cfg, seeded_2026_10_23_subset):
+    cid = db.conversations_for_day(DAY)[0].conversation_id
+    db.set_conversation_label(cid, "Weekly\nsync")
+    out = render_day(db, DAY, cfg, now_ms=0)
+    assert " · Weekly sync {#" in out and "Weekly\n" not in out

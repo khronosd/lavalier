@@ -66,6 +66,8 @@ def render_conversation(conv: ConversationView, *, anchor: bool = True) -> str:
     head = f"### {_hm(conv.start_ms)}–{_hm(conv.end_ms)} · {_duration(conv.speech_ms)} speech"
     if stars:
         head += f" {stars}"
+    if conv.label:
+        head += f" · {_one_line(conv.label)}"
     if conv.pinned:
         head += " (pinned)"
     lines = [f"{head} {{#{conv.conversation_id}}}" if anchor else head]

@@ -264,7 +264,20 @@ def _migrate_7(c: sqlite3.Connection) -> None:
     _run_script(c, "ALTER TABLE insights ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0;")
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6, _migrate_7]
+def _migrate_8(c: sqlite3.Connection) -> None:
+    """Connector exports: one row per day and connector; plain_text is what was last sent, kept for diffing."""
+    _run_script(
+        c,
+        """
+        CREATE TABLE exports (
+            day TEXT NOT NULL, connector TEXT NOT NULL, page_id TEXT, block_id TEXT, content_hash TEXT,
+            plain_text TEXT, exported_ms INTEGER, state TEXT NOT NULL, error TEXT,
+            PRIMARY KEY (day, connector));
+        """,
+    )
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6, _migrate_7, _migrate_8]
 
 _CLIP_COLS = (
     "clip_id, path, day, first_ms, last_ms, chunk_count, first_page, last_page, run, "
@@ -316,6 +329,24 @@ def _insight_record(r: sqlite3.Row) -> InsightRecord:
         insight = Insight(r["summary"], ups, json.loads(r["people"]), json.loads(r["topics"]))
     return InsightRecord(date.fromisoformat(r["day"]), r["state"], r["provider"], r["model"], r["prompt_version"],
                          r["generated_ms"], r["input_chars"], insight, r["error"], bool(r["truncated"]))
+
+
+@dataclass(frozen=True)
+class ExportRecord:
+    day: date
+    connector: str
+    page_id: Optional[str]
+    block_id: Optional[str]
+    content_hash: Optional[str]
+    plain_text: Optional[str]
+    exported_ms: Optional[int]
+    state: str  # done | error | stopped
+    error: Optional[str]
+
+
+def _export_record(r: sqlite3.Row) -> ExportRecord:
+    return ExportRecord(date.fromisoformat(r["day"]), r["connector"], r["page_id"], r["block_id"],
+                        r["content_hash"], r["plain_text"], r["exported_ms"], r["state"], r["error"])
 
 
 class Database:
@@ -808,6 +839,11 @@ class Database:
             muted_by=r["muted_by"], unmute=r["unmute"], error=r["error"],
         )
 
+    def set_conversation_label(self, conversation_id: str, label: Optional[str]) -> None:
+        with self._write_scope():
+            self._conn.execute("UPDATE conversations SET label = ? WHERE conversation_id = ?",
+                               (label, conversation_id))
+
     def last_drain_ok_ms(self) -> Optional[int]:
         r = self._conn.execute("SELECT MAX(ended_ms) AS m FROM sync_runs WHERE outcome = 'drained'").fetchone()
         return r["m"]
@@ -861,6 +897,26 @@ class Database:
         rows = self._conn.execute(
             "SELECT DISTINCT day FROM clips WHERE classification = 'speech' ORDER BY day").fetchall()
         return [date.fromisoformat(r["day"]) for r in rows]
+
+    # exports
+
+    def export(self, day: date, connector: str) -> Optional[ExportRecord]:
+        r = self._conn.execute("SELECT * FROM exports WHERE day = ? AND connector = ?",
+                               (day.isoformat(), connector)).fetchone()
+        return _export_record(r) if r else None
+
+    def set_export(self, rec: ExportRecord) -> None:
+        with self._write_scope():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO exports (day, connector, page_id, block_id, content_hash, plain_text, "
+                "exported_ms, state, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (rec.day.isoformat(), rec.connector, rec.page_id, rec.block_id, rec.content_hash, rec.plain_text,
+                 rec.exported_ms, rec.state, rec.error))
+
+    def exports_all(self, connector: str) -> list[ExportRecord]:
+        rows = self._conn.execute("SELECT * FROM exports WHERE connector = ? ORDER BY day DESC",
+                                  (connector,)).fetchall()
+        return [_export_record(r) for r in rows]
 
     # status
 

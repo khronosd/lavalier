@@ -39,6 +39,10 @@ class Config:
     insights_model: str = ""  # "" means the provider's default
     insights_base_url: str = ""  # OpenAI-compatible endpoints only
     insights_auto: bool = True
+    notion_enabled: bool = False
+    notion_database_id: str = ""  # 32 hex chars once set through settings
+    calendar_enabled: bool = False
+    calendar_ids: str = ""  # calendar ids, separated by commas or lines; "" means the primary calendar
 
 
 def _type_ok(value: object, default: object) -> bool:
