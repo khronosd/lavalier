@@ -18,6 +18,7 @@ dependencies = [
     "anthropic>=2.3",
     "openai>=3.37",
     "google-genai>=2.33",
+    "keyring>=25.7",
 ]
 
 [project.optional-dependencies]
