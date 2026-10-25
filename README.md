@@ -250,12 +250,18 @@ whenever you press Generate or ask a question. Audio is never sent."
 
 When it runs:
 
-- Automatically, once a day is complete (04:00 the next morning), and only for
-  days that completed after a model was chosen. Earlier days are never sent
-  unless you ask. `insights_auto` in `config.toml` turns this off.
+- Automatically, once a day is complete (04:00 the next morning) and its audio
+  is in: after the first drain that follows, and once none of its clips still
+  waits for a transcript. Only days that completed after the model was chosen
+  (and, for a cloud provider, after its key was saved, and after the switch was
+  last turned on) are sent; a key provider waits until the app knows the key
+  is there. Earlier days are never sent unless you ask. `insights_auto` in
+  `config.toml` turns this off.
 - On demand: Generate now on the day's Insights tab (today included), or the
   Insights section's "Generate for the last 7 days" and "Generate for the last 30 days", which
-  show a cost estimate and the days without insights before anything is sent.
+  show how many days, roughly how many tokens and what it would cost before
+  anything is sent. A range stops at a refused key or a provider it cannot
+  reach, and says how many days it did not send.
 - From the CLI, through the running app: `insights [DAY] [--force]` generates
   one day (`--force` replaces insights that exist); without a day it shows
   whether automatic insights are on, which days are due and which have none.
@@ -266,7 +272,11 @@ about $0.20, OpenAI GPT-6.1 Sol about $0.095, Google Gemini 3.8 Flash about
 $0.036. Cheaper models are listed in Settings. Ollama is free.
 
 API keys are kept in the macOS Keychain under the service
-`io.github.khronosd.lavalier`, never in `config.toml`. A day with no speech
+`io.github.khronosd.lavalier`, never in `config.toml`, one account per
+provider. An OpenAI-compatible endpoint (a base URL) has its own account,
+`openai@<host>`, so the OpenAI key is never sent to it, and the endpoint is
+named as "the endpoint at <host>" wherever the recipient is shown. An
+`http://` base URL is allowed, with a warning that it is not encrypted. A day with no speech
 gets nothing ("Nothing to summarise for this day").
 
 A failed generation shows its error on that day and is not retried by the
