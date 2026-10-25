@@ -843,8 +843,8 @@ class Database:
         return counts
 
     def day_text_chars(self) -> dict[date, int]:
-        """Each speech day's transcript size in characters (its speech clips' segments), in one query: a
-        cheap stand-in for the length of the day's text."""
+        """An estimate, in one query, of each speech day's text size: the characters of its speech clips'
+        segments. The day text sent to a model (times, speakers, the cut to fit) differs from it."""
         rows = self._conn.execute(
             "SELECT c.day AS day, SUM(LENGTH(s.text)) AS n FROM segments s JOIN clips c ON c.clip_id = s.clip_id "
             "WHERE c.classification = 'speech' GROUP BY c.day").fetchall()

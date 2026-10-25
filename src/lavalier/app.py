@@ -14,6 +14,7 @@ import os
 import platform
 import signal
 import sys
+import threading
 from datetime import date
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -100,6 +101,9 @@ class App:
         self._attempted: set[date] = set()          # days the automatic run tried in this process
         self._key_present: dict[str, Optional[bool]] = {}  # see note_key; never the key itself
         self._key_errors: dict[str, str] = {}
+        self._key_version: dict[str, int] = {}             # bumped by every key route write
+        self._key_lock = threading.Lock()
+        self._key_fill: Optional[threading.Thread] = None
         self._asks = 0
 
     # state
@@ -164,14 +168,16 @@ class App:
         """Patch config.toml as it is on disk (another writer, the window, may have saved since this
         process read it), then use the result, so the next tick and action see the new values. A
         drain already running keeps the Config it started with."""
-        before = self.cfg.insights_provider
+        before = self.cfg
         try:
             self.cfg = settings.apply(self.cfg, patch, self.paths.config)
         except ConfigError as e:
             self.config_error = str(e)
             raise RuntimeError(f"not saved: {e}") from e
         self.config_error = None
-        self._note_provider_chosen(before)
+        self._note_provider_chosen(before.insights_provider)
+        if (before.insights_model, before.insights_base_url) != (self.cfg.insights_model, self.cfg.insights_base_url):
+            self._attempted.clear()  # another model may well manage the days the last one failed
         return self.get_settings()
 
     def _note_provider_chosen(self, before: str) -> None:
@@ -179,6 +185,7 @@ class App:
         choosing one (or another) records when. Clearing it leaves the moment as it was."""
         if self.cfg.insights_provider and self.cfg.insights_provider != before:
             self.db.set_status("insights_enabled_at_ms", str(self._now_ms()))
+            self._attempted.clear()
 
     async def audio_file(self, clip_id: str) -> Path:
         """The clip's AAC file, transcoded once on first use. The row is read here on the loop; only
@@ -201,39 +208,72 @@ class App:
     # The loop never reads the Keychain or builds a provider (a Keychain prompt would stall the loop that
     # owns the pendant): workers do, and what they learn of a key lands in a small cache read here.
 
-    def note_key(self, provider: str, present: Optional[bool], error: Optional[str] = None) -> None:
-        """What the app knows of a provider's key. Written by the key routes (server thread), by every worker
-        that reads a key, and once at start-up; plain dict writes, safe from any thread. Never the key."""
-        self._key_present[provider] = present
-        if error is None:
-            self._key_errors.pop(provider, None)
-        else:
-            self._key_errors[provider] = error
+    def note_key(self, provider: str, present: Optional[bool], error: Optional[str] = None, *,
+                 seen: Optional[int] = None) -> None:
+        """What the app knows of a provider's key (never the key). The key routes write it as they are
+        (`seen` None) and bump the provider's version; a worker or the start-up fill passes the version it
+        saw before its own Keychain read (`_key_seen`), and its answer is dropped when a route wrote since.
+        Plain dict operations under a lock: safe from any thread, and never a Keychain call."""
+        with self._key_lock:
+            if seen is None:
+                self._key_version[provider] = self._key_version.get(provider, 0) + 1
+            elif self._key_version.get(provider, 0) != seen:
+                return
+            self._key_present[provider] = present
+            if error is None:
+                self._key_errors.pop(provider, None)
+            else:
+                self._key_errors[provider] = error
 
-    def _read_key_presence(self, provider: str) -> None:
-        """Worker thread only: read the Keychain once and note what it said."""
+    def _key_seen(self, provider: str) -> int:
+        with self._key_lock:
+            return self._key_version.get(provider, 0)
+
+    def _read_key_presence(self, provider: str) -> bool:
+        """Off the loop only: read the Keychain once and note what it said. Raises KeychainError."""
+        seen = self._key_seen(provider)
         try:
-            self.note_key(provider, keys.has_key(provider))
+            present = keys.has_key(provider)
         except keys.KeychainError as e:
-            self.note_key(provider, None, str(e))
+            self.note_key(provider, None, str(e), seen=seen)
+            raise
+        self.note_key(provider, present, seen=seen)
+        return present
 
-    def _unusable_reason(self) -> Optional[str]:
+    def _fill_key_cache(self, provider: str) -> None:
+        """The start-up fill, on a daemon thread of its own: never awaited, and never waited for at exit,
+        so a Keychain prompt nobody answers holds up neither the first drain nor a stop."""
+        def fill():
+            try:
+                self._read_key_presence(provider)
+            except keys.KeychainError as e:
+                _log.warning("the Keychain did not answer for %s: %s", provider, e)
+            except Exception:
+                _log.exception("reading the key cache failed")
+        self._key_fill = threading.Thread(target=fill, name="lavalier-key-fill", daemon=True)
+        self._key_fill.start()
+
+    def _unusable_reason(self, *, keychain_errors: bool = True) -> Optional[str]:
         """Why Generate and Ask are refused, from the config and the key cache only; None when usable. A key
-        not known either way counts as present: the worker reads it and reports NO_KEY itself."""
+        not known either way counts as present: the worker reads it and reports NO_KEY itself. With
+        `keychain_errors=False` a cached Keychain error counts as not known either way."""
         name = self.cfg.insights_provider
         if not name:
             return NO_MODEL
         if name in registry.KEYED:
-            if name in self._key_errors:
-                return self._key_errors[name]
+            error = self._key_errors.get(name)
+            if error is not None:
+                return error if keychain_errors else None
             if self._key_present.get(name) is False:
                 return NO_KEY
         return None
 
     def _check_usable(self) -> None:
+        """On-demand runs: a cached Keychain error does not refuse them (the worker reads the Keychain
+        again, and its answer refreshes the cache); the automatic run and the shown reason keep it."""
         if self._stopping:
             raise AppStopping()
-        reason = self._unusable_reason()
+        reason = self._unusable_reason(keychain_errors=False)
         if reason is not None:
             raise ValueError(reason)
 
@@ -242,11 +282,9 @@ class App:
         name = cfg.insights_provider
         if name in registry.KEYED:
             try:
-                present = keys.has_key(name)
+                present = self._read_key_presence(name)
             except keys.KeychainError as e:
-                self.note_key(name, None, str(e))
                 raise JobFailed(str(e)) from None
-            self.note_key(name, present)
             if not present:
                 raise JobFailed(NO_KEY)
         try:
@@ -415,12 +453,14 @@ class App:
         follow_ups = sorted(({"day": r.day.isoformat(), "text": f.text, "at_ms": f.at_ms, "line_id": f.line_id}
                              for r in done for f in r.insight.follow_ups),
                             key=lambda f: (f["day"], f["at_ms"] or 0), reverse=True)
-        chars = self.db.day_text_chars()
+        # `chars`: what a failed run sent, else an estimate of the day's text from one query (its
+        # transcript characters, capped at what one send can carry), never the day text built per day
+        estimate = self.db.day_text_chars()
         without = []
         for d in reversed(self._days_without_done()):  # newest first
             rec = self.db.insight(d)
-            without.append({"day": d.isoformat(), "chars": min(chars.get(d, 0), MAX_CHARS),
-                            "error": rec.error if rec is not None else None})
+            chars = rec.input_chars if rec is not None else min(estimate.get(d, 0), MAX_CHARS)
+            without.append({"day": d.isoformat(), "chars": chars, "error": rec.error if rec is not None else None})
         raw = self.db.get_status("insights_enabled_at_ms")
         due = stage.due_days(self.db, self.cfg, now_ms=now, enabled_at_ms=int(raw) if raw else None)
         return {"follow_ups": follow_ups, "people": _by_name(done, "people"), "topics": _by_name(done, "topics"),
@@ -685,8 +725,8 @@ class App:
         server = ControlServer(self, token_path=self.token_path)
         try:
             server.start()
-            if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop
-                await asyncio.to_thread(self._read_key_presence, self.cfg.insights_provider)
+            if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop, not awaited
+                self._fill_key_cache(self.cfg.insights_provider)
             try:
                 await self.process_pending_if_any()
             except Exception:

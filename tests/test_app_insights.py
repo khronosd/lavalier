@@ -183,8 +183,7 @@ async def test_generate_refuses_without_a_usable_provider(insights_app, memory_k
     app.note_key("anthropic", True)
     assert app.insights_day(DAY)["reason"] is None
     app.note_key("anthropic", None, "The Keychain refused: locked")
-    with pytest.raises(ValueError, match="The Keychain refused"):
-        app.generate(DAY)
+    assert app.insights_day(DAY)["reason"] == "The Keychain refused: locked"   # shown; on demand re-reads
 
 
 async def test_a_key_not_known_either_way_is_read_by_the_worker(insights_app, memory_keyring):
@@ -233,6 +232,7 @@ async def test_start_up_fills_the_key_cache_off_the_loop(app_env, memory_keyring
     async def fake_sleep(s): app.stop()
     app._sleep = fake_sleep
     await app.run()
+    app._key_fill.join(5)                             # its own thread, never awaited by run()
     assert app._key_present == {"openai": False}
 
 
@@ -500,3 +500,69 @@ async def test_start_up_keeps_an_earlier_enabled_moment_and_none_without_a_provi
     other.db.clear_status("insights_enabled_at_ms")
     other._startup_housekeeping()
     assert other.db.get_status("insights_enabled_at_ms") is None
+
+
+# --- fix round 2
+
+async def test_start_up_does_not_wait_for_the_key_fill(app_env):
+    app = app_env(FakePendant())
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="openai")
+    release = threading.Event()
+    def stuck_fill(provider):   # a Keychain prompt nobody answers
+        release.wait(10)
+    app._read_key_presence = stuck_fill
+    async def fake_sleep(s): app.stop()
+    app._sleep = fake_sleep
+    try:
+        await asyncio.wait_for(app.run(), 5)
+        assert app.pendant.log.count("status") == 1   # the first tick ran
+    finally:
+        release.set()
+
+
+async def test_a_cached_keychain_error_does_not_refuse_an_on_demand_run(insights_app, memory_keyring):
+    app = insights_app
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="anthropic")
+    keys.set_key("anthropic", "sk-test")              # the Keychain answers again
+    app.note_key("anthropic", None, "The Keychain refused: locked")
+    assert app.insights_day(DAY)["reason"].startswith("The Keychain refused")   # still shown
+    jid = app.generate(DAY)
+    await app.jobs.wait(jid)
+    assert app.jobs.get(jid)["state"] == "done"
+    assert app.insights_day(DAY)["reason"] is None    # the worker's read cleared it
+    app.note_key("anthropic", None, "The Keychain refused: locked")
+    await app.jobs.wait(app.ask(DAY, "who?"))
+
+
+async def test_an_older_worker_read_never_overwrites_a_newer_route_write(insights_app):
+    app = insights_app
+    seen = app._key_seen("anthropic")                 # a worker starts its read
+    app.note_key("anthropic", True)                   # a key PUT lands meanwhile
+    app.note_key("anthropic", False, seen=seen)       # the worker's older answer
+    assert app._key_present["anthropic"] is True
+    app.note_key("anthropic", False, seen=app._key_seen("anthropic"))
+    assert app._key_present["anthropic"] is False
+
+
+async def test_changing_the_model_lets_auto_try_attempted_days_again(insights_app):
+    app = insights_app
+    app._attempted.add(DAY)
+    app.update_settings({"insights_auto": False})
+    assert DAY in app._attempted
+    app.update_settings({"insights_model": "llama3"})
+    assert app._attempted == set()
+    app._attempted.add(DAY)
+    app.update_settings({"insights_base_url": "http://localhost:1"})
+    assert app._attempted == set()
+    app._attempted.add(DAY)
+    app.update_settings({"insights_provider": "anthropic"})
+    assert app._attempted == set()
+
+
+async def test_an_error_row_reports_the_chars_it_sent(insights_app, db):
+    app = insights_app
+    app._now_ms = lambda: AFTER_DAY
+    app.fake.error = "rate limited"
+    await app.jobs.wait(app.generate(DAY))
+    row = app.insights_index()["days_without"][0]
+    assert row["chars"] == db.insight(DAY).input_chars
