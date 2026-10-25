@@ -55,7 +55,8 @@ class Ollama:
         self.url = url.rstrip("/")
         self.timeout_s = timeout_s
         self.memory_gb = _machine_memory_gb() if memory_gb is None else memory_gb
-        self._open = opener or urllib.request.urlopen
+        # no ProxyHandler: the day's text goes straight to localhost, never through a proxy from the environment
+        self._open = opener or urllib.request.build_opener(urllib.request.ProxyHandler({})).open
 
     def _call(self, path: str, body: Optional[dict] = None, timeout_s: Optional[float] = None) -> dict:
         data = None if body is None else json.dumps(body).encode()

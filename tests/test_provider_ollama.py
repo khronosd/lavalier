@@ -173,3 +173,14 @@ def test_an_empty_ask_answer_is_a_provider_error(content):
         with pytest.raises(ProviderError) as e:
             Ollama("m", url=f.url).ask(dt(), "q")
     assert str(e.value) == "The model gave no answer"
+
+
+def test_ollama_traffic_never_goes_through_a_proxy(monkeypatch):
+    import urllib.request
+    monkeypatch.setenv("http_proxy", "http://proxy.invalid:3128")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    p = Ollama("m", memory_gb=16)
+    opener = p._open.__self__
+    assert isinstance(opener, urllib.request.OpenerDirector)
+    assert not any(isinstance(h, urllib.request.ProxyHandler) for h in opener.handlers)
+    assert any(isinstance(h, urllib.request.ProxyHandler) for h in urllib.request.build_opener().handlers)
