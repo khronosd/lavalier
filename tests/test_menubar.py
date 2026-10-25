@@ -175,3 +175,208 @@ def test_the_last_result_shows_under_the_facts_and_quit_only_when_started_by_han
 @pytest.mark.parametrize("lamp", ["listening", "recording", "muted", "unknown"])
 def test_every_lamp_has_a_symbol_and_a_word(lamp):
     assert menubar.SYMBOLS[lamp] and menubar.state_text(lamp)
+
+
+# --- the process: a fake bar, a fake API, threads that run at once ---
+
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+from lavalier import client
+from lavalier.config import Config
+from lavalier.menubar import POLL_EVERY_S, MenuBar, api, window_program
+
+
+class FakeBar:
+    def __init__(self):
+        self.icons: list[tuple[str, str]] = []
+        self.menus: list[list[MenuItem]] = []
+        self.timers: list[tuple[float, object]] = []
+        self.running = False
+        self.on_action = None
+
+    def set_icon(self, symbol, description):
+        self.icons.append((symbol, description))
+
+    def set_menu(self, items, on_action):
+        self.menus.append(list(items))
+        self.on_action = on_action
+
+    def every(self, seconds, fn):
+        self.timers.append((seconds, fn))
+
+    def call_soon(self, fn):
+        fn()
+
+    def run(self):
+        self.running = True
+
+    def stop(self):
+        self.running = False
+
+    def press(self, action):
+        self.on_action(action)
+
+    def titles(self, n=-1):
+        return [i.title for i in self.menus[n]]
+
+    def enabled(self, action, n=-1):
+        return [i.enabled for i in self.menus[n] if i.action == action][0]
+
+
+class FakeApi:
+    """Answers GET /api/status with `status_reply` and anything else from `replies` (a (code, data) or an
+    exception to raise)."""
+
+    def __init__(self):
+        self.status_reply = (200, status())
+        self.replies: dict = {}
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, token_path, method, route, timeout_s):
+        self.calls.append((method, route))
+        reply = self.status_reply if (method, route) == ("GET", "/api/status") else self.replies[route]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def run_now(target, args=(), daemon=True):
+    return SimpleNamespace(start=lambda: target(*args))
+
+
+def make(parent_pid=4242, alive=lambda pid: True, spawn=lambda: None):
+    """A menu bar as the app spawns it (a live parent), unless a test says otherwise."""
+    bar, fake = FakeBar(), FakeApi()
+    mb = MenuBar(bar, Path("/nowhere/.server.json"), api=fake, thread=run_now, parent_pid=parent_pid,
+                 parent_alive=alive, spawn_window=spawn)
+    return bar, fake, mb
+
+
+def test_start_draws_the_icon_and_the_menu_from_the_first_read_and_polls_every_15_s():
+    bar, fake, mb = make()
+    mb.start()
+    assert bar.running
+    assert fake.calls == [("GET", "/api/status")]
+    assert bar.icons[-1] == ("waveform", "Pendant: Listening just now")
+    assert bar.titles() == ["Listening just now", "Battery 94%", "787 pages waiting, about 20 minutes of speech",
+                            "Last sync: No sync yet", "-", "Sync now", "Mute", "-", "Open Lavalier"]
+    assert bar.timers == [(POLL_EVERY_S, mb.tick)]
+
+
+def test_an_unreachable_app_is_said_so_and_the_last_reading_kept():
+    bar, fake, mb = make()
+    fake.status_reply = client.AppUnavailable("Connection refused")
+    mb.start()
+    assert bar.icons[-1][0] == "circle.dotted"
+    assert bar.titles()[:2] == ["No reading yet", "Cannot reach the app"]
+    assert bar.enabled("sync") is False
+    fake.status_reply = (200, status())
+    mb.tick()
+    assert bar.titles()[0] == "Listening just now" and "Cannot reach the app" not in bar.titles()
+    fake.status_reply = client.AppUnavailable("Connection refused")
+    mb.tick()
+    assert bar.titles()[:2] == ["Listening just now", "Cannot reach the app"]  # the last reading stays
+
+
+def test_no_address_in_the_last_sync_gives_the_settings_sentence():
+    bar, fake, mb = make()
+    fake.status_reply = (200, status(device=None, last_sync=run("error", error="set pendant_address in config.toml")))
+    mb.start()
+    assert bar.icons[-1] == ("circle.dotted", "Pendant: Not set")
+    assert bar.titles() == ["Not set", "No pendant address set. Add it in Settings › Pendant.", "-", "Open Lavalier"]
+
+
+def test_sync_now_shows_syncing_then_the_result_and_reads_again():
+    bar, fake, mb = make()
+    fake.replies["/api/sync"] = (200, {"sync": {**run("drained"), "pages": 3}, "process": None})
+    mb.start()
+    bar.press("sync")
+    # while it ran: the word, and the actions disabled
+    assert bar.titles(-2)[0] == "Syncing…"
+    assert bar.enabled("sync", -2) is False and bar.enabled("mute", -2) is False
+    # then: the result under the facts, a fresh read, the actions back
+    assert fake.calls[-2:] == [("POST", "/api/sync"), ("GET", "/api/status")]
+    assert "Drained 3 pages" in bar.titles() and bar.titles()[0] == "Listening just now"
+    assert bar.enabled("sync") is True and bar.enabled("mute") is True
+
+
+def test_a_busy_app_and_an_app_that_cannot_be_reached_say_so_as_the_result():
+    bar, fake, mb = make()
+    fake.replies["/api/mute"] = (409, {"error": "busy"})
+    mb.start()
+    bar.press("mute")
+    assert "The pendant is busy, try again in a moment" in bar.titles()
+    fake.replies["/api/mute"] = client.AppUnavailable("Connection refused")
+    bar.press("mute")
+    assert "Connection refused" in bar.titles()
+    fake.replies["/api/mute"] = (503, {"error": "stopping"})
+    bar.press("mute")
+    assert "The app is stopping" in bar.titles()
+
+
+def test_mute_and_unmute_report_the_state_read_back():
+    bar, fake, mb = make()
+    fake.replies["/api/mute"] = (200, {"ok": True, "state": "NOT_RECORDING", "error": None})
+    mb.start()
+    bar.press("mute")
+    assert fake.calls[-2] == ("POST", "/api/mute") and "Muted" in bar.titles()
+    fake.status_reply = (200, status(device=device(recording_state="NOT_RECORDING")))
+    fake.replies["/api/unmute"] = (200, {"ok": False, "state": None, "error": "set pendant_address in config.toml"})
+    mb.tick()
+    assert bar.enabled("unmute") is True
+    bar.press("unmute")
+    assert bar.titles()[:2] == ["Not set", "No pendant address set. Add it in Settings › Pendant."]
+
+
+def test_a_second_press_while_one_runs_is_ignored():
+    bar, fake, mb = make()
+    fake.replies["/api/sync"] = (200, {"sync": run("skipped"), "process": None})
+    mb.start()
+    mb.busy_with = "sync"
+    bar.press("sync")
+    assert ("POST", "/api/sync") not in fake.calls
+
+
+def test_the_child_stops_when_its_parent_is_gone_but_a_standalone_one_stays():
+    bar, fake, mb = make(parent_pid=4242, alive=lambda pid: False)
+    mb.start()
+    assert not bar.running
+    bar, fake, mb = make(parent_pid=None, alive=lambda pid: False)
+    mb.start()
+    mb.tick()
+    assert bar.running and bar.titles()[-1] == "Quit"
+    bar.press("quit")
+    assert not bar.running
+
+
+def test_open_lavalier_spawns_the_window():
+    opened = []
+    bar, fake, mb = make(spawn=lambda: opened.append(True))
+    mb.start()
+    bar.press("open")
+    assert opened == [True]
+
+
+def test_window_program_follows_the_agents_choice_of_program(tmp_path):
+    assert window_program(Config(), bundle_default=tmp_path / "none") == [sys.executable, "-m", "lavalier.cli", "window"]
+    bundle = tmp_path / "Lavalier.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    assert window_program(Config(), bundle_default=bundle) == [str(bundle / "Contents" / "MacOS" / "Lavalier"), "-m", "lavalier.cli", "window"]
+
+
+def test_api_returns_the_code_and_the_json_and_raises_when_the_app_is_away(monkeypatch, tmp_path):
+    token = tmp_path / ".server.json"
+    token.write_text('{"port": 1, "token": "t", "pid": 1}')
+    monkeypatch.setattr(client, "_request", lambda info, method, route, timeout_s, body=None: (200, b'{"a": 1}'))
+    assert api(token, "GET", "/api/status", 5.0) == (200, {"a": 1})
+    monkeypatch.setattr(client, "_request", lambda *a, **k: (502, b"not json"))
+    assert api(token, "GET", "/api/status", 5.0) == (502, {})
+    def refuse(*a, **k):
+        raise OSError("Connection refused")
+    monkeypatch.setattr(client, "_request", refuse)
+    with pytest.raises(client.AppUnavailable):
+        api(token, "GET", "/api/status", 5.0)
+    with pytest.raises(client.AppUnavailable):
+        api(tmp_path / "missing.json", "GET", "/api/status", 5.0)

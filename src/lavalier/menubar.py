@@ -191,3 +191,164 @@ def menu_model(status: Optional[dict], *, no_address: bool = False, unreachable:
     if standalone:
         items.append(MenuItem("Quit", "quit"))
     return SYMBOLS[lamp], items
+
+
+# --- the process ---
+
+import http.client  # noqa: E402
+import json  # noqa: E402
+import subprocess  # noqa: E402
+import threading  # noqa: E402
+from typing import Callable, Protocol  # noqa: E402
+
+from lavalier import agent, client  # noqa: E402
+from lavalier.config import Config  # noqa: E402
+
+POLL_EVERY_S = 15.0
+STATUS_TIMEOUT_S = 5.0
+WINDOW_ARGS = ["-m", "lavalier.cli", "window"]
+
+
+def api(token_path, method: str, route: str, timeout_s: float) -> tuple[int, dict]:
+    """One request to the app: the HTTP status and the JSON body ({} when there is none). Raises
+    client.AppUnavailable when the app cannot be reached at all."""
+    info = client._token(token_path)
+    if info is None:
+        raise client.AppUnavailable(f"no usable token file at {token_path}")
+    try:
+        status, body = client._request(info, method, route, timeout_s)
+    except (OSError, http.client.HTTPException) as e:
+        raise client.AppUnavailable(str(e)) from e
+    try:
+        data = json.loads(body) if body else {}
+    except ValueError:
+        data = {}
+    return status, data if isinstance(data, dict) else {}
+
+
+def window_program(cfg: Config, **kw) -> list[str]:
+    """How to start the window: the program the agent would run, told to run the CLI's window command."""
+    program = agent.default_program(cfg, **kw)
+    if program[-2:] == ["-m", "lavalier.app"]:
+        return program[:-2] + WINDOW_ARGS
+    return program + WINDOW_ARGS
+
+
+def spawn_window(cfg: Config) -> None:
+    subprocess.Popen(window_program(cfg), start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class Bar(Protocol):
+    """What the status item needs from AppKit (menubar_cocoa) or a fake (tests)."""
+
+    def set_icon(self, symbol: str, description: str) -> None: ...
+    def set_menu(self, items: list[MenuItem], on_action: Callable[[str], None]) -> None: ...
+    def every(self, seconds: float, fn: Callable[[], None]) -> None: ...
+    def call_soon(self, fn: Callable[[], None]) -> None: ...
+    def run(self) -> None: ...
+    def stop(self) -> None: ...
+
+
+class MenuBar:
+    """The status item's life: a status read every 15 s, the menu redrawn from it, actions run on a worker
+    thread through the app's API, the window opened as a process, and the end when the parent app is gone.
+    No live reads from here: the window does those when it is in front."""
+
+    def __init__(self, bar: Bar, token_path, *, parent_pid: Optional[int] = None, api=api, thread=threading.Thread,
+                 parent_alive=client._pid_alive, spawn_window: Callable[[], None] = lambda: None):
+        self.bar = bar
+        self.token_path = token_path
+        self.parent_pid = parent_pid
+        self.api = api
+        self.thread = thread
+        self.parent_alive = parent_alive
+        self.spawn_window = spawn_window
+        self.status: Optional[dict] = None
+        self.no_address = False
+        self.unreachable = False
+        self.busy_with: Optional[str] = None
+        self.result: Optional[str] = None
+        self.stopped = False
+
+    def start(self) -> None:
+        self.tick()
+        if self.stopped:  # the parent was gone before the first tick: nothing to run
+            return
+        self.bar.every(POLL_EVERY_S, self.tick)
+        self.bar.run()
+
+    def tick(self) -> None:
+        if self.parent_pid is not None and not self.parent_alive(self.parent_pid):
+            self.stopped = True
+            self.bar.stop()
+            return
+        self.read_status()
+        self.redraw()
+
+    def read_status(self) -> None:
+        try:
+            code, data = self.api(self.token_path, "GET", "/api/status", STATUS_TIMEOUT_S)
+        except client.AppUnavailable:
+            self.unreachable = True  # the last reading stays on show
+            return
+        if code != 200:
+            self.unreachable = True
+            return
+        self.status = data
+        self.unreachable = False
+        if is_no_address((data.get("last_sync") or {}).get("error")):
+            self.no_address = True
+
+    def redraw(self) -> None:
+        symbol, items = menu_model(self.status, no_address=self.no_address, unreachable=self.unreachable,
+                                   busy_with=self.busy_with, result=self.result, standalone=self.parent_pid is None)
+        self.bar.set_icon(symbol, f"Pendant: {items[0].title}")
+        self.bar.set_menu(items, self.on_action)
+
+    def on_action(self, name: str) -> None:
+        if name == "open":
+            self.spawn_window()
+        elif name == "quit":
+            self.bar.stop()
+        elif name in BUSY_WORDS and self.busy_with is None:
+            self.busy_with = name
+            self.result = None
+            self.redraw()
+            self.thread(target=self._run_action, args=(name,), daemon=True).start()
+
+    def _run_action(self, name: str) -> None:
+        """On the worker thread: the request, then its line; the redraw hops back to the main thread."""
+        route = "/api/sync" if name == "sync" else f"/api/{name}"
+        try:
+            code, data = self.api(self.token_path, "POST", route, client.CALL_TIMEOUT_S)
+            if code != 200:
+                line = request_error_line(code, str(data.get("error") or f"HTTP {code}"))
+            elif name == "sync":
+                line = sync_result_line(data)
+                sync = data.get("sync") or {}
+                self.no_address = is_no_address(sync.get("error")) or is_no_address(sync.get("reason"))
+            else:
+                line = toggle_result_line(data)
+                self.no_address = is_no_address(data.get("error"))
+        except client.AppUnavailable as e:
+            line = request_error_line(None, str(e))
+            if is_no_address(str(e)):
+                self.no_address = True
+
+        def finish() -> None:
+            self.busy_with = None
+            self.result = line
+            self.read_status()  # the app's view again: an action is a reason to look
+            self.redraw()
+
+        self.bar.call_soon(finish)
+
+
+def main(*, token_path, cfg: Config, parent_pid: Optional[int] = None, bar: Optional[Bar] = None) -> int:
+    """Run the status item until the parent app is gone (or Quit, when started by hand)."""
+    if bar is None:
+        from lavalier.menubar_cocoa import CocoaBar
+        bar = CocoaBar()
+    MenuBar(bar, token_path, parent_pid=parent_pid, spawn_window=lambda: spawn_window(cfg)).start()
+    return 0

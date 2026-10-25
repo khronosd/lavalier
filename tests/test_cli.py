@@ -141,3 +141,17 @@ def test_install_agent_warns_when_no_bundle_is_found(tmp_path, monkeypatch):
     assert r.exit_code == 0
     assert ("warning: no app bundle found; the agent will run bare Python, which has no Bluetooth grant. "
             "Build the bundle (see bundle/README.md) and run install-agent again.") in r.output
+
+
+def test_menubar_command_runs_the_status_item_against_the_app(cli_env, monkeypatch):
+    from lavalier import menubar
+    seen = {}
+
+    def fake_main(*, token_path, cfg, parent_pid=None, bar=None):
+        seen.update(token_path=token_path, parent_pid=parent_pid)
+        return 0
+
+    monkeypatch.setattr(menubar, "main", fake_main)
+    r = cli_env.invoke(["menubar", "--parent", "4242"])
+    assert r.exit_code == 0, r.output
+    assert seen["parent_pid"] == 4242 and seen["token_path"].name == ".server.json"

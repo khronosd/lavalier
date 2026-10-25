@@ -340,6 +340,15 @@ def window_cmd() -> None:
     raise SystemExit(window.main([], token_path=paths.root / SERVER_FILE, cfg=cfg, config_path=paths.config))
 
 
+@main.command("menubar")
+@click.option("--parent", type=int, default=None, help="The app's pid; the status item ends when it is gone.")
+def menubar_cmd(parent: int | None) -> None:
+    """Show the pendant in the menu bar, on the running background app (the app starts this itself)."""
+    from lavalier import menubar
+    paths, cfg = _paths_cfg()
+    raise SystemExit(menubar.main(token_path=paths.root / SERVER_FILE, cfg=cfg, parent_pid=parent))
+
+
 @main.command("install-agent")
 @click.option("--program", multiple=True, help="Override the program argv (repeat per argument).")
 def install_agent_cmd(program: tuple[str, ...]) -> None:
