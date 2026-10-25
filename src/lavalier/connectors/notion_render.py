@@ -13,6 +13,7 @@ OWNED_MARKER = "Written by lavalier. Edits inside this block are overwritten; ad
 RUN_CHARS = 2000  # Notion's limit for one rich_text content
 MAX_RUNS = 100    # ... and for the rich_text elements of one block
 BATCH = 100       # children per append request
+BATCH_BYTES = 400_000   # ... and at most this much JSON (Notion caps a request's payload at 500 kB)
 CUT = "[… cut]"
 
 

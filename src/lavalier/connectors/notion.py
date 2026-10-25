@@ -8,6 +8,7 @@ The connector owns one callout block per page and only ever writes inside it, to
 new page; nothing else on a page is deleted, edited or reordered. Errors never carry the token."""
 
 import copy
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -15,7 +16,7 @@ from datetime import date
 from enum import Enum
 from typing import Callable, Optional
 
-from lavalier.connectors.notion_render import BATCH, OWNED_MARKER, page_title, property_schema
+from lavalier.connectors.notion_render import BATCH, BATCH_BYTES, OWNED_MARKER, page_title, property_schema
 
 NOTION_VERSION = "2025-09-03"
 NO_TOKEN = "No token saved. Add one in Settings › Connectors."
@@ -115,13 +116,41 @@ def _normalise(block: dict) -> dict:
     return out
 
 
+def _size(value) -> int:
+    return len(json.dumps(value).encode())
+
+
+def _first_batch(children: list[dict], budget: int = BATCH_BYTES) -> int:
+    """How many of `children` go in one request: at most BATCH, and at most `budget` bytes of JSON as a list
+    (json.dumps writes "[a, b]": two brackets and two bytes between items). A single child over the budget
+    still goes alone; Notion then refuses it with its own error."""
+    size = 2
+    for k, child in enumerate(children[:BATCH]):
+        size += _size(child) + (2 if k else 0)
+        if k and size > budget:
+            return k
+    return min(len(children), BATCH)
+
+
+def _batches(children: list[dict]) -> list[list[dict]]:
+    out = []
+    while children:
+        k = _first_batch(children)
+        out.append(children[:k])
+        children = children[k:]
+    return out
+
+
 def _split(block: dict) -> tuple[dict, list[dict]]:
-    """The owned block with at most BATCH children, and the children left to append to it."""
+    """The owned block with the children that fit one request beside it, and the children left to append."""
     kind = block["type"]
     children = block[kind].get("children", [])
+    bare = dict(block)
+    bare[kind] = dict(block[kind], children=[])
+    k = _first_batch(children, BATCH_BYTES - _size([bare]))
     head = dict(block)
-    head[kind] = dict(block[kind], children=copy.deepcopy(children[:BATCH]))
-    return head, children[BATCH:]
+    head[kind] = dict(block[kind], children=copy.deepcopy(children[:k]))
+    return head, children[k:]
 
 
 class Notion:
@@ -189,8 +218,8 @@ class Notion:
 
     def _append(self, block_id: str, children: list[dict]) -> list[dict]:
         added = []
-        for i in range(0, len(children), BATCH):
-            res = self._call("blocks.children.append", missing=GONE, block_id=block_id, children=children[i:i + BATCH])
+        for batch in _batches(children):
+            res = self._call("blocks.children.append", missing=GONE, block_id=block_id, children=batch)
             added += res.get("results", [])
         return added
 
@@ -241,7 +270,7 @@ class Notion:
 
     def create_day_page(self, info: DatabaseInfo, title: str, properties: dict, block: dict, *,
                         on_page: Optional[Callable[[str], None]] = None) -> tuple[str, str]:
-        """A new page holding the owned block; children past the first BATCH are appended to the block.
+        """A new page holding the owned block; children past the first batch are appended to the block.
         `on_page` hears the page id the moment the page exists, so a later failure cannot lead to a second page."""
         head, rest = _split(block)
         props = {info.title_property: {"title": _text(title)}, **properties}
@@ -313,7 +342,7 @@ class Notion:
         return [_normalise(b) for b in self._list(block_id)]
 
     def replace_children(self, block_id: str, children: list[dict]) -> None:
-        """Delete every child of the owned block, then append the new ones in batches of BATCH."""
+        """Delete every child of the owned block, then append the new ones in batches (by count and size)."""
         for b in self._list(block_id):
             self._call("blocks.delete", missing=GONE, block_id=b["id"])
         self._append(block_id, children)

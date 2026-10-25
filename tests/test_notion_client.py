@@ -198,6 +198,35 @@ def test_create_day_page_batches_a_long_day_into_the_owned_block():
     assert nr.plain_text(got) == nr.plain_text(children)
 
 
+def big_para(k):
+    """A paragraph of 100 runs of 2000 characters: about 220 kB of JSON."""
+    runs = [{"type": "text", "text": {"content": f"{k}" + "x" * 1999}} for _ in range(100)]
+    return {"object": "block", "type": "paragraph", "paragraph": {"rich_text": runs}}
+
+
+def test_appends_are_batched_by_size_as_well_as_count():
+    import json
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    i = n.check(fn.DATABASE_ID)
+    children = [big_para(k) for k in range(5)] + [para(f"line {k}") for k in range(150)]
+    pid, bid = n.create_day_page(i, "2026-10-23", {}, nr.owned_block(children))
+    (create,) = [kw for name, kw in c.calls if name == "pages.create"]
+    assert len(json.dumps(create["children"]).encode()) <= 400_000
+    appends = [kw for name, kw in c.calls if name == "blocks.children.append"]
+    for a in appends:
+        assert len(a["children"]) <= 100 and len(json.dumps(a["children"]).encode()) <= 400_000
+    assert nr.plain_text(n.owned_block_children(bid)) == nr.plain_text(children)
+    c.calls.clear()
+    n.replace_children(bid, children)
+    appends = [kw for name, kw in c.calls if name == "blocks.children.append"]
+    assert [len(a["children"]) for a in appends][:3] == [1, 1, 1]
+    for a in appends:
+        assert len(a["children"]) <= 100 and len(json.dumps(a["children"]).encode()) <= 400_000
+    assert sum(len(a["children"]) for a in appends) == len(children)
+    assert nr.plain_text(n.owned_block_children(bid)) == nr.plain_text(children)
+
+
 def test_update_properties_patches_the_page():
     c = fn.FakeNotionClient()
     n = notion(c)
