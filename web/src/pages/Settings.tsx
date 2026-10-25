@@ -32,6 +32,8 @@ function Heading({ title, lead }: { title: string; lead?: string }) {
   );
 }
 
+const CONNECTORS_POLL_MS = 5_000;
+
 interface ConnectorsProps {
   settings: SettingsData;
   setSettings: (update: (s: SettingsData | null) => SettingsData | null) => void;
@@ -40,8 +42,8 @@ interface ConnectorsProps {
   clearError: (field: string) => void;
 }
 
-/** Settings › Connectors below its lead: the connectors as the app reports them, read on opening and again
- *  after anything that may change them; the latest read wins. */
+/** Settings › Connectors below its lead: the connectors as the app reports them, read on opening, again
+ *  after anything that may change them, and every 5 s while an export runs; the latest read wins. */
 function Connectors({ settings, setSettings, save, errors, clearError }: ConnectorsProps) {
   const [state, setState] = useState<ConnectorsState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -57,6 +59,13 @@ function Connectors({ settings, setSettings, save, errors, clearError }: Connect
     );
   }
   useEffect(refresh, []);
+  // an export runs (started here, by the app or by the CLI): read again until it ends, so its days show
+  const exporting = state?.notion.exporting === true;
+  useEffect(() => {
+    if (!exporting) return;
+    const timer = setInterval(refresh, CONNECTORS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [exporting]);
 
   async function saveAndRead(patch: SettingsPatch): Promise<boolean> {
     const ok = await save(patch);

@@ -632,6 +632,33 @@ test("Connectors: the export list, newest first, with Export again on a stopped 
   expect(posts.map((p) => p.body)).toEqual([{ day: "2026-10-22", force: true }, { day: "2026-10-21" }]);
 });
 
+test("Connectors: while an export runs the state is read again every 5 s, until it ends or the tab closes", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    conn = connectors({ notion: { enabled: true, exporting: true } });
+    const r = await connectorsTab();
+    expect(screen.getByText("Exporting…")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(count("GET /api/connectors")).toBe(2);
+    conn = connectors({ notion: { enabled: true, exporting: false, last: [exportRow("2026-10-23", "done")] } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(count("GET /api/connectors")).toBe(3);
+    await screen.findByText("exported 14:02");
+    expect(screen.queryByText("Exporting…")).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(count("GET /api/connectors")).toBe(3);         // ended: no more reads
+    conn = connectors({ notion: { enabled: true, exporting: true } });
+    fireEvent.click(screen.getByRole("switch", { name: "Label conversations from Calendar" }));
+    await waitFor(() => expect(count("GET /api/connectors")).toBe(4));
+    await screen.findByText("Exporting…");
+    r.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(count("GET /api/connectors")).toBe(4);         // closed: the timer went with it
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("Connectors: the calendar authorisation states", async () => {
   const lines: [ConnectorsState["calendar"]["authorization"], string][] = [
     ["allowed", "Allowed"],
