@@ -215,3 +215,21 @@ def test_saving_the_first_key_restarts_automatic_insights_from_then(server_no_pr
     assert put(srv, "/api/keys/anthropic", {"key": "sk-1"}).status == 204
     get(srv, "/api/insights")
     assert srv.app.db.get_status("insights_enabled_at_ms") != "5"
+
+
+def test_a_providers_read_that_finds_a_key_while_presence_is_unknown_keeps_the_enabled_moment(
+        server_no_provider, memory_keyring):
+    srv = server_no_provider
+    assert put(srv, "/api/settings", {"insights_provider": "anthropic"}).status == 200
+    srv.app._app._key_fill.join(5)
+    keys.set_key("anthropic", "sk-1")                        # there all along; the app does not know either way
+    srv.app._app._key_present.clear()                        # as after a start-up Keychain error
+    srv.app.db.set_status("insights_enabled_at_ms", "5")
+    assert _body(get(srv, "/api/insights/providers"))["key_present"] is True
+    get(srv, "/api/insights")
+    assert srv.app.db.get_status("insights_enabled_at_ms") == "5"
+    assert srv.app._app._key_present["anthropic"] is True   # still noted, as a read
+    srv.app._app._key_present.clear()
+    assert put(srv, "/api/keys/anthropic", {"key": "sk-2"}).status == 204   # a save while unknown still counts
+    get(srv, "/api/insights")
+    assert srv.app.db.get_status("insights_enabled_at_ms") != "5"

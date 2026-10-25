@@ -337,21 +337,32 @@ def _app_cfg(srv):
     return srv.call(lambda: srv.app_like.cfg)
 
 
-def _note_key(srv, provider: str, present, error=None) -> None:
-    """Tell the app what is known of a key (never the key), so it never reads the Keychain on its loop."""
+def _note_key(srv, provider: str, present, error=None, *, seen=None) -> None:
+    """Tell the app what is known of a key (never the key), so it never reads the Keychain on its loop.
+    A write (the key routes) passes no `seen`; a read passes the version it saw before its Keychain read."""
     note = getattr(srv.app_like, "note_key", None)
     if note is not None:
-        note(provider, present, error)
+        if seen is None:
+            note(provider, present, error)
+        else:
+            note(provider, present, error, seen=seen)
+
+
+def _key_seen(srv, account: str):
+    seen = getattr(srv.app_like, "_key_seen", None)
+    return seen(account) if seen is not None else None
 
 
 def _providers(srv, req):
     cfg = _app_cfg(srv)
+    account = registry.key_account(cfg)
+    seen = _key_seen(srv, account)  # a read, like a worker's: never taken for a key being saved
     try:
         facts = registry.provider_facts(cfg)
     except ValueError as e:  # an unknown provider in config.toml
         raise _BadRequest(str(e)) from None
     if facts["key_present"] is not None or facts["keychain_error"] is not None:
-        _note_key(srv, registry.key_account(cfg), facts["key_present"], facts["keychain_error"])
+        _note_key(srv, account, facts["key_present"], facts["keychain_error"], seen=seen)
     return _json({**facts, "check": None})
 
 

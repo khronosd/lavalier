@@ -363,7 +363,7 @@ def test_importing_the_pipeline_and_writing_insights_never_loads_keyring_or_the_
         "rec = InsightRecord(date(2026, 10, 23), 'done', 'openai', 'm', 1, 0, 1, Insight('s', [], [], []), None)\n"
         "assert 'OpenAI' in ''.join(dayfile._insights(rec))\n"
         "print(sorted(m for m in sys.modules if m.split('.')[0] in ('keyring', 'anthropic', 'openai')"
-        " or m.startswith(('lavalier.insights.registry', 'lavalier.insights.keys', 'lavalier.insights.providers'))))\n")
+        " or m == 'google.genai' or m.startswith(('google.genai.', 'lavalier.insights.registry', 'lavalier.insights.keys', 'lavalier.insights.providers'))))\n")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
     assert out.strip() == "[]"
 
