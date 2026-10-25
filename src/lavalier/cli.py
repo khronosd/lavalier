@@ -556,7 +556,7 @@ def ask_cmd(day: datetime, question: str) -> None:
     click.echo(_finished_job(token, job)["answer"])
 
 
-_EXPORT_LINE = {"exported": "exported", "unchanged": "unchanged"}
+_EXPORT_LINE = {"exported": "exported", "unchanged": "unchanged", "not_sent": "not sent"}
 
 
 @main.command("export")
@@ -579,9 +579,12 @@ def export_cmd(day: Optional[datetime], days: Optional[int], force: bool) -> Non
         outcome = d["outcome"]
         text = _EXPORT_LINE.get(outcome) or f"{outcome}: {d['error']}"
         click.echo(f"{d['day']}: {text}")
+    not_sent = result.get("not_sent") or []
     click.echo(f"Exported {result['done']}, unchanged {result['unchanged']}, stopped {len(result['stopped'])}, "
-               f"errors {len(result['errors'])}")
-    if result["errors"]:
+               f"errors {len(result['errors'])}" + (f", not sent {len(not_sent)}" if not_sent else ""))
+    if result.get("interrupted"):
+        click.echo(f"Export {result['interrupted']}")
+    if result["errors"] or result.get("interrupted"):
         raise SystemExit(1)
 
 

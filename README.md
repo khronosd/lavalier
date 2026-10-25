@@ -336,7 +336,13 @@ and resumes. Edits outside the block never stop anything.
 - `export [DAY] [--days N] [--force]`: through the running app. Without `DAY`
   it exports the newest 7 days with speech; `--days N` (1 to 365) changes that.
   `DAY` is `YYYY-MM-DD`, and `--force` (only with `DAY`) is "Export again".
-  It prints one line per day and a total, and exits 1 if any day failed.
+  It prints one line per day and a total, and exits 1 if any day failed or
+  the export stopped part way.
+
+Turning the switch off, or choosing another database, stops a running export
+before its next day; the days left are reported as not sent. Choosing another
+database also forgets what was exported, so every day goes fresh into the new
+one.
 
 ### Calendar
 

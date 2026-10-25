@@ -638,7 +638,8 @@ class App:
         """Worker thread, on its own connection: each day in turn. An automatic run (`changed_only`) sends
         only the days whose content changed since their last export."""
         notion, info = prepared
-        out = {"done": 0, "unchanged": 0, "stopped": [], "errors": [], "days": []}
+        out = {"done": 0, "unchanged": 0, "stopped": [], "errors": [], "not_sent": [], "interrupted": None,
+               "days": []}
 
         def note(day: date, outcome: str, error: Optional[str] = None) -> None:
             out["days"].append({"day": day.isoformat(), "outcome": outcome, "error": error})
@@ -648,14 +649,20 @@ class App:
                 out["unchanged"] += 1
             elif outcome == "stopped":
                 out["stopped"].append(day.isoformat())
+            elif outcome == "not_sent":
+                out["not_sent"].append(day.isoformat())
             else:
                 out["errors"].append({"day": day.isoformat(), "error": error})
 
         db = Database(self.paths.db)
         try:
             todo = set(days_to_export(db, cfg, days)) if changed_only else set(days)
-            for day in days:
-                if self._stopping:
+            for i, day in enumerate(days):
+                halt = self._export_halt(cfg)
+                if halt is not None:
+                    out["interrupted"] = halt
+                    for rest in days[i:]:
+                        note(rest, "not_sent")
                     break
                 before = db.export(day, NOTION)
                 if day not in todo:
@@ -677,6 +684,17 @@ class App:
         finally:
             db.close()
 
+    def _export_halt(self, cfg: Config) -> Optional[str]:
+        """Worker thread, between days: why the rest of the job must not go (attribute reads only)."""
+        if self._stopping:
+            return "stopped: the app is quitting"
+        now = self.cfg
+        if not now.notion_enabled:
+            return "stopped: the connector was turned off"
+        if now.notion_database_id != cfg.notion_database_id:
+            return "stopped: another database was chosen"
+        return None
+
     def _export_done(self, job: dict) -> None:
         """Loop: log what went wrong, then start what was kept pending while this ran."""
         if job["state"] == "error":
@@ -686,6 +704,9 @@ class App:
                 _log.info("notion: %s stopped: the block was edited by hand", d)
             for e in job["result"]["errors"]:
                 _log.warning("notion: %s failed: %s", e["day"], e["error"])
+            if job["result"].get("interrupted"):
+                _log.info("notion: export %s; %d day(s) not sent", job["result"]["interrupted"],
+                          len(job["result"]["not_sent"]))
         self._auto_export(())
 
     def _auto_export(self, days) -> None:

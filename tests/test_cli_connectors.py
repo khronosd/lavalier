@@ -52,6 +52,21 @@ def test_cli_export_prints_a_day_error_and_exits_1(cli_env, served):
     assert "errors 1" in r.output
 
 
+def test_cli_export_says_what_was_not_sent_when_notion_was_turned_off(cli_env, monkeypatch):
+    result = {"done": 1, "unchanged": 0, "stopped": [], "errors": [], "not_sent": ["2026-10-24"],
+              "interrupted": "stopped: the connector was turned off",
+              "days": [{"day": DAY, "outcome": "exported", "error": None},
+                       {"day": "2026-10-24", "outcome": "not_sent", "error": None}]}
+    monkeypatch.setattr(cli, "_app_token", lambda paths: "t")
+    monkeypatch.setattr(cli, "_app_call", lambda *a, **k: {"job": "j"})
+    monkeypatch.setattr(cli, "_finished_job", lambda token, job: result)
+    r = cli_env.invoke(["export"])
+    assert r.output.splitlines() == [f"{DAY}: exported", "2026-10-24: not sent",
+                                     "Exported 1, unchanged 0, stopped 0, errors 0, not sent 1",
+                                     "Export stopped: the connector was turned off"]
+    assert r.exit_code == 1
+
+
 def test_cli_export_with_days_sends_them(cli_env, served):
     r = cli_env.invoke(["export", "--days", "30"])
     assert r.exit_code == 0 and f"{DAY}: exported" in r.output

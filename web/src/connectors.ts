@@ -43,10 +43,10 @@ function andList(items: string[]): string {
 }
 
 /** What an export job did, in one line: "Exported 5 days, 1 unchanged; 1 stopped: 20 October was edited by
- *  hand; 1 failed: 22 October (its error)". */
+ *  hand; 1 failed: 22 October (its error)", and why it stopped part way when it did. */
 export function exportResultLine(r: ExportResult): string {
   const parts: string[] = [];
-  if (r.done || r.unchanged || (!r.stopped.length && !r.errors.length)) {
+  if (r.done || r.unchanged || (!r.stopped.length && !r.errors.length && !r.interrupted)) {
     if (!r.done && !r.unchanged) return "No days with speech to export";
     parts.push(`Exported ${plural(r.done, "day", "days")}${r.unchanged ? `, ${r.unchanged} unchanged` : ""}`);
   }
@@ -57,6 +57,10 @@ export function exportResultLine(r: ExportResult): string {
   if (r.errors.length) {
     const days = r.errors.map((e) => (e.error ? `${dayMonth(e.day)} (${e.error})` : dayMonth(e.day)));
     parts.push(`${r.errors.length} failed: ${days.join(", ")}`);
+  }
+  if (r.interrupted) {
+    const why = r.interrupted.charAt(0).toUpperCase() + r.interrupted.slice(1);
+    parts.push(`${why} (${plural(r.not_sent?.length ?? 0, "day", "days")} not sent)`);
   }
   return parts.join("; ");
 }

@@ -139,6 +139,44 @@ async def test_an_export_error_is_reported_per_day(notion_app):
     assert errors[0]["error"] == "The token was refused" and errors[1]["error"] == "Nothing to export"
 
 
+def _after_page_create(app, then):
+    """Run `then` (on the worker thread) right after the export creates its first page."""
+    real = app.fake.pages.create
+
+    def create(**kw):
+        out = real(**kw)
+        then()
+        return out
+    app.fake.pages.create = create
+
+
+async def test_turning_notion_off_stops_a_running_export(notion_app, db):
+    app = notion_app
+    _after_page_create(app, lambda: setattr(app, "cfg", dataclasses.replace(app.cfg, notion_enabled=False)))
+    j = await _export(app, [DAY, date(2026, 10, 20), date(2026, 10, 21)])
+    r = j["result"]
+    assert j["state"] == "done" and r["done"] == 1 and r["errors"] == []
+    assert r["days"] == [{"day": "2026-10-23", "outcome": "exported", "error": None},
+                         {"day": "2026-10-20", "outcome": "not_sent", "error": None},
+                         {"day": "2026-10-21", "outcome": "not_sent", "error": None}]
+    assert r["not_sent"] == ["2026-10-20", "2026-10-21"]
+    assert r["interrupted"] == "stopped: the connector was turned off"
+    assert db.export(date(2026, 10, 20), CONNECTOR) is None
+
+
+async def test_choosing_another_database_stops_a_running_export(notion_app, db):
+    app = notion_app
+    _after_page_create(app, lambda: setattr(app, "cfg", dataclasses.replace(app.cfg, notion_database_id="f" * 32)))
+    j = await _export(app, [DAY, date(2026, 10, 20)])
+    assert j["result"]["not_sent"] == ["2026-10-20"]
+    assert j["result"]["interrupted"] == "stopped: another database was chosen"
+
+
+async def test_an_export_that_runs_to_its_end_is_not_interrupted(notion_app):
+    j = await _export(notion_app, [DAY])
+    assert j["result"]["interrupted"] is None and j["result"]["not_sent"] == []
+
+
 async def test_export_recent_takes_the_newest_days_with_speech_oldest_first(notion_app):
     app = notion_app
     seen = []

@@ -492,5 +492,8 @@ export interface ExportResult {
   unchanged: number;
   stopped: IsoDate[];
   errors: { day: IsoDate; error: string | null }[];
+  /** Days left unsent because the export stopped part way, and why it stopped ("stopped: ..."). */
+  not_sent?: IsoDate[];
+  interrupted?: string | null;
   days: { day: IsoDate; outcome: string; error: string | null }[];
 }

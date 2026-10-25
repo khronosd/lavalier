@@ -34,6 +34,16 @@ test("exportResultLine counts the days, then says which stopped and which failed
       "2 failed: 22 October (Notion refused the token), 23 October");
 });
 
+test("exportResultLine says when an export was stopped part way and how many days did not go", () => {
+  const none = { done: 0, unchanged: 0, stopped: [], errors: [], days: [] };
+  expect(exportResultLine({ ...none, done: 1, not_sent: ["2026-10-21", "2026-10-22"],
+    interrupted: "stopped: the connector was turned off" }))
+    .toBe("Exported 1 day; Stopped: the connector was turned off (2 days not sent)");
+  expect(exportResultLine({ ...none, not_sent: ["2026-10-21"], interrupted: "stopped: the connector was turned off" }))
+    .toBe("Stopped: the connector was turned off (1 day not sent)");
+  expect(exportResultLine({ ...none, done: 1, not_sent: [], interrupted: null })).toBe("Exported 1 day");
+});
+
 test("an export row says when it was exported, or why not", () => {
   const at = new Date(2026, 9, 23, 14, 2).getTime();
   const row = { day: "2026-10-23", connector: "notion", page_id: "p", block_id: "b", content_hash: "h",
