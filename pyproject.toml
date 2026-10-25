@@ -19,6 +19,7 @@ dependencies = [
     "openai>=3.37",
     "google-genai>=2.33",
     "keyring>=25.7",
+    "notion-client>=3.1",
 ]
 
 [project.optional-dependencies]
