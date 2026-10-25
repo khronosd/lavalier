@@ -64,7 +64,7 @@ def export_day(db: Database, cfg: Config, client: Notion, day: date, *, now_ms: 
             info = client.check(cfg.notion_database_id)
             if info.missing_properties:
                 client.ensure_properties(info)
-        if row is not None and row.page_id and client.page_exists(row.page_id):
+        if row is not None and row.page_id and client.page_exists(row.page_id, info):
             page_id = row.page_id
             # the stored block is trusted only once verified: a deleted, moved or retyped block is never read or
             # cleared; the page gets its own callout back through the find-or-append path below

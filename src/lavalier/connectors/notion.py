@@ -96,6 +96,11 @@ def _joined(rich_text: list[dict]) -> str:
                    for r in rich_text or [])
 
 
+def _bare(notion_id) -> str:
+    """An id without dashes, lower case: Notion writes the same id with and without them."""
+    return str(notion_id or "").replace("-", "").lower()
+
+
 def _normalise(block: dict) -> dict:
     """A block as Notion returns it, reduced to what notion_render.plain_text reads: any rich text (mentions,
     equations) becomes its text; a block without rich text reads as its type; nested blocks add a line, since
@@ -273,25 +278,30 @@ class Notion:
                 return False
             raise
         parent = b.get("parent") or {}
-
-        def bare(i):
-            return str(i or "").replace("-", "").lower()
-
         return (b.get("type") == "callout" and not b.get("archived") and not b.get("in_trash")
                 and _joined((b.get("callout") or {}).get("rich_text")) == OWNED_MARKER
-                and parent.get("type") == "page_id" and bare(parent.get("page_id")) == bare(page_id))
+                and parent.get("type") == "page_id" and _bare(parent.get("page_id")) == _bare(page_id))
 
     def update_properties(self, page_id: str, properties: dict) -> None:
         self._call("pages.update", missing=GONE, page_id=page_id, properties=properties)
 
-    def page_exists(self, page_id: str) -> bool:
+    def page_exists(self, page_id: str, info: DatabaseInfo) -> bool:
+        """True only for a live page whose parent is the chosen data source (or, on the legacy shape that
+        names only a database, the chosen database): a page moved elsewhere counts as no page."""
         try:
             page = self._call("pages.retrieve", missing=GONE, page_id=page_id)
         except NotionError as e:
             if e.status == 404:
                 return False
             raise
-        return not (page.get("archived") or page.get("in_trash"))
+        if page.get("archived") or page.get("in_trash"):
+            return False
+        parent = page.get("parent") or {}
+        if parent.get("type") == "data_source_id":
+            return _bare(parent.get("data_source_id")) == _bare(info.data_source_id)
+        if parent.get("type") == "database_id":
+            return _bare(parent.get("database_id")) == _bare(info.database_id)
+        return False
 
     # --- the owned block
 

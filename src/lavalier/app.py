@@ -561,9 +561,15 @@ class App:
     # As for insights, the loop never reads the Keychain, calls Notion or touches EventKit: workers do.
 
     def _note_connectors_change(self, before: Config) -> None:
-        """Turning Notion on reads whether a token is saved, off the loop, so automatic exports can start."""
+        """Turning Notion on reads whether a token is saved, off the loop, so automatic exports can start.
+        Another database forgets every export row, so each day goes fresh into the new database instead of
+        following its page in the old one."""
         if self.cfg.notion_enabled and not before.notion_enabled and self._key_present.get(NOTION) is None:
             self._fill_key_cache(NOTION)
+        if self.cfg.notion_database_id != before.notion_database_id:
+            gone = self.db.delete_exports(NOTION)
+            if gone:
+                _log.info("notion: another database was chosen; %d export row(s) forgotten", gone)
 
     def _exporting(self) -> bool:
         return self.jobs.running(EXPORT_KEY) is not None

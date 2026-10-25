@@ -267,6 +267,30 @@ async def test_an_insight_generated_with_notion_on_is_exported(notion_app, db):
     assert "A short pendant test" in db.export(DAY, CONNECTOR).plain_text
 
 
+async def test_choosing_another_database_forgets_every_export(notion_app, db):
+    app = notion_app
+    app.cfg = dataclasses.replace(app.cfg, notion_database_id="")
+    app.update_settings({"notion_enabled": True, "notion_database_id": fn.DATABASE_ID})
+    await _export(app, [DAY])
+    assert db.export(DAY, CONNECTOR).state == "done"
+    app.update_settings({"notion_enabled": False})       # another setting: the rows stay
+    app.update_settings({"notion_enabled": True})
+    assert db.export(DAY, CONNECTOR) is not None
+    app.update_settings({"notion_database_id": "f" * 32})
+    assert db.exports_all(CONNECTOR) == []               # every day goes fresh into the new database
+
+
+async def test_a_reloaded_config_with_another_database_forgets_every_export(notion_app, db):
+    from lavalier.config import save_config
+    app = notion_app
+    save_config(app.cfg, app.paths.config)
+    await _export(app, [DAY])
+    assert app.reload_config() and db.export(DAY, CONNECTOR) is not None   # same database: kept
+    save_config(dataclasses.replace(app.cfg, notion_database_id="f" * 32), app.paths.config)
+    assert app.reload_config()
+    assert db.exports_all(CONNECTOR) == []
+
+
 async def test_turning_notion_on_reads_the_token_presence_off_the_loop(app_env, memory_keyring):
     app = app_env(FakePendant())
     keys.set_key("notion", "t")

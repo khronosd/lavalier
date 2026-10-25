@@ -919,6 +919,11 @@ class Database:
                 (rec.day.isoformat(), rec.connector, rec.page_id, rec.block_id, rec.content_hash, rec.plain_text,
                  rec.exported_ms, rec.state, rec.error))
 
+    def delete_exports(self, connector: str) -> int:
+        """Forget every export row of one connector; returns how many went."""
+        with self._write_scope():
+            return self._conn.execute("DELETE FROM exports WHERE connector = ?", (connector,)).rowcount
+
     def exports_all(self, connector: str) -> list[ExportRecord]:
         rows = self._conn.execute("SELECT * FROM exports WHERE connector = ? ORDER BY day DESC",
                                   (connector,)).fetchall()

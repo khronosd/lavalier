@@ -44,7 +44,7 @@ def para(text):
     lambda n: n.update_properties("p", {}),
     lambda n: n.owned_block_children("b"),
     lambda n: n.replace_children("b", []),
-    lambda n: n.page_exists("p"),
+    lambda n: n.page_exists("p", DatabaseInfo(fn.DATABASE_ID, fn.DATA_SOURCE_ID, "J", [], "Name")),
 ])
 def test_every_method_without_a_token_says_so(call):
     with pytest.raises(NotionError) as e:
@@ -195,11 +195,29 @@ def test_update_properties_patches_the_page():
 def test_page_exists():
     c = fn.FakeNotionClient()
     n = notion(c)
-    pid, _ = n.create_day_page(n.check(fn.DATABASE_ID), "t", {}, nr.owned_block([]))
-    assert n.page_exists(pid) is True
-    assert n.page_exists("page-gone") is False
+    i = n.check(fn.DATABASE_ID)
+    pid, _ = n.create_day_page(i, "t", {}, nr.owned_block([]))
+    assert n.page_exists(pid, i) is True
+    assert n.page_exists("page-gone", i) is False
     c.page_store[pid]["in_trash"] = True
-    assert n.page_exists(pid) is False
+    assert n.page_exists(pid, i) is False
+
+
+def test_a_page_under_another_data_source_counts_as_no_page():
+    c = fn.FakeNotionClient(uuid_ids=True)
+    n = notion(c)
+    i = n.check(fn.DATABASE_ID)
+    pid, _ = n.create_day_page(i, "t", {}, nr.owned_block([]))
+    c.page_store[pid]["parent"] = {"type": "data_source_id", "data_source_id": "ds-other", "database_id": "db-other"}
+    assert n.page_exists(pid, i) is False
+    c.page_store[pid]["parent"] = {"type": "page_id", "page_id": "somewhere"}
+    assert n.page_exists(pid, i) is False
+    # the legacy shape names only the database; the id is compared without dashes or case
+    dashed = f"{fn.DATABASE_ID[:8]}-{fn.DATABASE_ID[8:12]}-{fn.DATABASE_ID[12:16]}-{fn.DATABASE_ID[16:20]}-{fn.DATABASE_ID[20:]}"
+    c.page_store[pid]["parent"] = {"type": "database_id", "database_id": dashed.upper()}
+    assert n.page_exists(pid, i) is True
+    c.page_store[pid]["parent"] = {"type": "database_id", "database_id": "f" * 32}
+    assert n.page_exists(pid, i) is False
 
 
 # --- the owned block's children

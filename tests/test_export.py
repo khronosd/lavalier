@@ -210,6 +210,19 @@ def test_a_dated_page_without_an_owned_block_gets_one_appended(db, ncfg, seeded_
     assert _owned_text(fake, rec.block_id) == rec.plain_text
 
 
+def test_a_page_that_left_the_database_is_not_followed(db, ncfg, seeded_2026_10_23_subset, fake, client):
+    first = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    fake.page_store[first.page_id]["parent"] = {"type": "data_source_id", "data_source_id": "ds-other"}
+    before = _owned_text(fake, first.block_id)
+    fake.calls.clear()
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW + 1)
+    assert rec.state == "done" and rec.page_id != first.page_id and len(fake.page_store) == 2
+    assert fake.page_store[rec.page_id]["parent"]["data_source_id"] == fn.DATA_SOURCE_ID
+    assert _owned_text(fake, first.block_id) == before          # the page in the other database was not touched
+    touched = {kw.get("page_id") or kw.get("block_id") for name, kw in fake.calls if name in fake.writes()}
+    assert first.page_id not in touched and first.block_id not in touched
+
+
 # --- failures
 
 def test_a_server_error_is_an_error_row(db, ncfg, seeded_2026_10_23_subset, fake, client):

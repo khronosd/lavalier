@@ -179,6 +179,7 @@ class FakeNotionClient:
         want = filter["date"]["equals"]
         prop = filter["property"]
         hits = [p for p in self.page_store.values() if not p["in_trash"]
+                and p["parent"].get("data_source_id") == data_source_id
                 and (p["properties"].get(prop) or {}).get("date", {}).get("start") == want]
         return {"object": "list", "results": [{"object": "page", "id": p["id"]} for p in hits][:page_size],
                 "has_more": False, "next_cursor": None}
@@ -199,7 +200,7 @@ class FakeNotionClient:
             raise not_found()
         p = self.page_store[page_id]
         return {"object": "page", "id": page_id, "in_trash": p["in_trash"], "archived": p["archived"],
-                "properties": copy.deepcopy(p["properties"])}
+                "parent": copy.deepcopy(p["parent"]), "properties": copy.deepcopy(p["properties"])}
 
     def _page_update(self, page_id=None, properties=None, **kw):
         if page_id not in self.page_store:

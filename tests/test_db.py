@@ -491,6 +491,14 @@ def test_exports_all_is_newest_day_first_per_connector(db):
     assert [r.day.day for r in db.exports_all("calendar")] == [24]
 
 
+def test_delete_exports_drops_one_connectors_rows(db):
+    for day in (date(2026, 10, 21), date(2026, 10, 23)):
+        db.set_export(_rec(day))
+    db.set_export(_rec(date(2026, 10, 24), connector="calendar"))
+    assert db.delete_exports("notion") == 2
+    assert db.exports_all("notion") == [] and len(db.exports_all("calendar")) == 1
+
+
 def test_set_conversation_label_shows_in_the_day_view_and_clears(db, cfg, seeded_2026_10_23_subset):
     from conftest import T
     from lavalier.journal import day_view
