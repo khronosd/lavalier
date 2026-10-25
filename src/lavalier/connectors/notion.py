@@ -21,6 +21,7 @@ from lavalier.connectors.notion_render import BATCH, BATCH_BYTES, OWNED_MARKER, 
 NOTION_VERSION = "2025-09-03"
 NO_TOKEN = "No token saved. Add one in Settings › Connectors."
 CANNOT_SEE = "The integration cannot see this database; share it with the integration in Notion"
+MISTYPED = "Rename or retype these properties in Notion first: "   # the window says the same (connectors.ts)
 PAGE_LINK = "Open the database itself and copy its link; a page link does not work here."
 GONE = "Notion could not find the day's page or block; it may have been deleted"
 REFUSED_TOKEN = "The token was refused"
@@ -260,7 +261,7 @@ class Notion:
         self._sdk()
         if info.mistyped_properties:
             names = ", ".join(info.mistyped_properties)
-            raise NotionError(f"The database has {names} with another type; rename or change it in Notion")
+            raise NotionError(f"{MISTYPED}{names}")
         schema = property_schema()
         absent = {n: schema[n] for n in info.missing_properties if n in schema}
         if absent:

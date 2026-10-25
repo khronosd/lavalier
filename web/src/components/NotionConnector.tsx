@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, pollJob, type ConnectorsState, type DatabaseInfo, type ExportResult, type Settings, type SettingsPatch } from "../api";
-import { againBody, EXPORT_DAYS, exportResultLine, normaliseNotionId, NOTION_SENTENCE } from "../connectors";
+import { againBody, EXPORT_DAYS, exportResultLine, MISTYPED, normaliseNotionId, NOTION_SENTENCE } from "../connectors";
 import { actionError, pollError } from "../insights";
 import { ConnectorSwitch } from "./ConnectorSwitch";
 import { ExportList } from "./ExportList";
@@ -29,7 +29,7 @@ type Line = { ok: boolean; text: string };
 
 /** Settings › Connectors › Notion: the switch, the token, the database, Test, the export and the last exports. */
 export function NotionConnector({ settings, state, saveAndRead, setSettings, errors, clearError, refresh }: Props) {
-  const [test, setTest] = useState<(Line & { missing: string[] }) | null>(null);
+  const [test, setTest] = useState<(Line & { missing: string[]; mistyped: string[] }) | null>(null);
   const [testing, setTesting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<Line | null>(null);
@@ -48,10 +48,13 @@ export function NotionConnector({ settings, state, saveAndRead, setSettings, err
     try {
       const info = await api<DatabaseInfo>("POST", "/api/connectors/notion/check");
       if (!live.current) return;
-      setTest({ ok: true, text: `Connected to ${info.title}`, missing: info.missing_properties });
+      const mistyped = info.mistyped_properties ?? [];
+      setTest({ ok: true, text: `Connected to ${info.title}`, mistyped,
+        missing: info.missing_properties.filter((p) => !mistyped.includes(p)) });
     } catch (e) {
       if (!live.current) return;
-      setTest({ ok: false, text: e instanceof ApiError && e.status === 504 ? NOTION_SLOW : actionError(e), missing: [] });
+      setTest({ ok: false, text: e instanceof ApiError && e.status === 504 ? NOTION_SLOW : actionError(e), missing: [],
+        mistyped: [] });
     } finally {
       if (live.current) {
         setTesting(false);
@@ -101,6 +104,9 @@ export function NotionConnector({ settings, state, saveAndRead, setSettings, err
         {testing && <span class="ins-help" role="status">Testing…</span>}
         {test && <span class={test.ok ? "ins-help" : "ins-help con-bad"} role={test.ok ? "status" : "alert"}>{test.text}</span>}
       </div>
+      {test && test.mistyped.length > 0 && (
+        <p class="field-help con-note con-bad" role="alert">{`${MISTYPED}${test.mistyped.join(", ")}`}</p>
+      )}
       {test && test.missing.length > 0 && (
         <p class="field-help con-note">{`Missing properties will be added: ${test.missing.join(", ")}`}</p>
       )}

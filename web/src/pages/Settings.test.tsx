@@ -558,6 +558,18 @@ test("Connectors: Test names the database and the properties it will add, or say
   expect(screen.queryByText(/Missing properties/)).toBeNull();
 });
 
+test("Connectors: Test names mistyped properties as a refusal and promises only the absent ones", async () => {
+  await connectorsTab();
+  otherReply = (key) => key === "POST /api/connectors/notion/check"
+    ? json({ database_id: DB, data_source_id: "ds", title: "Journal", missing_properties: ["Date", "Stars"],
+      title_property: "Name", mistyped_properties: ["Date"] }) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Test" }));
+  expect(await screen.findByText("Connected to Journal")).toBeTruthy();
+  expect(screen.getByText("Rename or retype these properties in Notion first: Date")).toBeTruthy();
+  expect(screen.getByText("Missing properties will be added: Stars")).toBeTruthy();
+  expect(screen.queryByText(/will be added: Date/)).toBeNull();
+});
+
 test("Connectors: Export the last 7 days follows the job and says what it did", async () => {
   await connectorsTab();
   otherReply = (key) => {

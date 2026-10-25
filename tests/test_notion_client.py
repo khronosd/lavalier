@@ -158,7 +158,7 @@ def test_ensure_never_retypes_the_owners_property():
     n = notion(c)
     with pytest.raises(NotionError) as e:
         n.ensure_properties(n.check(fn.DATABASE_ID))
-    assert "Date" in str(e.value) and "another type" in str(e.value)
+    assert str(e.value) == "Rename or retype these properties in Notion first: Date"
     assert c.writes() == [] and c.properties["Date"]["type"] == "rich_text"
 
 

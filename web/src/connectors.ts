@@ -10,6 +10,8 @@ export const CALENDAR_SENTENCE =
 export const BAD_DATABASE = "Paste the database's link from Notion, or its 32-character id.";
 export const ALL_CALENDARS = "All calendars are read until you pick some.";
 export const EXPORT_DAYS = 7;
+/** The export refuses these words for a property of the connector's name with another type (notion.MISTYPED). */
+export const MISTYPED = "Rename or retype these properties in Notion first: ";
 
 const HEX32 = /^[0-9a-f]{32}$/i;
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
