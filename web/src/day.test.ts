@@ -74,6 +74,11 @@ test("transcriptItems marks the line at or just after each star; a star past the
   expect(marks(transcriptItems(conv([line(8, "b", 1), line(5, "a", 0)], [])))).toEqual(["L5", "L8"]);
 });
 
+test("transcriptItems keeps a star outside the conversation's span: before the first clip it marks the first line, after the end it keeps its item", () => {
+  // the server gives a conversation the stars pressed up to a minute around it; the span starts at its first clip
+  expect(marks(transcriptItems(conv([line(5, "a"), line(40, "b", 1)], [-10, -2, 70])))).toEqual(["L5★", "L40", "S70"]);
+});
+
 test("transcriptItems puts a quiet gap between lines more than five minutes apart", () => {
   const c = conv([line(0, "a", 0), line(400, "b", 1), line(701, "c", 2), line(1001, "d", 3)], [], T0, T0 + 1200_000);
   expect(marks(transcriptItems(c))).toEqual(["L0", "G7", "L400", "G5", "L701", "L1001"]);

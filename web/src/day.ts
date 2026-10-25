@@ -58,11 +58,12 @@ export const QUIET_MS = 5 * 60_000;
 /**
  * What the transcript draws: the conversation's lines in time order, each star marking the line at or just
  * after it (the quote under a star is that line); a star past the last line keeps its own item at its exact
- * time; and a quiet gap between two lines more than five minutes apart.
+ * time; and a quiet gap between two lines more than five minutes apart. Every star the server gave the
+ * conversation counts, including one pressed just before its first clip began (so before start_ms).
  */
 export function transcriptItems(conv: ConversationView): TranscriptPiece[] {
   const lines = [...conv.lines].sort((a, b) => a.at_ms - b.at_ms || a.seq - b.seq);
-  const stars = conv.star_ms.filter((ms) => ms >= conv.start_ms && ms <= conv.end_ms).sort((a, b) => a - b);
+  const stars = [...conv.star_ms].sort((a, b) => a - b);
   const items: TranscriptPiece[] = [];
   let s = 0;
   let lastAt: number | null = null;
