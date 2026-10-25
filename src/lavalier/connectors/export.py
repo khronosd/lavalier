@@ -33,6 +33,11 @@ def _error(day: date, row: Optional[ExportRecord], message: str, *, wrote: bool)
     return dataclasses.replace(row, state="error", error=message)
 
 
+def _with_page(day: date, row: Optional[ExportRecord], page_id: str, block_id: Optional[str]) -> ExportRecord:
+    base = row or ExportRecord(day, CONNECTOR, None, None, None, None, None, "error", None)
+    return dataclasses.replace(base, page_id=page_id, block_id=block_id)
+
+
 def export_day(db: Database, cfg: Config, client: Notion, day: date, *, now_ms: int, force: bool = False,
                info: Optional[DatabaseInfo] = None) -> ExportRecord:
     """Export one day; returns the stored row (or, for a day without speech, a transient error record).
@@ -59,37 +64,46 @@ def export_day(db: Database, cfg: Config, client: Notion, day: date, *, now_ms: 
             info = client.check(cfg.notion_database_id)
             if info.missing_properties:
                 client.ensure_properties(info)
-        if row is not None and row.page_id and row.block_id and client.page_exists(row.page_id):
-            page_id, block_id = row.page_id, row.block_id
-            if row.plain_text is not None and not force:
-                if plain_text(client.owned_block_children(block_id)) != row.plain_text:
-                    rec = dataclasses.replace(row, state="stopped", error=STOPPED)
-                    db.set_export(rec)
-                    return rec
-                if h == row.content_hash and row.state == "done":
-                    return row
+        if row is not None and row.page_id and client.page_exists(row.page_id):
+            page_id = row.page_id
+            # the stored block is trusted only once verified: a deleted, moved or retyped block is never read or
+            # cleared; the page gets its own callout back through the find-or-append path below
+            if row.block_id and client.owned_block_ok(row.block_id, page_id):
+                block_id = row.block_id
+                if row.plain_text is not None and not force:
+                    if plain_text(client.owned_block_children(block_id)) != row.plain_text:
+                        rec = dataclasses.replace(row, state="stopped", error=STOPPED)
+                        db.set_export(rec)
+                        return rec
+                    if h == row.content_hash and row.state == "done":
+                        return row
         if page_id is None:
-            found = client.find_day_page(info, day)
-            if found is not None:
-                page_id = found
-                block_id = client.find_owned_block(found)
-                if block_id is None:
-                    wrote = True
-                    block_id = client.add_owned_block(found, owned_block(children))
-                    client.update_properties(page_id, page_properties(view))
-                    rewrite = False
+            page_id = client.find_day_page(info, day)
+        if page_id is not None and block_id is None:
+            block_id = client.find_owned_block(page_id)
+            if block_id is None:
+                wrote = True
+                block_id = client.add_owned_block(page_id, owned_block(children))
+                client.update_properties(page_id, page_properties(view))
+                rewrite = False
         if page_id is None:
             wrote = True
-            page_id, block_id = client.create_day_page(info, page_title(day), page_properties(view),
-                                                       owned_block(children))
+
+            def created(pid: str) -> None:
+                nonlocal page_id
+                page_id = pid
+                db.set_export(_error(day, _with_page(day, row, pid, None), "Export interrupted", wrote=True))
+
+            new_page, block_id = client.create_day_page(info, page_title(day), page_properties(view),
+                                                        owned_block(children), on_page=created)
+            page_id = new_page
         elif rewrite:
             wrote = True
             client.replace_children(block_id, children)
             client.update_properties(page_id, page_properties(view))
     except NotionError as e:
         if page_id is not None:   # keep the page the day now has, even when this run found or made it
-            row = dataclasses.replace(row or ExportRecord(day, CONNECTOR, None, None, None, None, None, "error", None),
-                                      page_id=page_id, block_id=block_id)
+            row = _with_page(day, row, page_id, block_id)
         rec = _error(day, row, str(e), wrote=wrote)
         db.set_export(rec)
         return rec

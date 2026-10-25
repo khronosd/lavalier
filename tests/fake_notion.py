@@ -75,7 +75,8 @@ class FakeNotionClient:
                                         update=self._wrap("pages.update", self._page_update))
         children = SimpleNamespace(list=self._wrap("blocks.children.list", self._children_list),
                                    append=self._wrap("blocks.children.append", self._children_append))
-        self.blocks = SimpleNamespace(children=children, delete=self._wrap("blocks.delete", self._block_delete))
+        self.blocks = SimpleNamespace(children=children, delete=self._wrap("blocks.delete", self._block_delete),
+                                      retrieve=self._wrap("blocks.retrieve", self._block_retrieve))
 
     # --- scripting and inspection
 
@@ -87,7 +88,7 @@ class FakeNotionClient:
 
     def writes(self) -> list[str]:
         reads = {"users.me", "databases.retrieve", "data_sources.retrieve", "data_sources.query",
-                 "pages.retrieve", "blocks.children.list"}
+                 "pages.retrieve", "blocks.children.list", "blocks.retrieve"}
         return [n for n in self.names() if n not in reads]
 
     def page_children(self, page_id: str) -> list[dict]:
@@ -215,6 +216,17 @@ class FakeNotionClient:
             raise api_error(400, APIErrorCode.ValidationError, message="children length should be ≤ 100")
         ids = [self._store_block(block_id, c) for c in children or []]
         return {"object": "list", "results": [self._public(i) for i in ids]}
+
+    def _block_retrieve(self, block_id=None, **kw):
+        if block_id not in self.block_store:
+            raise not_found()
+        b = self.block_store[block_id]
+        parent = b["parent"]
+        out = self._public(block_id)
+        out["archived"] = out["in_trash"]
+        out["parent"] = ({"type": "page_id", "page_id": parent} if parent in self.page_store
+                         else {"type": "block_id", "block_id": parent})
+        return out
 
     def _block_delete(self, block_id=None, **kw):
         if block_id not in self.block_store or self.block_store[block_id]["in_trash"]:

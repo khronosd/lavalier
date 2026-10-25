@@ -295,3 +295,46 @@ def test_connectors_never_import_playback_or_audio():
         assert not bad_import.search(src), f
         assert not bad_open.search(src), f
         assert "paths.audio" not in src and ".audio /" not in src, f
+
+
+# --- fix round 1: the stored block id is verified before any read or delete
+
+def test_a_trashed_callout_gets_a_new_owned_block(db, ncfg, seeded_2026_10_23_subset, fake, client):
+    first = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    old_children = {b["id"] for b in fake.block_children(first.block_id)}
+    fake.block_store[first.block_id]["in_trash"] = True                  # the owner deleted the callout
+    _insight(db)
+    fake.calls.clear()
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW + 1)
+    assert rec.state == "done" and rec.page_id == first.page_id and rec.block_id != first.block_id
+    assert db.export(DAY, "notion").block_id == rec.block_id
+    assert [b["id"] for b in fake.page_children(rec.page_id)] == [rec.block_id]
+    assert _owned_text(fake, rec.block_id) == rec.plain_text
+    deleted = {kw["block_id"] for n, kw in fake.calls if n == "blocks.delete"}
+    assert not deleted & (old_children | {first.block_id})
+    assert "blocks.children.list" not in [n for n, kw in fake.calls if kw.get("block_id") == first.block_id]
+
+
+def test_a_block_of_another_type_at_the_stored_id_is_never_deleted(db, ncfg, seeded_2026_10_23_subset, fake, client):
+    first = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    theirs = fake.add_owner_block(first.page_id, "my paragraph")
+    inner = fake.add_owner_block(theirs, "nested under it")
+    db.set_export(dataclasses.replace(db.export(DAY, "notion"), block_id=theirs))
+    _insight(db)
+    fake.calls.clear()
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    assert rec.state == "done" and rec.block_id == first.block_id         # found its own callout again
+    deleted = {kw["block_id"] for n, kw in fake.calls if n == "blocks.delete"}
+    assert theirs not in deleted and inner not in deleted
+    assert not fake.block_store[theirs]["in_trash"] and not fake.block_store[inner]["in_trash"]
+    assert all(fake.block_store[b]["parent"] == first.block_id for b in deleted)
+
+
+def test_a_failure_after_the_page_is_created_never_duplicates_it(db, ncfg, seeded_2026_10_23_subset, fake, client):
+    fake.fail("blocks.children.list", fn.server_error())                 # reading back the new callout fails
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    (pid,) = fake.page_store
+    assert rec.state == "error" and rec.page_id == pid and rec.block_id is None and rec.plain_text is None
+    again = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    assert again.state == "done" and again.page_id == pid and len(fake.page_store) == 1
+    assert _owned_text(fake, again.block_id) == again.plain_text

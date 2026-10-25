@@ -26,6 +26,9 @@ RATE_LIMITED = "Notion is rate-limiting; try again in a minute"
 UNAVAILABLE = "Notion is unavailable; try again later"
 UNREACHABLE = "Could not reach Notion"
 MAX_RETRY_AFTER_S = 60.0
+MAX_LIST_PAGES = 50         # of 100 blocks each; a longer listing is an error, never a silent truncation
+TOO_MANY = "The page or block has too many blocks to read"
+NOT_KEPT = "Notion did not keep the block lavalier wrote"
 
 log = logging.getLogger("lavalier.notion")
 
@@ -147,6 +150,9 @@ class Notion:
         self._last = self._clock()
 
     def _call(self, endpoint: str, *, missing: str = CANNOT_SEE, **kw):
+        import httpx
+        from notion_client.errors import NotionClientErrorBase
+
         fn = self._sdk()
         for part in endpoint.split("."):
             fn = getattr(fn, part)
@@ -154,15 +160,15 @@ class Notion:
             self._space()
             try:
                 return fn(**kw)
-            except Exception as e:
+            except (NotionClientErrorBase, httpx.HTTPError) as e:   # anything else is a bug and propagates
                 if attempt == 0 and _status(e) == 429:
                     self._sleep(_retry_after_s(e))
                     continue
                 raise NotionError(_safe_text(e, missing), _status(e)) from None
 
     def _list(self, block_id: str) -> list[dict]:
-        out, cursor = [], None
-        while True:
+        out, cursor, seen = [], None, set()
+        for _ in range(MAX_LIST_PAGES):
             kw = {"block_id": block_id, "page_size": 100}
             if cursor:
                 kw["start_cursor"] = cursor
@@ -171,6 +177,10 @@ class Notion:
             cursor = page.get("next_cursor")
             if not page.get("has_more") or not cursor:
                 return out
+            if cursor in seen:
+                break
+            seen.add(cursor)
+        raise NotionError(TOO_MANY)
 
     def _append(self, block_id: str, children: list[dict]) -> list[dict]:
         added = []
@@ -220,16 +230,20 @@ class Notion:
 
     # --- pages
 
-    def create_day_page(self, info: DatabaseInfo, title: str, properties: dict, block: dict) -> tuple[str, str]:
-        """A new page holding the owned block; children past the first BATCH are appended to the block."""
+    def create_day_page(self, info: DatabaseInfo, title: str, properties: dict, block: dict, *,
+                        on_page: Optional[Callable[[str], None]] = None) -> tuple[str, str]:
+        """A new page holding the owned block; children past the first BATCH are appended to the block.
+        `on_page` hears the page id the moment the page exists, so a later failure cannot lead to a second page."""
         head, rest = _split(block)
         props = {info.title_property: {"title": _text(title)}, **properties}
         page = self._call("pages.create", parent={"type": "data_source_id", "data_source_id": info.data_source_id},
                           properties=props, children=[head])
         page_id = page["id"]
+        if on_page is not None:
+            on_page(page_id)
         block_id = self.find_owned_block(page_id)
         if block_id is None:
-            raise NotionError("Notion did not keep the block lavalier wrote")
+            raise NotionError(NOT_KEPT)
         self._append(block_id, rest)
         return page_id, block_id
 
@@ -243,9 +257,29 @@ class Notion:
     def add_owned_block(self, page_id: str, block: dict) -> str:
         """Append the owned block at the end of an existing page; nothing already on it is touched."""
         head, rest = _split(block)
-        (added, *_) = self._append(page_id, [head])
-        self._append(added["id"], rest)
-        return added["id"]
+        added = self._append(page_id, [head])
+        if not added or not added[0].get("id"):
+            raise NotionError(NOT_KEPT)
+        self._append(added[0]["id"], rest)
+        return added[0]["id"]
+
+    def owned_block_ok(self, block_id: str, page_id: str) -> bool:
+        """True only for the connector's live callout directly on `page_id`: the right type, the marker as its
+        text, not archived or in the trash. Checked before the stage reads or deletes anything under a stored id."""
+        try:
+            b = self._call("blocks.retrieve", missing=GONE, block_id=block_id)
+        except NotionError as e:
+            if e.status == 404:
+                return False
+            raise
+        parent = b.get("parent") or {}
+
+        def bare(i):
+            return str(i or "").replace("-", "").lower()
+
+        return (b.get("type") == "callout" and not b.get("archived") and not b.get("in_trash")
+                and _joined((b.get("callout") or {}).get("rich_text")) == OWNED_MARKER
+                and parent.get("type") == "page_id" and bare(parent.get("page_id")) == bare(page_id))
 
     def update_properties(self, page_id: str, properties: dict) -> None:
         self._call("pages.update", missing=GONE, page_id=page_id, properties=properties)

@@ -319,3 +319,85 @@ def test_the_retry_after_a_429_is_also_spaced():
     c.fail("users.me", fn.rate_limited("0"))
     notion(c, clock).check(fn.DATABASE_ID)
     assert c.stamps[1] - c.stamps[0] >= 0.34 - 1e-9
+
+
+# --- fix round 1: the owned block is verified, listings are bounded, only SDK failures are mapped
+
+def _page_with_block(c, n):
+    return n.create_day_page(n.check(fn.DATABASE_ID), "t", {}, nr.owned_block([para("a")]))
+
+
+def test_owned_block_ok_accepts_only_the_live_callout_on_its_page():
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    pid, bid = _page_with_block(c, n)
+    other_pid, other_bid = _page_with_block(c, n)
+    assert n.owned_block_ok(bid, pid) is True
+    assert n.owned_block_ok(bid, pid.replace("-", "")) is True or "-" not in pid
+    assert n.owned_block_ok(other_bid, pid) is False                     # another page's callout
+    mine = c.add_owner_block(pid, "a paragraph")
+    assert n.owned_block_ok(mine, pid) is False                          # not a callout
+    c.edit_block_text(bid, "a callout of my own")
+    assert n.owned_block_ok(bid, pid) is False                           # no marker
+    assert n.owned_block_ok(other_bid, other_pid) is True
+    c.block_store[other_bid]["in_trash"] = True
+    assert n.owned_block_ok(other_bid, other_pid) is False               # in the trash
+    assert n.owned_block_ok("block-gone", pid) is False                  # 404
+    assert c.writes().count("blocks.delete") == 0
+
+
+def test_owned_block_ok_raises_other_failures():
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    pid, bid = _page_with_block(c, n)
+    c.fail("blocks.retrieve", fn.server_error())
+    with pytest.raises(NotionError, match="unavailable"):
+        n.owned_block_ok(bid, pid)
+
+
+def test_a_listing_longer_than_the_cap_is_an_error_not_a_truncation():
+    from lavalier.connectors.notion import MAX_LIST_PAGES
+    c = fn.FakeNotionClient(list_page_size=1)
+    n = notion(c)
+    _, bid = n.create_day_page(n.check(fn.DATABASE_ID), "t", {}, nr.owned_block([para(str(k)) for k in range(MAX_LIST_PAGES + 5)]))
+    c.calls.clear()
+    with pytest.raises(NotionError, match="too many blocks"):
+        n.owned_block_children(bid)
+    assert c.names().count("blocks.children.list") == MAX_LIST_PAGES
+
+
+def test_a_repeated_cursor_stops_the_listing():
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    calls = []
+    c.blocks.children.list = lambda **kw: calls.append(kw) or {"results": [], "has_more": True, "next_cursor": "same"}
+    with pytest.raises(NotionError, match="too many blocks"):
+        n.owned_block_children("b")
+    assert len(calls) == 2
+
+
+def test_a_programming_error_is_not_dressed_up_as_a_notion_error():
+    c = fn.FakeNotionClient()
+    c.fail("users.me", KeyError("results"))
+    with pytest.raises(KeyError):
+        notion(c).check(fn.DATABASE_ID)
+
+
+def test_add_owned_block_with_an_empty_append_result_is_an_error():
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    pid, _ = _page_with_block(c, n)
+    c.blocks.children.append = lambda **kw: {"object": "list", "results": []}
+    with pytest.raises(NotionError, match="did not keep"):
+        n.add_owned_block(pid, nr.owned_block([para("x")]))
+
+
+def test_create_day_page_reports_the_page_as_soon_as_it_exists():
+    c = fn.FakeNotionClient()
+    n = notion(c)
+    i = n.check(fn.DATABASE_ID)
+    got = []
+    c.fail("blocks.children.list", fn.server_error())
+    with pytest.raises(NotionError):
+        n.create_day_page(i, "t", {}, nr.owned_block([para("a")]), on_page=got.append)
+    assert got == list(c.page_store)
