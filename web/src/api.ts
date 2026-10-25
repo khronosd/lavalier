@@ -435,4 +435,7 @@ export interface InsightsIndex {
 export interface RangeResult {
   done: number;
   errors: { day: IsoDate; error: string | null }[];
+  /** Why the range stopped early (a refused key, an unreachable provider), and how many days it left unsent. */
+  stopped?: string | null;
+  not_sent?: number;
 }

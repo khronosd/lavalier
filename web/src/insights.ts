@@ -113,12 +113,16 @@ export function rangeEstimate(without: DayWithout[], n: number, facts: ProviderF
   return { days: todo.length, text: `${plural(todo.length, "day")}, about ${tokenCount(tokens)} tokens, ${cost}` };
 }
 
-/** "Generated 11 days; 1 failed: Tuesday, 20 October: rate limited". */
+/** "Generated 11 days; 1 failed: Tuesday, 20 October: rate limited", and when a refused key or an unreachable
+ *  provider stopped the range, how many days it did not send. */
 export function rangeResult(r: RangeResult): string {
   const done = `Generated ${plural(r.done, "day")}`;
   if (r.errors.length === 0) return `${done}.`;
   const failed = r.errors.map((e) => `${dayTitle(e.day)}: ${e.error ?? "failed"}`).join("; ");
-  return `${done}; ${r.errors.length} failed: ${failed}`;
+  const left = r.stopped && r.not_sent
+    ? `. Stopped there: ${r.not_sent} more ${r.not_sent === 1 ? "day was" : "days were"} not sent.`
+    : "";
+  return `${done}; ${r.errors.length} failed: ${failed}${left}`;
 }
 
 /** A day's Insights tab, for the links from people and topics. */

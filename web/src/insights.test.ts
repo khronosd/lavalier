@@ -104,6 +104,15 @@ test("the range result names how many were generated and each failure", () => {
     .toBe("Generated 0 days; 2 failed: Tuesday, 20 October: a; Wednesday, 21 October: b");
 });
 
+test("a range that stopped at a refused key says how many days it did not send", () => {
+  const r = { done: 2, errors: [{ day: "2026-10-20", error: "The key was refused" }], stopped: "The key was refused",
+    not_sent: 3 };
+  expect(rangeResult(r)).toBe(
+    "Generated 2 days; 1 failed: Tuesday, 20 October: The key was refused. Stopped there: 3 more days were not sent.");
+  expect(rangeResult({ ...r, not_sent: 0 })).toBe("Generated 2 days; 1 failed: Tuesday, 20 October: The key was refused");
+  expect(rangeResult({ ...r, not_sent: 1 })).toMatch(/Stopped there: 1 more day was not sent\.$/);
+});
+
 test("a job the app no longer knows (it restarted) reads as such", () => {
   expect(pollError(new ApiError(404, "not found"))).toBe(VANISHED);
   expect(VANISHED).toBe("The app restarted before this finished. Try again.");

@@ -29,6 +29,7 @@ from lavalier.insights.names import provider_id
 from lavalier.insights.prompt import MAX_CHARS
 from lavalier.insights.providers.anthropic import NO_KEY
 from lavalier.insights.providers.base import Provider, ProviderError
+from lavalier.insights.providers.ollama import NOT_RUNNING
 from lavalier.jobs import JobFailed, JobRunning, JobTable, in_daemon_thread
 from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
@@ -420,11 +421,13 @@ class App:
         return self.jobs.start_coro("generate_range", RANGE_KEY, lambda: self._range(cfg, todo))
 
     async def _range(self, cfg: Config, todo: list[date]) -> dict:
-        done, errors = 0, []
+        """The days in order, each under the process lock. A refused key or a provider that cannot be
+        reached stops the range there: every later day would only fail the same way."""
+        done, errors, stopped, not_sent = 0, [], None, 0
         if not todo:
-            return {"done": done, "errors": errors}
+            return {"done": done, "errors": errors, "stopped": stopped, "not_sent": not_sent}
         provider = await in_daemon_thread(lambda: self._build_provider(cfg))  # before any lock is taken
-        for d in todo:
+        for i, d in enumerate(todo):
             if self._stopping:
                 break
             await self._process_lock.acquire()
@@ -439,9 +442,13 @@ class App:
                 continue
             if rec.state == "done":
                 done += 1
-            else:
-                errors.append({"day": d.isoformat(), "error": rec.error})
-        return {"done": done, "errors": errors}
+                continue
+            errors.append({"day": d.isoformat(), "error": rec.error})
+            if _stops_a_range(rec.error):
+                stopped, not_sent = rec.error, len(todo) - i - 1
+                _log.warning("insights: the range stopped at %s: %s", d.isoformat(), rec.error)
+                break
+        return {"done": done, "errors": errors, "stopped": stopped, "not_sent": not_sent}
 
     def _range_day(self, cfg: Config, day: date, provider: Provider) -> Optional[InsightRecord]:
         """Worker thread, under the process lock: one day of a range, with the provider built before."""
@@ -806,6 +813,12 @@ class App:
                 server.stop()
                 self._lock.release()  # only if this process still holds it
                 self.close()
+
+
+def _stops_a_range(error: Optional[str]) -> bool:
+    """A failure every later day of a range would repeat: no key, a refused key, an unreachable provider."""
+    return error is not None and (error in (NO_KEY, "The key was refused", NOT_RUNNING)
+                                  or error.startswith("Could not reach"))
 
 
 def _is_done(rec: Optional[InsightRecord]) -> bool:

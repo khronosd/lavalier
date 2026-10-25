@@ -278,7 +278,7 @@ async def test_generate_range_does_the_complete_days_without_a_done_row(insights
             app.generate_range(bad)
     jid = app.generate_range(30)
     await app.jobs.wait(jid)
-    assert app.jobs.get(jid)["result"] == {"done": 1, "errors": []}
+    assert app.jobs.get(jid)["result"] == {"done": 1, "errors": [], "stopped": None, "not_sent": 0}
     assert db.insight(DAY).state == "done" and not app._process_lock.locked()
     await app.jobs.wait(app.generate_range(30))       # nothing left to do
     assert app.fake.calls == [("summarize", DAY)]
@@ -288,7 +288,7 @@ async def test_a_day_that_is_not_complete_is_not_in_a_range(insights_app):
     app = insights_app                                # the clock is the evening of the day itself
     jid = app.generate_range(5)
     await app.jobs.wait(jid)
-    assert app.jobs.get(jid)["result"] == {"done": 0, "errors": []} and app.fake.calls == []
+    assert app.jobs.get(jid)["result"] == {"done": 0, "errors": [], "stopped": None, "not_sent": 0} and app.fake.calls == []
 
 
 # --- reads
@@ -463,7 +463,7 @@ async def test_a_range_takes_the_lock_one_day_at_a_time(insights_app, second_spe
     await app.jobs.wait(jid)
     await waiter
     assert order == [second_speech_day, "processing", DAY]
-    assert app.jobs.get(jid)["result"] == {"done": 2, "errors": []} and not app._process_lock.locked()
+    assert app.jobs.get(jid)["result"] == {"done": 2, "errors": [], "stopped": None, "not_sent": 0} and not app._process_lock.locked()
 
 
 async def test_nothing_new_starts_while_the_app_is_stopping(insights_app):
@@ -796,3 +796,26 @@ async def test_choosing_a_keyed_provider_reads_its_key_presence_off_the_loop(app
     app.update_settings({"insights_provider": "anthropic"})
     app._key_fill.join(5)
     assert app._key_present.get("anthropic") is True
+
+
+@pytest.mark.parametrize("error", [NO_KEY, "The key was refused", "Could not reach OpenAI",
+                                   "Ollama is not running on this Mac. Install it from ollama.com and run it, then press Test."])
+async def test_a_range_stops_at_a_refused_key_or_an_unreachable_provider(insights_app, second_speech_day, error):
+    app = insights_app
+    app._now_ms = lambda: AFTER_DAY
+    app.fake.error = error
+    jid = app.generate_range(5)
+    await app.jobs.wait(jid)
+    assert app.jobs.get(jid)["result"] == {"done": 0, "errors": [{"day": "2026-10-22", "error": error}],
+                                           "stopped": error, "not_sent": 1}
+    assert app.fake.calls == [("summarize", second_speech_day)]
+
+
+async def test_a_range_goes_on_past_another_failure(insights_app, second_speech_day):
+    app = insights_app
+    app._now_ms = lambda: AFTER_DAY
+    app.fake.error = "rate limited"
+    jid = app.generate_range(5)
+    await app.jobs.wait(jid)
+    r = app.jobs.get(jid)["result"]
+    assert len(r["errors"]) == 2 and r["stopped"] is None and r["not_sent"] == 0
