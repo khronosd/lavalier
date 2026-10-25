@@ -382,7 +382,7 @@ test("Model: the automatic switch saves insights_auto and says when a day is com
   const sw = screen.getByRole("switch", { name: "Generate automatically once a day is complete" }) as HTMLInputElement;
   expect(sw.checked).toBe(true);
   expect(screen.getByText(
-    "A day is complete at 04:00 the next morning. Days before you chose a model are never sent unless you ask.")).toBeTruthy();
+    "A day is complete at 04:00 the next morning and is sent once its audio has come in from the pendant. Days from before you chose a model, saved its key or turned this on are never sent unless you ask.")).toBeTruthy();
   fireEvent.click(sw);
   await waitFor(() => expect(puts).toEqual([{ insights_auto: false }]));
   expect(sw.checked).toBe(false);
@@ -417,4 +417,47 @@ test("Model: a failed Ollama Test replaces the hint with its error, said once", 
   await screen.findByText("The provider took too long to answer");
   expect(screen.getAllByText("The provider took too long to answer")).toHaveLength(1);
   expect(screen.queryByText("Press Test to list the models Ollama has pulled")).toBeNull();
+});
+
+
+// --- final fix wave: one key per endpoint, and an unencrypted endpoint said plainly (R24)
+
+const endpoint: ProviderFacts = {
+  ...gpt, base_url: "http://llm.example.net:8000/v1", display: "the endpoint at llm.example.net:8000", key_present: false,
+  sentence: gpt.sentence.replace("OpenAI", "the endpoint at llm.example.net:8000"),
+};
+const CLEAR = "This endpoint is not encrypted: the key and the text travel in the clear.";
+
+test("Model: after the base URL changes the key field shows the new endpoint's key, not OpenAI's", async () => {
+  await model("openai", { ...gpt, key_present: true });
+  expect(screen.getByText("Saved in your Keychain")).toBeTruthy();
+  facts = endpoint;
+  const base = screen.getByLabelText("Base URL") as HTMLInputElement;
+  fireEvent.input(base, { target: { value: "http://llm.example.net:8000/v1" } });
+  fireEvent.blur(base);
+  await waitFor(() => expect(count("GET /api/insights/providers")).toBe(2));
+  expect(await screen.findByText("No key saved")).toBeTruthy();
+  expect(screen.queryByText("Saved in your Keychain")).toBeNull();
+  expect(screen.getByText(endpoint.sentence)).toBeTruthy();
+});
+
+test("Model: an http:// base URL warns that it is not encrypted, and is allowed", async () => {
+  current = { ...current, insights_base_url: "http://llm.example.net:8000/v1" };
+  await model("openai", endpoint);
+  expect(screen.getByText(CLEAR)).toBeTruthy();
+  cleanup();
+  others = [];
+  current = { ...current, insights_base_url: "https://llm.example.net/v1" };
+  await model("openai", { ...endpoint, base_url: "https://llm.example.net/v1" });
+  expect(screen.queryByText(CLEAR)).toBeNull();
+});
+
+test("Model: the warning follows a base URL saved as http://", async () => {
+  await model("openai", gpt);
+  expect(screen.queryByText(CLEAR)).toBeNull();
+  const base = screen.getByLabelText("Base URL") as HTMLInputElement;
+  fireEvent.input(base, { target: { value: "http://localhost:1234/v1" } });
+  fireEvent.blur(base);
+  await waitFor(() => expect(puts).toEqual([{ insights_base_url: "http://localhost:1234/v1" }]));
+  expect(await screen.findByText(CLEAR)).toBeTruthy();
 });

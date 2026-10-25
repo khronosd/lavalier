@@ -39,6 +39,9 @@ test("a reason Generate is refused makes the day unusable, but a done insight is
 test("the Generate sentence names a cloud provider and says a local one stays on this Mac", () => {
   expect(generateSentence(anthropic)).toBe("Sends this day's transcript text to Anthropic.");
   expect(generateSentence(ollama)).toBe("Runs on this Mac.");
+  // an OpenAI-compatible endpoint is named as the endpoint (registry.display_name), never as OpenAI
+  expect(generateSentence({ ...anthropic, provider: "openai", base_url: "https://llm.example.net/v1",
+    display: "the endpoint at llm.example.net" })).toBe("Sends this day's transcript text to the endpoint at llm.example.net.");
 });
 
 test("a follow-up with a line links to it; one without has no link", () => {
