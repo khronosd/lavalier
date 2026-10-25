@@ -205,3 +205,13 @@ def test_providers_with_an_unknown_provider_in_config_is_400(server_no_provider)
     server_no_provider.app._app.cfg = dataclasses.replace(server_no_provider.app._app.cfg, insights_provider="nope")
     r = get(server_no_provider, "/api/insights/providers")
     assert r.status == 400 and "nope" in _body(r)["error"]
+
+
+def test_saving_the_first_key_restarts_automatic_insights_from_then(server_no_provider, memory_keyring):
+    srv = server_no_provider
+    assert put(srv, "/api/settings", {"insights_provider": "anthropic"}).status == 200
+    srv.app._app._key_fill.join(5)
+    srv.app.db.set_status("insights_enabled_at_ms", "5")   # chosen long ago, without a key
+    assert put(srv, "/api/keys/anthropic", {"key": "sk-1"}).status == 204
+    get(srv, "/api/insights")
+    assert srv.app.db.get_status("insights_enabled_at_ms") != "5"

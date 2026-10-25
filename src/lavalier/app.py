@@ -25,6 +25,7 @@ from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
 from lavalier.db import Database, InsightRecord, now_ms as _now_ms
 from lavalier.insights import keys, registry, stage
+from lavalier.insights.names import provider_id
 from lavalier.insights.prompt import MAX_CHARS
 from lavalier.insights.providers.anthropic import NO_KEY
 from lavalier.insights.providers.base import Provider, ProviderError
@@ -104,6 +105,7 @@ class App:
         self._key_version: dict[str, int] = {}             # bumped by every key route write
         self._key_lock = threading.Lock()
         self._key_fill: Optional[threading.Thread] = None
+        self._key_arrived_ms: Optional[int] = None         # a key became present for the active provider
         self._asks = 0
 
     # state
@@ -175,17 +177,43 @@ class App:
             self.config_error = str(e)
             raise RuntimeError(f"not saved: {e}") from e
         self.config_error = None
-        self._note_provider_chosen(before.insights_provider)
+        self._note_insights_change(before)
         if (before.insights_model, before.insights_base_url) != (self.cfg.insights_model, self.cfg.insights_base_url):
             self._attempted.clear()  # another model may well manage the days the last one failed
         return self.get_settings()
 
-    def _note_provider_chosen(self, before: str) -> None:
-        """Automatic insights cover the days completed after a provider was chosen, never the backlog:
-        choosing one (or another) records when. Clearing it leaves the moment as it was."""
-        if self.cfg.insights_provider and self.cfg.insights_provider != before:
-            self.db.set_status("insights_enabled_at_ms", str(self._now_ms()))
-            self._attempted.clear()
+    def _provider_id(self, cfg: Optional[Config] = None) -> str:
+        cfg = cfg or self.cfg
+        return provider_id(cfg.insights_provider, cfg.insights_base_url)
+
+    def _restart_auto(self, at_ms: int) -> None:
+        """Automatic insights cover the days completed from `at_ms` on, never the backlog (which is sent
+        only from the range, with its estimate). The provider is stored beside the moment."""
+        self.db.set_status("insights_enabled_at_ms", str(at_ms))
+        self.db.set_status("insights_enabled_provider", self._provider_id())
+        self._attempted.clear()
+
+    def _note_insights_change(self, before: Config) -> None:
+        """Choosing a provider (or another, or another endpoint) and turning auto back on each restart the
+        automatic run from now. Clearing the provider or turning auto off leaves the moment as it was."""
+        now_id = self._provider_id()
+        if not now_id:
+            return
+        changed = now_id != self._provider_id(before)
+        if changed or (self.cfg.insights_auto and not before.insights_auto):
+            self._restart_auto(self._now_ms())
+        account = self._key_account()
+        if changed and self.cfg.insights_provider in registry.KEYED and self._key_present.get(account) is None:
+            self._fill_key_cache(account)  # the automatic run waits until the key is known present
+
+    def _enabled_at_ms(self) -> Optional[int]:
+        """Loop only: the moment automatic insights start from, after applying a key that arrived since."""
+        with self._key_lock:
+            arrived, self._key_arrived_ms = self._key_arrived_ms, None
+        if arrived is not None and self.cfg.insights_provider:
+            self._restart_auto(arrived)
+        raw = self.db.get_status("insights_enabled_at_ms")
+        return int(raw) if raw else None
 
     async def audio_file(self, clip_id: str) -> Path:
         """The clip's AAC file, transcoded once on first use. The row is read here on the loop; only
@@ -219,6 +247,13 @@ class App:
                 self._key_version[provider] = self._key_version.get(provider, 0) + 1
             elif self._key_version.get(provider, 0) != seen:
                 return
+            before = self._key_present.get(provider)
+            # a key that first becomes present for the active provider (saved in Settings, or found by a
+            # worker where there was none) restarts the automatic run from now: the days that piled up
+            # without a key go through the range and its estimate
+            if present is True and (before is False or (seen is None and before is not True)) \
+                    and self.cfg.insights_provider in registry.KEYED and provider == self._key_account():
+                self._key_arrived_ms = self._now_ms()
             self._key_present[provider] = present
             if error is None:
                 self._key_errors.pop(provider, None)
@@ -315,11 +350,10 @@ class App:
         model never holds up the scheduled drain. Each day is tried at most once per process, whatever
         the outcome, except when the key was missing (it is tried again once one is saved). True when a
         run was started."""
+        enabled_at = self._enabled_at_ms()
         if self._stopping or not self.cfg.insights_provider or not self._process_lock_free():
             return False
-        raw = self.db.get_status("insights_enabled_at_ms")
-        due = [d for d in stage.due_days(self.db, self.cfg, now_ms=self._now_ms(),
-                                         enabled_at_ms=int(raw) if raw else None)
+        due = [d for d in stage.due_days(self.db, self.cfg, now_ms=self._now_ms(), enabled_at_ms=enabled_at)
                if d not in self._attempted and self.jobs.running(f"day:{d.isoformat()}") is None]
         if not due:
             return False
@@ -470,8 +504,7 @@ class App:
             rec = self.db.insight(d)
             chars = rec.input_chars if rec is not None else min(estimate.get(d, 0), MAX_CHARS)
             without.append({"day": d.isoformat(), "chars": chars, "error": rec.error if rec is not None else None})
-        raw = self.db.get_status("insights_enabled_at_ms")
-        due = stage.due_days(self.db, self.cfg, now_ms=now, enabled_at_ms=int(raw) if raw else None)
+        due = stage.due_days(self.db, self.cfg, now_ms=now, enabled_at_ms=self._enabled_at_ms())
         return {"follow_ups": follow_ups, "people": _by_name(done, "people"), "topics": _by_name(done, "topics"),
                 "days_without": without, "generating": self._generating_days(),
                 "due": [d.isoformat() for d in due],
@@ -482,7 +515,7 @@ class App:
     def reload_config(self) -> bool:
         """Re-read config.toml; the next tick and action use the new values.
         An unreadable file keeps the old config, is logged, and returns False."""
-        before = self.cfg.insights_provider
+        before = self.cfg
         try:
             self.cfg = load_config(self.paths.config)
         except ConfigError as e:
@@ -490,7 +523,7 @@ class App:
             self.config_error = str(e)
             return False
         self.config_error = None
-        self._note_provider_chosen(before)
+        self._note_insights_change(before)
         return True
 
     def _make_pendant(self, cfg: Config):
@@ -721,9 +754,11 @@ class App:
         closed = self.db.close_running_sync_runs(self._now_ms())
         if closed:
             _log.warning("closed %d sync run(s) left running by an earlier process", closed)
-        if self.cfg.insights_provider and self.db.get_status("insights_enabled_at_ms") is None:
-            # a provider set in config.toml by hand: automatic insights start from now, not never
-            self.db.set_status("insights_enabled_at_ms", str(self._now_ms()))
+        if self.cfg.insights_provider and (self.db.get_status("insights_enabled_at_ms") is None or
+                                           self.db.get_status("insights_enabled_provider") != self._provider_id()):
+            # a provider set or changed in config.toml by hand while stopped: automatic insights start from
+            # now, never from a moment recorded for another provider
+            self._restart_auto(self._now_ms())
 
     async def run(self) -> None:
         self._stopping = False

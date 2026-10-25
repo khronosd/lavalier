@@ -499,6 +499,7 @@ async def test_start_up_records_a_provider_chosen_by_hand(app_env):
 async def test_start_up_keeps_an_earlier_enabled_moment_and_none_without_a_provider(app_env):
     app = app_env(FakePendant())
     app.db.set_status("insights_enabled_at_ms", "5")
+    app.db.set_status("insights_enabled_provider", "ollama")
     app.cfg = dataclasses.replace(app.cfg, insights_provider="ollama")
     app._startup_housekeeping()
     assert app.db.get_status("insights_enabled_at_ms") == "5"
@@ -699,3 +700,99 @@ async def test_the_loop_turn_drains_before_it_looks_for_due_days(app_env):
     app._sleep = fake_sleep
     await app.run()
     assert order == ["tick", "insights"]
+
+
+# --- final fix wave: backlogs are never sent without an estimate (R22)
+
+def _moment(app):
+    return app.db.get_status("insights_enabled_at_ms"), app.db.get_status("insights_enabled_provider")
+
+
+async def test_turning_auto_back_on_starts_from_now(app_env):
+    app = app_env(FakePendant())
+    app.update_settings({"insights_provider": "ollama"})
+    assert _moment(app) == (str(APP_CLOCK_MS), "ollama")
+    app._now_ms = lambda: APP_CLOCK_MS + 10
+    app.update_settings({"insights_auto": False})
+    assert _moment(app) == (str(APP_CLOCK_MS), "ollama")   # off keeps it; nothing is sent meanwhile
+    app._now_ms = lambda: APP_CLOCK_MS + 20
+    app.update_settings({"insights_auto": True})
+    assert _moment(app) == (str(APP_CLOCK_MS + 20), "ollama")
+    app._now_ms = lambda: APP_CLOCK_MS + 30
+    app.update_settings({"insights_auto": True})            # already on: unchanged
+    assert _moment(app) == (str(APP_CLOCK_MS + 20), "ollama")
+
+
+async def test_turning_auto_back_on_by_hand_in_config_starts_from_now(app_env):
+    from lavalier.config import save_config
+    app = app_env(FakePendant())
+    app.update_settings({"insights_provider": "ollama", "insights_auto": False})
+    app._now_ms = lambda: APP_CLOCK_MS + 40
+    save_config(dataclasses.replace(app.cfg, insights_auto=True), app.paths.config)
+    assert app.reload_config()
+    assert _moment(app) == (str(APP_CLOCK_MS + 40), "ollama")
+
+
+async def test_a_key_saved_after_the_provider_was_chosen_starts_auto_from_then(app_env):
+    app = app_env(FakePendant())
+    app.update_settings({"insights_provider": "anthropic"})
+    app._key_fill.join(5)                                   # the fill for the new provider
+    app._key_present.clear()
+    app._now_ms = lambda: APP_CLOCK_MS + 50
+    app.note_key("anthropic", True)                         # the PUT key route
+    app.insights_index()
+    assert _moment(app) == (str(APP_CLOCK_MS + 50), "anthropic")
+    app._now_ms = lambda: APP_CLOCK_MS + 60
+    app.note_key("anthropic", True)                         # saved again: not a first
+    app.insights_index()
+    assert _moment(app) == (str(APP_CLOCK_MS + 50), "anthropic")
+
+
+async def test_a_worker_read_that_finds_a_key_where_there_was_none_starts_auto_from_then(app_env):
+    app = app_env(FakePendant())
+    app.update_settings({"insights_provider": "anthropic"})
+    app._key_fill.join(5)                                   # the fill for the new provider
+    app._key_present.clear()
+    app.note_key("anthropic", True, seen=app._key_seen("anthropic"))    # the start-up fill: present all along
+    app.insights_index()
+    assert _moment(app) == (str(APP_CLOCK_MS), "anthropic")
+    app.note_key("anthropic", False, seen=app._key_seen("anthropic"))
+    app._now_ms = lambda: APP_CLOCK_MS + 70
+    app.note_key("anthropic", True, seen=app._key_seen("anthropic"))    # saved elsewhere, seen by a worker
+    await app.insights_if_due()
+    assert _moment(app) == (str(APP_CLOCK_MS + 70), "anthropic")
+    app._now_ms = lambda: APP_CLOCK_MS + 80
+    app.note_key("google", True)                            # not the active provider's key
+    app.insights_index()
+    assert _moment(app) == (str(APP_CLOCK_MS + 70), "anthropic")
+
+
+async def test_a_provider_changed_by_hand_while_stopped_starts_auto_from_start_up(app_env):
+    app = app_env(FakePendant())
+    app.db.set_status("insights_enabled_at_ms", "5")
+    app.db.set_status("insights_enabled_provider", "anthropic")
+    app.cfg = dataclasses.replace(app.cfg, insights_provider="ollama")
+    app._startup_housekeeping()
+    assert _moment(app) == (str(APP_CLOCK_MS), "ollama")
+    old = app_env(FakePendant())                            # a moment from before the provider was stored
+    old.db.set_status("insights_enabled_at_ms", "5")
+    old.db.clear_status("insights_enabled_provider")
+    old.cfg = dataclasses.replace(old.cfg, insights_provider="ollama")
+    old._startup_housekeeping()
+    assert _moment(old) == (str(APP_CLOCK_MS), "ollama")
+
+
+async def test_another_endpoint_is_another_provider(app_env):
+    app = app_env(FakePendant())
+    app.update_settings({"insights_provider": "openai"})
+    app._now_ms = lambda: APP_CLOCK_MS + 90
+    app.update_settings({"insights_base_url": "https://llm.example.net/v1"})
+    assert _moment(app) == (str(APP_CLOCK_MS + 90), "openai@llm.example.net")
+
+
+async def test_choosing_a_keyed_provider_reads_its_key_presence_off_the_loop(app_env, memory_keyring):
+    app = app_env(FakePendant())
+    keys.set_key("anthropic", "sk-test")
+    app.update_settings({"insights_provider": "anthropic"})
+    app._key_fill.join(5)
+    assert app._key_present.get("anthropic") is True
