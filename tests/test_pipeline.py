@@ -214,3 +214,53 @@ def test_next_deletion_skips_deadlines_already_past(root, db, cfg, seeded_retent
     assert status_summary(db, root, cfg, now_ms=old_deadline - 1)["next_deletion"] == day(old_deadline)
     assert status_summary(db, root, cfg, now_ms=old_deadline)["next_deletion"] == day(fresh_deadline)
     assert status_summary(db, root, cfg, now_ms=fresh_deadline)["next_deletion"] is None
+
+
+from fake_calendar import FakeCalendarSource
+from lavalier.config import Config
+from lavalier.connectors.calendar import Event
+
+
+def _standup():
+    return {date(2026, 10, 23): [Event("Standup", T(9, 55, 0), T(10, 30, 0), False, "work")]}
+
+
+def test_process_labels_the_day_when_given_a_calendar(root, db, imported_and_decoded_three_clips):
+    cfg = Config(calendar_enabled=True)
+    src = FakeCalendarSource(events=_standup())
+    r = process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0),
+                calendar=src)
+    day = date(2026, 10, 23)
+    assert r.days_written == [day] and src.events_calls == [day]
+    labels = [c.label for c in db.conversations_for_day(day)]
+    assert labels and set(labels) == {"Standup"}
+    assert "Standup" in (root.days / "2026-10-23.md").read_text()
+    assert db.days_dirty() == []
+
+
+def test_process_with_the_calendar_off_reads_no_calendar(root, db, imported_and_decoded_three_clips):
+    src = FakeCalendarSource(events=_standup())
+    process(db, root, Config(), FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0),
+            calendar=src)
+    assert src.events_calls == []
+    assert all(c.label is None for c in db.conversations_for_day(date(2026, 10, 23)))
+    assert "Standup" not in (root.days / "2026-10-23.md").read_text()
+
+
+def test_a_failing_calendar_does_not_stop_the_day_file(root, db, imported_and_decoded_three_clips):
+    src = FakeCalendarSource(events_error=RuntimeError("store gone"))
+    r = process(db, root, Config(calendar_enabled=True), FakeTranscriber({}, default=speech_transcript()),
+                now_ms=T(23, 30, 0), calendar=src)
+    assert r.days_written == [date(2026, 10, 23)] and r.transcribed == 3
+
+
+def test_a_label_set_by_process_survives_the_next_process(root, db, imported_and_decoded_three_clips):
+    """The next process regroups the day again; the label stays (R2) and is re-derived."""
+    cfg = Config(calendar_enabled=True)
+    process(db, root, cfg, FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0),
+            calendar=FakeCalendarSource(events=_standup()))
+    day = date(2026, 10, 23)
+    db.mark_day_dirty(day)
+    process(db, root, cfg, FakeTranscriber({}), now_ms=T(23, 40, 0))  # no source: labels kept
+    assert {c.label for c in db.conversations_for_day(day)} == {"Standup"}
+    assert "Standup" in (root.days / "2026-10-23.md").read_text()

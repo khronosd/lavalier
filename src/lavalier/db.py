@@ -670,8 +670,12 @@ class Database:
     # conversations
 
     def replace_conversations(self, day: date, convs: list[Conversation]) -> None:
+        """Store the day's grouping. A conversation whose id persists (same start) keeps its stored
+        label unless the new one carries its own, so calendar labels survive a regroup."""
         iso = day.isoformat()
         with self._write_scope():
+            kept = {r["conversation_id"]: r["label"] for r in self._conn.execute(
+                "SELECT conversation_id, label FROM conversations WHERE day = ?", (iso,))}
             self._conn.execute(
                 "DELETE FROM conversation_clips WHERE conversation_id IN "
                 "(SELECT conversation_id FROM conversations WHERE day = ?)",
@@ -682,7 +686,8 @@ class Database:
                 self._conn.execute(
                     "INSERT INTO conversations (conversation_id, day, start_ms, end_ms, speech_ms, star_ms, label) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (c.conversation_id, iso, c.start_ms, c.end_ms, c.speech_ms, json.dumps(c.star_ms), c.label),
+                    (c.conversation_id, iso, c.start_ms, c.end_ms, c.speech_ms, json.dumps(c.star_ms),
+                     c.label if c.label is not None else kept.get(c.conversation_id)),
                 )
                 self._conn.executemany(
                     "INSERT INTO conversation_clips (conversation_id, position, clip_id) VALUES (?, ?, ?)",

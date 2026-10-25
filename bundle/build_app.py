@@ -17,6 +17,9 @@ PYTHON_FRAMEWORK = Path("/opt/homebrew/opt/python@3.12/Frameworks/Python.framewo
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 
+CALENDAR_USAGE = ("Lavalier reads your calendars to name conversations after the event they overlap. "
+                  "Nothing leaves this Mac.")
+
 
 def info_plist(*, version: str, ui_element: bool = True) -> dict:
     return {
@@ -33,6 +36,8 @@ def info_plist(*, version: str, ui_element: bool = True) -> dict:
         "NSBluetoothAlwaysUsageDescription": (
             "Lavalier connects to your pendant to read its status and download its recordings."
         ),
+        "NSCalendarsFullAccessUsageDescription": CALENDAR_USAGE,
+        "NSCalendarsUsageDescription": CALENDAR_USAGE,
     }
 
 

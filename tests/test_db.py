@@ -501,3 +501,31 @@ def test_set_conversation_label_shows_in_the_day_view_and_clears(db, cfg, seeded
     assert day_view(db, d, cfg, now_ms=T(23, 30, 0)).conversations[0].label == "Weekly sync"
     db.set_conversation_label(cid, None)
     assert db.conversation(cid).label is None
+
+
+def test_a_rebuild_carries_the_label_of_a_conversation_that_persists(db):
+    """Ruling R2: same id (same start) keeps its label; a new id starts unlabelled; an explicit label wins."""
+    d1 = date(2026, 10, 23)
+    a = Conversation("c-a", d1, 1, 9, 5, ["clip_a"], [])
+    b = Conversation("c-b", d1, 20, 29, 5, ["clip_b"], [])
+    db.replace_conversations(d1, [a, b])
+    db.set_conversation_label("c-a", "Standup")
+    db.set_conversation_label("c-b", "Review")
+    db.replace_conversations(d1, [replace(a, end_ms=15, clip_ids=["clip_a", "clip_c"]),
+                                  Conversation("c-new", d1, 40, 49, 5, ["clip_d"], []),
+                                  replace(b, label="Explicit")])
+    assert {c.conversation_id: c.label for c in db.conversations_for_day(d1)} == {
+        "c-a": "Standup", "c-new": None, "c-b": "Explicit"}
+    db.replace_conversations(d1, [Conversation("c-new", d1, 40, 49, 5, ["clip_d"], [])])
+    db.replace_conversations(d1, [a])  # c-a dropped out in between: its label went with it
+    assert db.conversation("c-a").label is None
+
+
+def test_refresh_day_keeps_a_calendar_label(db, cfg, seeded_2026_10_23_subset):
+    from lavalier.pipeline import refresh_day
+    d = date(2026, 10, 23)
+    cid = db.conversations_for_day(d)[0].conversation_id
+    db.set_conversation_label(cid, "Weekly sync")
+    db.mark_day_dirty(d)
+    refresh_day(db, d, cfg)
+    assert db.conversation(cid).label == "Weekly sync"

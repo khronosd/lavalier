@@ -6,12 +6,14 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from lavalier import noise
 from lavalier.capture import SINK_NAME, open_sink_paths
 from lavalier.audio import ffmpeg_available, measure_loudness
 from lavalier.clips import decode_new_pages
 from lavalier.config import Config
+from lavalier.connectors.calendar import CalendarSource, label_day
 from lavalier.dayfile import write_dirty_days
 from lavalier.db import Database
 from lavalier.group import rebuild_day
@@ -39,7 +41,8 @@ class ProcessReport:
         return d
 
 
-def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *, now_ms: int) -> ProcessReport:
+def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *, now_ms: int,
+            calendar: Optional[CalendarSource] = None) -> ProcessReport:
     report = ProcessReport()
 
     # Environment problems skip a stage and leave clips pending; they never mark clips failed.
@@ -62,6 +65,9 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
         except Exception:
             log.exception("stage transcription failed")
 
+    if calendar is not None and cfg.calendar_enabled:
+        _label_dirty_days(db, cfg, calendar)
+
     report.days_written = write_dirty_days(db, paths, cfg, now_ms=now_ms)
 
     try:
@@ -69,6 +75,22 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
     except Exception:
         log.exception("stage retention failed")
     return report
+
+
+def _label_dirty_days(db: Database, cfg: Config, calendar: CalendarSource) -> None:
+    """Regroup each day this run will write, then label its conversations from the calendar. The
+    regroup in write_dirty_days that follows keeps the labels (same id, same label)."""
+    try:
+        days = db.days_dirty()
+    except Exception:
+        log.exception("stage calendar labels failed: cannot list dirty days")
+        return
+    for day in days:
+        try:
+            rebuild_day(db, day, cfg)
+            label_day(db, cfg, calendar, day)
+        except Exception:
+            log.exception("stage calendar labels failed for %s", day)
 
 
 def retention_tick(db: Database, paths: Paths, cfg: Config, *, now_ms: int) -> ProcessReport:

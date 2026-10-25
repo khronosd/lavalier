@@ -42,7 +42,7 @@ class Config:
     notion_enabled: bool = False
     notion_database_id: str = ""  # 32 hex chars once set through settings
     calendar_enabled: bool = False
-    calendar_ids: str = ""  # calendar ids, separated by commas or lines; "" means the primary calendar
+    calendar_ids: str = ""  # calendar ids, separated by commas or lines; "" means every calendar
 
 
 def _type_ok(value: object, default: object) -> bool:

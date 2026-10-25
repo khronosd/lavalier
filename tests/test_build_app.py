@@ -34,3 +34,14 @@ def test_default_identity_prefers_lavalier_dev():
 
 def test_default_identity_falls_back_to_ad_hoc():
     assert default_identity(run=_canned("     0 valid identities found\n")) == "-"
+
+
+CALENDAR_SENTENCE = ("Lavalier reads your calendars to name conversations after the event they overlap. "
+                     "Nothing leaves this Mac.")
+
+
+def test_the_dry_run_plist_carries_the_calendar_usage_descriptions(tmp_path):
+    app = build(tmp_path, python_framework=Path("/fw/3.12"), site_packages=[Path("/sp")], src_dir=Path("/src"), dry_run=True)
+    p = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    assert p["NSCalendarsFullAccessUsageDescription"] == CALENDAR_SENTENCE
+    assert p["NSCalendarsUsageDescription"] == CALENDAR_SENTENCE
