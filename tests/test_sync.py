@@ -28,7 +28,7 @@ class _SyncEnv:
             lock=SyncLock(self.root / ".lock", list_processes=lambda: []),
             cdc_present=lambda: False,
             dry_run=False,
-            scheduled=False,
+            scheduled=True,   # the scheduler's path; a manual sync (scheduled=False) drains whatever waits
         )
         unknown = set(overrides) - set(kw)
         assert not unknown, unknown
@@ -87,9 +87,9 @@ async def test_owner_mute_marker_clears_when_the_pendant_is_heard_listening(sync
     assert db.get_status("muted_by_owner_since_ms") is None
 
 async def test_quiet_polls_count_only_scheduled_ticks(sync_env):
-    p = FakePendant(pages=(0, 9), messages=[])
-    await sync_env(p); await sync_env(p)                       # two manual syncs
-    assert (await sync_env(p)).outcome == "skipped"            # still not "set down near the Mac"
+    p = FakePendant(pages=(0, -1), messages=[])                # nothing waiting, so a manual sync skips
+    await sync_env(p, scheduled=False); await sync_env(p, scheduled=False)   # two manual syncs
+    assert (await sync_env(p, scheduled=False)).outcome == "skipped"         # still not "set down near the Mac"
     await sync_env(p, scheduled=True)
     assert (await sync_env(p, scheduled=True)).reason == "on charger (quiet-polls)"
 
@@ -212,6 +212,32 @@ def _snap(**kw):
 ])
 def test_decide_drain_first_match_and_boundaries(cfg, snap_kw, charger, last, now, expected):
     assert decide_drain(_snap(**snap_kw), charger, last, now_ms=now, cfg=cfg) == expected
+
+
+def test_a_requested_sync_drains_any_pages_but_not_none(cfg):
+    """The person pressed Sync now: the thresholds are the scheduler's business, not theirs."""
+    off = ChargerDecision(False, "none")
+    assert decide_drain(_snap(newest_page=50), off, None, now_ms=0, cfg=cfg, requested=True) == (True, "requested, 51 page(s) waiting")
+    assert decide_drain(_snap(oldest_page=0, newest_page=-1), off, None, now_ms=0, cfg=cfg, requested=True) == (False, "nothing to do")
+    assert decide_drain(_snap(newest_page=50), off, None, now_ms=0, cfg=cfg) == (False, "nothing to do")
+
+
+async def test_a_manual_sync_drains_whatever_the_thresholds(sync_env, storage_payloads):
+    p = FakePendant(pages=(0, 9), messages=storage_payloads)
+    r = await sync_env(p, scheduled=False)      # manual (the CLI or the window)
+    assert r.outcome == "drained" and r.reason == "requested, 10 page(s) waiting"
+
+
+async def test_a_scheduled_sync_still_honours_the_thresholds(sync_env, storage_payloads):
+    p = FakePendant(pages=(0, 9), messages=storage_payloads)
+    r = await sync_env(p, scheduled=True)
+    assert r.outcome == "skipped" and r.reason == "nothing to do"
+
+
+async def test_a_manual_dry_run_says_it_would_drain(sync_env, storage_payloads):
+    p = FakePendant(pages=(0, 9), messages=storage_payloads)
+    r = await sync_env(p, dry_run=True, scheduled=False)
+    assert r.outcome == "dry-run" and r.reason == "would drain: requested, 10 page(s) waiting"
 
 
 async def test_every_run_is_finished_and_the_lock_released(sync_env, db):
