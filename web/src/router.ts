@@ -1,4 +1,5 @@
 // Hash routes: #/today, #/day/<date>, #/starred, #/search?q=, #/insights, #/settings/<tab>.
+// Search keeps ?hit= (the line "<clip_id>-<seq>" whose conversation the page shows).
 // Today and a day keep ?tab= (transcript, insights, audio), ?conv= (the conversation the Audio tab plays)
 // and ?at= (an element id to scroll to once: a line "<clip_id>-<seq>" or a conversation "c-<conversation_id>").
 
@@ -52,7 +53,7 @@ export function parseHash(hash: string): Route {
     case "starred":
       return route("starred");
     case "search":
-      return route("search", {}, { q: query.q ?? "" });
+      return route("search", {}, query.hit ? { q: query.q ?? "", hit: query.hit } : { q: query.q ?? "" });
     case "insights":
       return route("insights");
     case "settings": {
@@ -78,8 +79,12 @@ export function toHash(r: Route): string {
       return withQuery(`#/day/${r.params.date}`, r.query);
     case "today":
       return withQuery("#/today", r.query);
-    case "search":
-      return r.query.q ? `#/search?${new URLSearchParams({ q: r.query.q })}` : "#/search";
+    case "search": {
+      if (!r.query.q) return "#/search";
+      const params = new URLSearchParams({ q: r.query.q });
+      if (r.query.hit) params.set("hit", r.query.hit);
+      return `#/search?${params}`;
+    }
     case "settings":
       return `#/settings/${r.params.tab ?? "general"}`;
     default:

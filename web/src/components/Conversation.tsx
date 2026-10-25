@@ -10,6 +10,10 @@ interface Props {
   /** Pin or unpin; rejects with the reason when the app refuses. */
   onPin: (pinned: boolean) => Promise<void>;
   onPlay: () => void;
+  /** A search's words, marked in every line. */
+  mark?: string;
+  /** The line a search hit points at ("<clip_id>-<seq>"), tinted. */
+  hitLine?: string;
 }
 
 /** "17:33 to 20:40", or "22:56" when it starts and ends in the same minute. */
@@ -22,7 +26,7 @@ export function span(conv: ConversationView): string {
 /** One conversation: its title (the calendar event it overlaps when labelled, else its time range), under it
  *  the range, the speech total and the stars ("09:12 to 09:41 · 16 min speech ★★"), Play and Pin, then its
  *  lines with the starred ones marked and quiet gaps between lines far apart. */
-export function Conversation({ conv, onPin, onPlay }: Props) {
+export function Conversation({ conv, onPin, onPlay, mark, hitLine }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stars = conv.star_ms.length;
@@ -64,7 +68,8 @@ export function Conversation({ conv, onPin, onPlay }: Props) {
       {error && <p class="conv-error" role="alert">{error}</p>}
       {transcriptItems(conv).map((item, i) =>
         item.kind === "line"
-          ? <TranscriptLine key={`${item.line.clip_id}-${item.line.seq}`} line={item.line} starred={item.starred} />
+          ? <TranscriptLine key={`-`} line={item.line} starred={item.starred} words={mark}
+              hit={hitLine !== undefined && hitLine === `${item.line.clip_id}-${item.line.seq}`} />
           : item.kind === "star"
             ? <StarLine key={`star-${item.at_ms}`} at_ms={item.at_ms} />
             : <QuietGap key={`gap-${i}`} minutes={item.minutes} />)}

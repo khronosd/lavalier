@@ -2,7 +2,10 @@ import { render } from "@testing-library/preact";
 import { h } from "preact";
 import { afterEach, expect, test } from "vitest";
 import type { Hit } from "./api";
-import { convStart, groupByDay, groupHits, renderSnippet, splitSnippet } from "./search";
+import {
+  convStart, forgetSearches, groupByDay, groupHits, hitId, markWords, queryWords, recentSearches, rememberSearch, renderSnippet,
+  splitSnippet,
+} from "./search";
 
 const at = (d: number, hh: number, mm: number) => new Date(2026, 9, d, hh, mm).getTime();
 const hit = (day: string, at_ms: number, seq = 0): Hit =>
@@ -75,4 +78,31 @@ test("convStart reads a conversation's local start from its id", () => {
   expect(convStart("c-20261023-073314")).toBe("07:33");
   expect(convStart("conv_test")).toBeNull();
   expect(convStart("c-20261023-256000")).toBeNull();
+});
+
+test("queryWords strips quotes and operators and puts the longest word first", () => {
+  expect(queryWords('"key hash" OR firmware*')).toEqual(["firmware", "hash", "key"]);
+  expect(queryWords("  one   two ")).toEqual(["one", "two"]);
+  expect(queryWords("")).toEqual([]);
+  expect(queryWords("AND")).toEqual([]);
+});
+
+test("markWords wraps every occurrence of each query word, case-insensitively, and keeps the text whole", () => {
+  const { container } = render(h("p", null, ...markWords("Retention: the retention numbers before Monday", "retention monday")));
+  expect([...container.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["Retention", "retention", "Monday"]);
+  expect(container.textContent).toBe("Retention: the retention numbers before Monday");
+  expect(markWords("nothing to mark", "")).toEqual(["nothing to mark"]);
+  expect(markWords("", "x")).toEqual([]);
+});
+
+test("hitId is the line element's id", () => {
+  expect(hitId(hit("2026-10-23", 5, 2))).toBe("clip_5-2");
+});
+
+test("recent searches: newest first, five at most, and a query that was only the start of a newer one gives way", () => {
+  forgetSearches();
+  for (const q of ["ret", "rete", "retention", "vendor", "ret", "mute", "sync", "drain", "retention"]) rememberSearch(q);
+  expect(recentSearches()).toEqual(["retention", "drain", "sync", "mute", "vendor"]); // "ret" gave way to "retention"
+  forgetSearches();
+  expect(recentSearches()).toEqual([]);
 });

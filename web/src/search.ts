@@ -72,3 +72,51 @@ export function convStart(conversationId: string): string | null {
 export function jumpHref(day: IsoDate, at?: string): string {
   return toHash({ name: "day", params: { date: day }, query: at ? { at } : {} });
 }
+
+/** A hit's line as the line element's id: "<clip_id>-<seq>". */
+export const hitId = (hit: Hit) => `${hit.clip_id}-${hit.seq}`;
+
+const OPERATORS = new Set(["AND", "OR", "NOT", "NEAR"]);
+
+/** The query's words with quotes and FTS operators stripped, longest first (so a longer word wins a shared start). */
+export function queryWords(query: string): string[] {
+  const words = query.split(/\s+/).map((w) => w.replace(/["*()^:]/g, "")).filter((w) => w && !OPERATORS.has(w));
+  return [...new Set(words)].sort((a, b) => b.length - a.length || a.localeCompare(b));
+}
+
+const escape = (word: string) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A line's text with every occurrence of each query word in a <mark>, case-insensitively: plain strings
+ *  (text nodes) and <mark> elements, never innerHTML. */
+export function markWords(text: string, query: string): ComponentChildren[] {
+  const words = queryWords(query);
+  if (words.length === 0 || text === "") return text === "" ? [] : [text];
+  const pattern = new RegExp(words.map(escape).join("|"), "gi");
+  const parts: ComponentChildren[] = [];
+  let from = 0;
+  for (const m of text.matchAll(pattern)) {
+    if (m.index > from) parts.push(text.slice(from, m.index));
+    parts.push(h("mark", { key: m.index }, m[0]));
+    from = m.index + m[0].length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
+}
+
+// The last searches, for the inspector: kept in memory only, so a new window starts clean.
+export const RECENT_MAX = 5;
+let recent: string[] = [];
+
+/** Remember a query, newest first, five at most; a query that was only the start of this one (typed on the
+ *  way to it) gives way to it. */
+export function rememberSearch(query: string): void {
+  recent = [query, ...recent.filter((q) => q !== query && !query.startsWith(q))].slice(0, RECENT_MAX);
+}
+
+export function recentSearches(): string[] {
+  return [...recent];
+}
+
+export function forgetSearches(): void {
+  recent = [];
+}

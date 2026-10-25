@@ -1,5 +1,5 @@
-/* Search and Starred: results grouped under day headings, on the transcript's margin-column grid.
-   No cards; the only motion is the fade of a jumped-to line, which answers the person's click. */
+/* Search and Starred: hits and stars as rows in the list column, the chosen one's conversation in the
+   content column. No cards; the only motion is the flash of a jumped-to line, which answers the person's click. */
 
 /* the toolbar field: 180px at the right of every page, 420px in the Search page's title group */
 .search-box {
@@ -23,22 +23,52 @@
 }
 .search-clear svg { width: 9px; height: 9px; stroke-width: 2.4; }
 
-.list-page .loading { color: var(--text-3); }
+.loading { color: var(--text-3); }
+
+/* a day's head in the list column, with how many rows it holds */
+.list-head { display: flex; align-items: center; padding: 10px 12px 4px; }
+.hd-count { margin-left: auto; font-weight: 500; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+
+/* a hit: the time and the conversation on line one, the snippet in the reading face under it */
+.row.hit { gap: 4px; padding: 9px 12px; }
+.hit-conv { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.selected .hit-conv { color: var(--on-accent); }
+.row-quote {
+  margin: 0; font-size: 13.5px; line-height: 1.45; max-width: none; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.row.selected .row-quote { color: var(--on-accent); }
+
+mark { background: var(--mark-bg); color: inherit; border-radius: 3px; padding: 0 2px; }
+.row.selected mark { background: color-mix(in srgb, var(--on-accent) 16%, transparent); }
+
+/* over the hit's conversation: the day, this match among all, Open day */
+.hit-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.hit-day { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.hit-nav .segment { height: 24px; padding: 0 8px; font-size: 12px; }
+.hit-nav .step { padding: 0 5px; }
+.hit-nav .step svg { width: 16px; height: 16px; }
+.hit-nav .hit-count { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.hit-nav .segment[aria-disabled="true"] { opacity: 0.45; }
+.btn.soft { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: none; }
+
+/* the inspector's facts */
+.insp-block { display: flex; flex-direction: column; }
+.insp-block > .hd { margin-bottom: 6px; }
+.insp-big { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.insp-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); }
+.insp-row { display: flex; align-items: center; gap: 8px; height: 30px; font-size: 12.5px; color: var(--text-reading); }
+.insp-row:hover { color: var(--accent); }
+.insp-row svg { width: 13px; height: 13px; flex: none; color: var(--text-3); }
+.insp-count { margin-left: auto; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* Starred, until its own frame: results grouped under day headings on the margin grid */
 .list-page .page-lead + .day-group .group-title { margin-top: 18px; }
-
 .group-title { margin: 26px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
-
-/* a result is one link: the time in the margin, the snippet in the reading face */
-a.hit { color: inherit; border-radius: 6px; }
-a.hit:hover { background: var(--hair2); box-shadow: 0 0 0 4px var(--hair2); }
-a.hit:hover .hit-conv { color: var(--accent); }
-.hit > p { max-width: 66ch; overflow-wrap: anywhere; }
-.hit-conv { margin-left: 10px; color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
-
-mark { background: var(--mark-bg); color: inherit; border-radius: 3px; padding: 0 1px; }
-
 .star-row .quote { font-size: 15px; }
 .star-row .no-quote { color: var(--text-3); }
+.star-link { margin-left: 10px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
+.star-link:hover { color: var(--accent); text-decoration: underline; }
 
 /* a jump from search or a starred moment: highlighted at once, faded out when the class goes */
 .day-body .line, .day-body .conv { transition: background-color 600ms ease-out, box-shadow 600ms ease-out; }

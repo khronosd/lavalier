@@ -78,7 +78,7 @@
 .line > .time, .time-cell { font-size: 11.5px; }
 .time-cell { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .time-cell .star-fill { width: 10px; height: 10px; flex: none; color: var(--accent); }
-.line.starred { background: var(--accent-tint); }
+.line.starred, .line.hit-line { background: var(--accent-tint); }
 .line > p { margin: 0; }
 .line > p.reading { overflow-wrap: anywhere; }
 .star-line > p { font-size: 12.5px; color: var(--star); }

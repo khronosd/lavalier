@@ -17,6 +17,8 @@ test.each([
   ["#/today?at=c-c-20261024-090000", { name: "today", params: {}, query: { at: "c-c-20261024-090000" } }],
   ["#/starred", { name: "starred", params: {}, query: {} }],
   ["#/search?q=retention%20days", { name: "search", params: {}, query: { q: "retention days" } }],
+  ["#/search?q=retention&hit=clip_b-1", { name: "search", params: {}, query: { q: "retention", hit: "clip_b-1" } }],
+  ["#/search?hit=clip_b-1", { name: "search", params: {}, query: { q: "", hit: "clip_b-1" } }],
   ["#/insights", { name: "insights", params: {}, query: {} }],
   ["#/settings/retention", { name: "settings", params: { tab: "retention" }, query: {} }],
   ["#/settings/connectors", { name: "settings", params: { tab: "connectors" }, query: {} }],
@@ -29,7 +31,7 @@ test.each([
 test("toHash round-trips", () => {
   for (const h of ["#/today", "#/today?tab=audio", "#/day/2026-10-24", "#/day/2026-10-24?tab=audio&conv=conv_1",
     "#/day/2026-10-23?at=clip_20261023T225609.000Z-1", "#/day/2026-10-23?tab=transcript&at=c-c-20261023-225600",
-    "#/today?at=clip_b-0", "#/starred", "#/search?q=a+b", "#/insights", "#/settings/pendant"]) {
+    "#/today?at=clip_b-0", "#/starred", "#/search?q=a+b", "#/search?q=a+b&hit=clip_b-1", "#/insights", "#/settings/pendant"]) {
     expect(toHash(parseHash(h))).toBe(h);
   }
 });
@@ -69,3 +71,7 @@ test.each([
   ["2026-10-00", false],
   ["2026-1-01", false],
 ])("isCalendarDate %s", (text, ok) => expect(isCalendarDate(text)).toBe(ok));
+
+test("a search hit without a query has no hash to go to", () => {
+  expect(toHash({ name: "search", params: {}, query: { q: "", hit: "clip_b-1" } })).toBe("#/search");
+});

@@ -17,7 +17,7 @@ function Page({ route, today, days }: { route: Route; today: string; days: DaySu
     case "starred":
       return <StarredPage />;
     case "search":
-      return <Search q={route.query.q ?? ""} />;
+      return <Search q={route.query.q ?? ""} hit={route.query.hit} />;
     case "insights":
       return <Insights />;
     case "settings":
