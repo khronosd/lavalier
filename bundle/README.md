@@ -49,6 +49,11 @@ Step 3 exists because the launcher sets `site_import = 0`, so `site.py` never
 runs and `.pth` files are not processed (nor is any global site-packages added). Editable installs (`lavalier`, `pendant_client`) are
 only reachable through them.
 
+The provider SDKs (`anthropic`, `openai`, `google-genai`) and `keyring` are normal
+dependencies in the same venv, so `paths.txt` covers them too. The first API key
+read by the bundled app shows one Keychain prompt; "Always Allow" is expected.
+Re-signing the bundle may prompt again.
+
 pywebview is a normal dependency in the same venv, so `paths.txt` already covers it. The
 window (`lavalier window`) is a separate process started from the CLI; it is not part of
 the bundle.
