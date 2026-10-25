@@ -101,3 +101,13 @@ export function partOfDay(ms: number): "Morning" | "Afternoon" | "Evening" {
   const h = new Date(ms).getHours();
   return h < 12 ? "Morning" : h < 18 ? "Afternoon" : "Evening";
 }
+
+/** The lines around a moment: the line at or just after it (the last line when the moment is past them all)
+ *  and up to `n` lines either side, in time order; none when the conversation has no lines. */
+export function linesAround(conv: ConversationView, at_ms: number, n = 3): Line[] {
+  const lines = [...conv.lines].sort((a, b) => a.at_ms - b.at_ms || a.seq - b.seq);
+  if (lines.length === 0) return [];
+  let i = lines.findIndex((l) => l.at_ms >= at_ms);
+  if (i < 0) i = lines.length - 1;
+  return lines.slice(Math.max(0, i - n), i + n + 1);
+}

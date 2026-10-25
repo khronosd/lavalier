@@ -15,7 +15,7 @@ import { usePendantStatus } from "./usePendantStatus";
 function Page({ route, today, days }: { route: Route; today: string; days: DaySummary[] | null }) {
   switch (route.name) {
     case "starred":
-      return <StarredPage />;
+      return <StarredPage star={route.query.star} />;
     case "search":
       return <Search q={route.query.q ?? ""} hit={route.query.hit} />;
     case "insights":

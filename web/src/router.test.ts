@@ -16,6 +16,7 @@ test.each([
   ["#/day/2026-10-23?at=clip_b-1", { name: "day", params: { date: "2026-10-23" }, query: { at: "clip_b-1" } }],
   ["#/today?at=c-c-20261024-090000", { name: "today", params: {}, query: { at: "c-c-20261024-090000" } }],
   ["#/starred", { name: "starred", params: {}, query: {} }],
+  ["#/starred?star=1761253572000", { name: "starred", params: {}, query: { star: "1761253572000" } }],
   ["#/search?q=retention%20days", { name: "search", params: {}, query: { q: "retention days" } }],
   ["#/search?q=retention&hit=clip_b-1", { name: "search", params: {}, query: { q: "retention", hit: "clip_b-1" } }],
   ["#/search?hit=clip_b-1", { name: "search", params: {}, query: { q: "", hit: "clip_b-1" } }],
@@ -31,7 +32,7 @@ test.each([
 test("toHash round-trips", () => {
   for (const h of ["#/today", "#/today?tab=audio", "#/day/2026-10-24", "#/day/2026-10-24?tab=audio&conv=conv_1",
     "#/day/2026-10-23?at=clip_20261023T225609.000Z-1", "#/day/2026-10-23?tab=transcript&at=c-c-20261023-225600",
-    "#/today?at=clip_b-0", "#/starred", "#/search?q=a+b", "#/search?q=a+b&hit=clip_b-1", "#/insights", "#/settings/pendant"]) {
+    "#/today?at=clip_b-0", "#/starred", "#/search?q=a+b", "#/search?q=a+b&hit=clip_b-1", "#/starred?star=1761253572000", "#/insights", "#/settings/pendant"]) {
     expect(toHash(parseHash(h))).toBe(h);
   }
 });

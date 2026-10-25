@@ -62,13 +62,42 @@ mark { background: var(--mark-bg); color: inherit; border-radius: 3px; padding: 
 .insp-row svg { width: 13px; height: 13px; flex: none; color: var(--text-3); }
 .insp-count { margin-left: auto; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
-/* Starred, until its own frame: results grouped under day headings on the margin grid */
-.list-page .page-lead + .day-group .group-title { margin-top: 18px; }
-.group-title { margin: 26px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
-.star-row .quote { font-size: 15px; }
-.star-row .no-quote { color: var(--text-3); }
-.star-link { margin-left: 10px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
-.star-link:hover { color: var(--accent); text-decoration: underline; }
+/* a starred moment: the star, the quote in the reading face, the time and the conversation under it */
+.row.star-row { flex-direction: row; gap: 10px; padding: 9px 12px; }
+.star-row > .star-fill { width: 11px; height: 11px; flex: none; margin-top: 4px; color: var(--accent); }
+.row.selected > .star-fill { color: var(--on-accent); }
+.star-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.star-row .no-quote { color: var(--text-3); font-family: var(--ui); font-size: 12.5px; }
+.row.selected .no-quote { color: color-mix(in srgb, var(--on-accent) 72%, transparent); }
+.star-conv { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the moment: the conversation and when, Open day, the pull quote, then the lines around it */
+.moment-head { display: flex; align-items: flex-start; gap: 12px; }
+.moment-head > div { flex: 1; min-width: 0; }
+.page-meta { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.pull {
+  margin: 20px 0 0; padding: 16px 20px; border-radius: var(--radius-l); background: var(--accent-soft);
+  font-size: 19px; line-height: 1.45; color: var(--text); max-width: none; overflow-wrap: anywhere;
+}
+.pull.no-quote { color: var(--text-3); font-size: 13px; }
+.around-head { margin-top: 22px; }
+.around { margin-top: 8px; }
+
+/* the moment's facts in the inspector */
+.facts { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--text-soft); }
+.fact { margin: 0; display: flex; gap: 10px; align-items: flex-start; line-height: 1.4; }
+.fact svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--text-3); }
+.fact b { font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; }
+.insp-actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.insp-actions .btn { justify-content: flex-start; }
+.quote-row { height: auto; padding: 8px 0; align-items: flex-start; line-height: 1.4; }
+.quote-row .reading { font-size: 12.5px; line-height: 1.4; max-width: none; }
+.quote-row .no-quote { color: var(--text-3); }
+.chip-time {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; flex: none; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.insp-foot { margin: auto 0 0; padding-top: 12px; border-top: 1px solid var(--hairline); font-size: 11.5px; line-height: 1.5; color: var(--text-3); }
 
 /* a jump from search or a starred moment: highlighted at once, faded out when the class goes */
 .day-body .line, .day-body .conv { transition: background-color 600ms ease-out, box-shadow 600ms ease-out; }

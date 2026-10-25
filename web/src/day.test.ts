@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ConversationView, DayView, Line } from "./api";
-import { partOfDay, pendingSentence, placeStars, summaryLine, summarySentence, transcriptItems } from "./day";
+import { linesAround, partOfDay, pendingSentence, placeStars, summaryLine, summarySentence, transcriptItems } from "./day";
 
 const T0 = Date.UTC(2026, 9, 23, 20, 56, 0);
 const line = (offsetS: number, text: string, seq = 0): Line => ({ at_ms: T0 + offsetS * 1000, text, clip_id: "clip_a", seq });
@@ -93,4 +93,14 @@ test("partOfDay splits the day at noon and six", () => {
   const local = (h: number, m = 0) => new Date(2026, 9, 23, h, m).getTime();
   expect([local(0), local(8, 5), local(11, 59), local(12), local(17, 59), local(18), local(23, 30)].map(partOfDay))
     .toEqual(["Morning", "Morning", "Morning", "Afternoon", "Afternoon", "Evening", "Evening"]);
+});
+
+test("linesAround gives the line at or just after the moment and three either side, in time order", () => {
+  const c = conv(Array.from({ length: 10 }, (_, i) => line(i * 10, `l${i}`, i)), [], T0, T0 + 120_000);
+  const ids = (ms: number, n?: number) => linesAround(c, T0 + ms * 1000, n).map((l) => l.text);
+  expect(ids(45)).toEqual(["l2", "l3", "l4", "l5", "l6", "l7", "l8"]);
+  expect(ids(0)).toEqual(["l0", "l1", "l2", "l3"]);
+  expect(ids(95)).toEqual(["l6", "l7", "l8", "l9"]); // the moment is after the last line: that line and three before
+  expect(ids(45, 1)).toEqual(["l4", "l5", "l6"]);
+  expect(linesAround(conv([], []), T0)).toEqual([]);
 });

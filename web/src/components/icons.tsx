@@ -67,3 +67,9 @@ export const BatteryIcon = ({ soc }: { soc: number }) => {
     </svg>
   );
 };
+export const PendantIcon = () => (
+  <svg {...common}><rect x="4.5" y="1.5" width="7" height="13" rx="3.5" /><circle cx="8" cy="5" r="1.4" fill="currentColor" stroke="none" /></svg>
+);
+export const CopyIcon = () => (
+  <svg {...common}><rect x="5" y="5" width="9" height="9" rx="2" /><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" /></svg>
+);
