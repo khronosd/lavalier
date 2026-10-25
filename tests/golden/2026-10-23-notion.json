@@ -1,0 +1,170 @@
+[
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "Starred"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "heading_3"
+  },
+  {
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "22:56:07 — test test test one two three"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "bulleted_list_item"
+  },
+  {
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "22:56:12 — test test test one two three"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "bulleted_list_item"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "22:56 to 22:56, 16 s speech ★★"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "heading_3"
+  },
+  {
+    "object": "block",
+    "paragraph": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "[22:56:09] test test test one two three\n[22:56:12] ★\n[22:56:13] test test test one two three"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "type": "paragraph"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "Insights"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "heading_3"
+  },
+  {
+    "object": "block",
+    "paragraph": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "A short pendant test: two rounds of counting to three, both starred."
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "type": "paragraph"
+  },
+  {
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "22:56:13 — Check that both stars landed"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "bulleted_list_item"
+  },
+  {
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "Call back"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "object": "block",
+    "type": "bulleted_list_item"
+  },
+  {
+    "object": "block",
+    "paragraph": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "People: Remy, Daddy"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "type": "paragraph"
+  },
+  {
+    "object": "block",
+    "paragraph": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "Topics: pendant test, star button"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "type": "paragraph"
+  },
+  {
+    "object": "block",
+    "paragraph": {
+      "rich_text": [
+        {
+          "text": {
+            "content": "Insights by claude-opus-5-5 (Anthropic) at 04:12"
+          },
+          "type": "text"
+        }
+      ]
+    },
+    "type": "paragraph"
+  }
+]

@@ -149,6 +149,9 @@ DASHED = "1a2b3c4d-5e6f-4071-8293-a4b5c6d7e8f9"
     (f"https://www.notion.so/me/Journal-{HEX}?v=abc", HEX),
     (f"https://notion.so/{HEX}", HEX),
     (f"https://www.notion.so/me/{HEX.upper()}#frag", HEX),
+    (f"  {HEX}\n", HEX),
+    (f" https://notion.so/{HEX}\t", HEX),
+    ("   ", ""),
 ])
 def test_normalise_notion_id_accepts(raw, want):
     from lavalier.settings import normalise_notion_id

@@ -19,11 +19,11 @@ def _local(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000)
 
 
-def _hms(ms: int) -> str:
+def hms(ms: int) -> str:
     return f"{_local(ms):%H:%M:%S}"
 
 
-def _hm(ms: int) -> str:
+def hm(ms: int) -> str:
     return f"{_local(ms):%H:%M}"
 
 
@@ -31,7 +31,7 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-def _duration(ms: int) -> str:
+def duration(ms: int) -> str:
     s = round(ms / 1000)
     if s < 60:
         return f"{s} s"
@@ -42,7 +42,7 @@ def _duration(ms: int) -> str:
 
 def _frontmatter(view: DayView) -> str:
     n = len(view.conversations)
-    speech = f"{_duration(view.speech_ms)} across {_plural(n, 'conversation', 'conversations')}"
+    speech = f"{duration(view.speech_ms)} across {_plural(n, 'conversation', 'conversations')}"
     return (f"---\ndate: {view.day.isoformat()}\n"
             f"speech: {speech}; {_plural(view.noise_clips, 'noise clip', 'noise clips')} dropped\n"
             f"stars: {len(view.stars)}\n---\n")
@@ -52,31 +52,43 @@ def _starred(stars: list[StarView], convs: dict[str, ConversationView]) -> str:
     lines = ["## Starred"]
     for s in stars:  # already in time order
         if s.conversation_id is None:
-            lines.append(f"- {_hms(s.at_ms)} ★ (no speech recorded nearby)")
+            lines.append(f"- {hms(s.at_ms)} ★ (no speech recorded nearby)")
             continue
-        line = f"- {_hms(s.at_ms)} ★ in [{_hm(convs[s.conversation_id].start_ms)} conversation](#{s.conversation_id})"
+        line = f"- {hms(s.at_ms)} ★ in [{hm(convs[s.conversation_id].start_ms)} conversation](#{s.conversation_id})"
         if s.quote:
             line += f' — "{s.quote}"'
         lines.append(line)
     return "\n".join(lines) + "\n"
 
 
-def render_conversation(conv: ConversationView, *, anchor: bool = True) -> str:
-    stars = "★" * len(conv.star_ms)
-    head = f"### {_hm(conv.start_ms)}–{_hm(conv.end_ms)} · {_duration(conv.speech_ms)} speech"
-    if stars:
-        head += f" {stars}"
-    if conv.label:
-        head += f" · {_one_line(conv.label)}"
+def heading_text(conv: ConversationView, *, to: str = "–", sep: str = " · ") -> str:
+    """The conversation heading without its `### ` and anchor; `to` and `sep` let another renderer
+    spell the range and the separators its own way without a second copy of the pieces."""
+    head = f"{hm(conv.start_ms)}{to}{hm(conv.end_ms)}{sep}{duration(conv.speech_ms)} speech"
+    if conv.star_ms:
+        head += f" {'★' * len(conv.star_ms)}"
+    label = " ".join((conv.label or "").split())
+    if label:
+        head += f"{sep}{label}"
     if conv.pinned:
         head += " (pinned)"
+    return head
+
+
+def render_conversation(conv: ConversationView, *, anchor: bool = True) -> str:
+    head = f"### {heading_text(conv)}"
     lines = [f"{head} {{#{conv.conversation_id}}}" if anchor else head]
-    events = [(ln.at_ms, 1, f"[{_hms(ln.at_ms)}] {ln.text}") for ln in conv.lines]
+    lines += conversation_lines(conv)
+    return "\n".join(lines) + "\n"
+
+
+def conversation_lines(conv: ConversationView) -> list[str]:
+    """The `[HH:MM:SS] text` and `[HH:MM:SS] ★` lines of a conversation, in time order."""
+    events = [(ln.at_ms, 1, f"[{hms(ln.at_ms)}] {ln.text}") for ln in conv.lines]
     # A star pressed shortly before the conversation began has no place in the
     # transcript; it still counts in the heading and the Starred section.
-    events += [(ms, 0, f"[{_hms(ms)}] ★") for ms in conv.star_ms if conv.start_ms <= ms <= conv.end_ms]
-    lines += [text for _, _, text in sorted(events, key=lambda e: (e[0], e[1]))]
-    return "\n".join(lines) + "\n"
+    events += [(ms, 0, f"[{hms(ms)}] ★") for ms in conv.star_ms if conv.start_ms <= ms <= conv.end_ms]
+    return [text for _, _, text in sorted(events, key=lambda e: (e[0], e[1]))]
 
 
 def _audio_status(clips: list[ClipRecord], view: DayView) -> str:
@@ -95,11 +107,11 @@ def _noise_section(clips: list[ClipRecord]) -> str:
         if c.classification != "noise":
             continue
         db_text = "n/a" if c.mean_db is None else f"{c.mean_db:.1f} dB".replace("-", "−")
-        lines.append(f"- {_hms(c.first_ms)} · {c.chunk_count * 20 / 1000:.1f} s · {db_text}")
+        lines.append(f"- {hms(c.first_ms)} · {c.chunk_count * 20 / 1000:.1f} s · {db_text}")
     return "\n".join(lines) + "\n"
 
 
-def _one_line(text: str) -> str:
+def one_line(text: str) -> str:
     """A model's text on one line: newlines (and the runs of spaces around them) become one space, so a
     reply can never start a heading or a list of its own in the file."""
     return " ".join(text.split()) if any(c in text for c in "\r\n") else text
@@ -109,9 +121,9 @@ def _insights(rec: InsightRecord) -> list[str]:
     ins = rec.insight
     parts = ["## Insights\n"]
     if ins.summary:
-        parts.append(f"{_one_line(ins.summary)}\n")
+        parts.append(f"{one_line(ins.summary)}\n")
     if ins.follow_ups:
-        ups = [f"- [{_hms(f.at_ms)}] {_one_line(f.text)}" if f.at_ms is not None else f"- {_one_line(f.text)}"
+        ups = [f"- [{hms(f.at_ms)}] {one_line(f.text)}" if f.at_ms is not None else f"- {one_line(f.text)}"
                for f in ins.follow_ups]
         parts.append("### Follow-ups\n" + "\n".join(ups) + "\n")
     if ins.people:
@@ -119,7 +131,7 @@ def _insights(rec: InsightRecord) -> list[str]:
     if ins.topics:
         parts.append(f"### Topics\n{', '.join(ins.topics)}\n")
     cut = " (the earlier part of the day was left out)" if rec.truncated else ""
-    parts.append(f"_Insights by {rec.model} ({display(rec.provider)}) at {_hm(rec.generated_ms)}{cut}._\n")
+    parts.append(f"_Insights by {rec.model} ({display(rec.provider)}) at {hm(rec.generated_ms)}{cut}._\n")
     return parts
 
 

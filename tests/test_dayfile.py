@@ -26,7 +26,7 @@ def test_write_day_marks_clean(root, db, cfg, seeded_2026_10_23_subset):
 import dataclasses
 
 from conftest import _press, _real_transcript
-from lavalier.dayfile import _duration
+from lavalier.dayfile import duration
 from lavalier.group import rebuild_day
 
 DAY = date(2026, 10, 23)
@@ -39,10 +39,10 @@ def _speech(db, clip_record, transcribed_at=None, **kw):
     return c
 
 
-def test_duration_forms():
-    assert _duration(16_000) == "16 s"
-    assert _duration(16 * 60_000) == "16 min"
-    assert _duration((3 * 3600 + 16 * 60) * 1000) == "3h 16m"
+def testduration_forms():
+    assert duration(16_000) == "16 s"
+    assert duration(16 * 60_000) == "16 min"
+    assert duration((3 * 3600 + 16 * 60) * 1000) == "3h 16m"
 
 
 def test_audio_kept_until_date(root, db, cfg, clip_record):
@@ -155,3 +155,11 @@ def test_labelled_heading_with_stars_and_a_multiline_label_stays_one_line(db, cf
     db.set_conversation_label(cid, "Weekly\nsync")
     out = render_day(db, DAY, cfg, now_ms=0)
     assert " · Weekly sync {#" in out and "Weekly\n" not in out
+
+
+def test_a_blank_label_is_no_label_and_inner_whitespace_collapses(db, cfg, seeded_2026_10_23_subset):
+    cid = db.conversations_for_day(DAY)[0].conversation_id
+    db.set_conversation_label(cid, " \n ")
+    assert f"speech ★★ {{#{cid}}}" in render_day(db, DAY, cfg, now_ms=0)
+    db.set_conversation_label(cid, "  Weekly \t sync ")
+    assert " · Weekly sync {#" in render_day(db, DAY, cfg, now_ms=0)

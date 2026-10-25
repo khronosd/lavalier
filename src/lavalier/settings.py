@@ -38,6 +38,7 @@ class SettingsError(ValueError):
 def normalise_notion_id(value: str) -> str:
     """A Notion database id as 32 lower-case hex: from the raw id, a dashed uuid, or a notion.so URL."""
     bad = SettingsError("notion_database_id must be a Notion database id or URL", "notion_database_id")
+    value = value.strip()
     if value == "":
         return ""
     if _HEX32.fullmatch(value):

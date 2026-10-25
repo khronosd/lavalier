@@ -840,6 +840,7 @@ class Database:
         )
 
     def set_conversation_label(self, conversation_id: str, label: Optional[str]) -> None:
+        """Set (or clear, with None) a conversation's label; an unknown id changes nothing."""
         with self._write_scope():
             self._conn.execute("UPDATE conversations SET label = ? WHERE conversation_id = ?",
                                (label, conversation_id))
