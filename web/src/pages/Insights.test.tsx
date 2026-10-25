@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { InsightsIndex, Job, ProviderFacts } from "../api";
-import { anthropic, at, job, noProvider, ollama } from "../insights.fixtures";
+import type { DaySummary, InsightDayState, InsightsIndex, Job, ProviderFacts } from "../api";
+import { forgetDays } from "../dayCache";
+import { anthropic, at, dayState, doneRecord, job, noProvider, ollama, view } from "../insights.fixtures";
 import { MODEL_PRIVACY } from "../insights";
 import { Insights } from "./Insights";
 
@@ -38,6 +39,7 @@ let jobs: Job[];
 let post: () => Response;
 let jobGone: boolean;
 let jobFails: number; // how many job GETs answer 500 before the queue
+let dayStates: Record<string, InsightDayState>;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -48,6 +50,7 @@ beforeEach(() => {
   post = () => json({ job: "j1" }, 202);
   jobGone = false;
   jobFails = 0;
+  dayStates = {};
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${url}`;
     calls.push({ key, body: init?.body ? JSON.parse(init.body as string) : undefined });
@@ -57,6 +60,11 @@ beforeEach(() => {
     if (key === "GET /api/jobs/j1" && jobFails > 0) { jobFails--; return json({ error: "boom" }, 500); }
     if (key === "GET /api/jobs/j1") return json(jobs.length > 1 ? jobs.shift() : jobs[0]);
     if (key === "POST /api/insights/generate-range") return post();
+    if (key.startsWith("POST /api/insights/generate/")) return json({ job: "j2" }, 202);
+    if (key === "PUT /api/settings") return json({});
+    const day = /^GET \/api\/insights\/(\d{4}-\d{2}-\d{2})$/.exec(key)?.[1];
+    if (day) return json(dayStates[day] ?? dayState());
+    if (key.startsWith("GET /api/day/")) return json(view);
     throw new Error(`unexpected ${key}`);
   }));
 });
@@ -64,6 +72,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  forgetDays();
 });
 
 const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -196,11 +205,12 @@ test("no provider: the day tab's copy and a link to the Model tab, and nothing t
   facts = noProvider;
   indexes = [full({ follow_ups: [], people: [], topics: [], days_without: without(2), auto: false })];
   await show();
-  expect(screen.getByText(
+  const main = within(screen.getByRole("main")); // the inspector says the same in its own words
+  expect(main.getByText(
     "Pick a model in Settings › Model to get a summary, follow-ups, people and topics for each day.")).toBeTruthy();
-  expect(screen.getByText(MODEL_PRIVACY, { exact: false })).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Open Settings › Model" }).getAttribute("href")).toBe("#/settings/model");
-  expect(within(screen.getByRole("main")).queryByRole("button")).toBeNull(); // nothing to generate with
+  expect(main.getByText(MODEL_PRIVACY, { exact: false })).toBeTruthy();
+  expect(main.getByRole("link", { name: "Open Settings › Model" }).getAttribute("href")).toBe("#/settings/model");
+  expect(main.queryByRole("button")).toBeNull(); // nothing to generate with
 });
 
 test("a failed load says so", async () => {
@@ -259,4 +269,100 @@ test("leaving the page stops polling the range", async () => {
   unmount();
   await tick(10_000);
   expect(calls.filter((c) => c.key === "GET /api/jobs/j1")).toHaveLength(polled);
+});
+
+const days: DaySummary[] = [
+  { day: "2026-10-24", speech_ms: 10_000, conversations: 1, stars: 0, noise_clips: 0 },
+  { day: "2026-10-23", speech_ms: 10_000, conversations: 1, stars: 0, noise_clips: 0 },
+  { day: "2026-10-22", speech_ms: 10_000, conversations: 1, stars: 0, noise_clips: 0 },
+  { day: "2026-10-21", speech_ms: 0, conversations: 0, stars: 0, noise_clips: 3 },
+  { day: "2026-10-20", speech_ms: 10_000, conversations: 1, stars: 0, noise_clips: 0 },
+];
+
+async function showDays(day?: string) {
+  const r = render(<Insights days={days} today="2026-10-24" day={day} />);
+  await flush();
+  return r;
+}
+
+test("the list column: All days first and selected, then each day with its state and a Generate for a day without one", async () => {
+  indexes = [full({
+    follow_ups: full().follow_ups.filter((f) => f.day === "2026-10-23"),
+    days_without: [{ day: "2026-10-22", chars: 100, error: null }, { day: "2026-10-20", chars: 100, error: "rate limited" }],
+  })];
+  await showDays();
+  const list = screen.getByRole("region", { name: "Days" });
+  const rows = within(list).getAllByRole("link");
+  expect(rows.map((a) => a.getAttribute("href"))).toEqual([
+    "#/insights", "#/insights?day=2026-10-24", "#/insights?day=2026-10-23", "#/insights?day=2026-10-22",
+    "#/insights?day=2026-10-21", "#/insights?day=2026-10-20",
+  ]);
+  expect(rows.map((a) => a.getAttribute("aria-current"))).toEqual(["true", null, null, null, null, null]);
+  expect([...list.querySelectorAll(".row-sub")].map((el) => el.textContent)).toEqual([
+    "Follow-ups, people and topics across days", "Not complete yet", "Done", "Not generated", "No speech",
+    "Could not generate · rate limited",
+  ]);
+  expect([...list.querySelectorAll(".dot")].map((el) => el.className)).toEqual(["dot waiting", "dot done", "dot none", "dot no-speech", "dot error"]);
+  expect(list.querySelector(".ins-row.done .row-count")!.textContent).toBe("2");
+  expect(within(list).getAllByRole("button", { name: "Generate" })).toHaveLength(1);
+  expect(screen.getByText("1 day done · 2 waiting")).toBeTruthy();
+});
+
+test("Generate in a row posts for that day and reads the index again; without a provider no row offers it", async () => {
+  indexes = [full({ days_without: [{ day: "2026-10-22", chars: 100, error: null }] }), full({ generating: ["2026-10-22"] })];
+  await showDays();
+  const list = screen.getByRole("region", { name: "Days" });
+  fireEvent.click(within(list).getByRole("button", { name: "Generate" }));
+  await flush();
+  expect(calls.some((c) => c.key === "POST /api/insights/generate/2026-10-22")).toBe(true);
+  expect(within(list).getByText("Generating…")).toBeTruthy();
+  cleanup();
+
+  facts = noProvider;
+  indexes = [full({ days_without: [{ day: "2026-10-22", chars: 100, error: null }] })];
+  await showDays();
+  expect(within(screen.getByRole("region", { name: "Days" })).queryByRole("button")).toBeNull();
+});
+
+test("?day= shows that day's insight in the content column with Open day, and selects its row", async () => {
+  dayStates["2026-10-23"] = dayState({ state: "done", record: doneRecord });
+  await showDays("2026-10-23");
+  await flush();
+  await flush();
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Friday, 23 October");
+  expect(screen.getByRole("link", { name: "Open day" }).getAttribute("href")).toBe("#/day/2026-10-23?tab=insights");
+  const main = within(screen.getByRole("main"));
+  expect(main.getByText("A short pendant test late in the evening.")).toBeTruthy();
+  expect(main.getByRole("heading", { name: "People" })).toBeTruthy();
+  expect(main.getByRole("textbox", { name: "Ask about this day" })).toBeTruthy();
+  const list = screen.getByRole("region", { name: "Days" });
+  expect(within(list).getByRole("link", { name: /^Friday, 23 October/ }).getAttribute("aria-current")).toBe("true");
+  expect(within(list).getByRole("link", { name: /^All days/ }).getAttribute("aria-current")).toBeNull();
+  expect(calls.some((c) => c.key === "GET /api/day/2026-10-23")).toBe(true);
+});
+
+test("the inspector: the model card, the automatic switch saved at once, and the catch-up buttons with the days waiting", async () => {
+  indexes = [full({ days_without: without(2) })];
+  await show();
+  const aside = within(screen.getByRole("complementary", { name: "Model" }));
+  expect(aside.getByText("Anthropic · Claude Opus 5.5")).toBeTruthy();
+  expect(aside.getByText(opus.sentence)).toBeTruthy();
+  const auto = aside.getByRole("switch", { name: "Generate automatically once a day is complete" }) as HTMLInputElement;
+  expect(auto.checked).toBe(true);
+  fireEvent.click(auto);
+  await flush();
+  expect(calls.find((c) => c.key === "PUT /api/settings")!.body).toEqual({ insights_auto: false });
+  expect(aside.getByText("04:00 the next morning")).toBeTruthy();
+  expect(aside.getAllByText("2 days waiting")).toHaveLength(2);
+  expect(aside.getByRole("button", { name: "Generate for the last 7 days" })).toBeTruthy();
+  expect(aside.getByText(MODEL_PRIVACY)).toBeTruthy();
+});
+
+test("without a provider the inspector says to choose a model and offers nothing to switch or press", async () => {
+  facts = noProvider;
+  await show();
+  const aside = within(screen.getByRole("complementary", { name: "Model" }));
+  expect(aside.getByText("Choose a model")).toBeTruthy();
+  expect(aside.queryByRole("switch")).toBeNull();
+  expect(aside.queryByRole("button")).toBeNull();
 });

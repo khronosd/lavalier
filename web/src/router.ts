@@ -1,5 +1,6 @@
 // Hash routes: #/today, #/day/<date>, #/starred, #/search?q=, #/insights, #/settings/<tab>.
-// Search keeps ?hit= (the line "<clip_id>-<seq>" whose conversation the page shows); Starred keeps ?star= (a moment's at_ms).
+// Search keeps ?hit= (the line "<clip_id>-<seq>" whose conversation the page shows); Starred keeps ?star= (a moment's at_ms);
+// Insights keeps ?day= (the day whose insight the page shows).
 // Today and a day keep ?tab= (transcript, insights, audio), ?conv= (the conversation the Audio tab plays)
 // and ?at= (an element id to scroll to once: a line "<clip_id>-<seq>" or a conversation "c-<conversation_id>").
 
@@ -55,7 +56,7 @@ export function parseHash(hash: string): Route {
     case "search":
       return route("search", {}, query.hit ? { q: query.q ?? "", hit: query.hit } : { q: query.q ?? "" });
     case "insights":
-      return route("insights");
+      return route("insights", {}, query.day && isCalendarDate(query.day) ? { day: query.day } : {});
     case "settings": {
       const tab = (SETTINGS_TABS as readonly string[]).includes(parts[1]) ? parts[1] : "general";
       return route("settings", { tab });
@@ -85,6 +86,8 @@ export function toHash(r: Route): string {
       if (r.query.hit) params.set("hit", r.query.hit);
       return `#/search?${params}`;
     }
+    case "insights":
+      return r.query.day ? `#/insights?${new URLSearchParams({ day: r.query.day })}` : "#/insights";
     case "starred":
       return r.query.star ? `#/starred?${new URLSearchParams({ star: r.query.star })}` : "#/starred";
     case "settings":

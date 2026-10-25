@@ -19,7 +19,7 @@ function Page({ route, today, days }: { route: Route; today: string; days: DaySu
     case "search":
       return <Search q={route.query.q ?? ""} hit={route.query.hit} />;
     case "insights":
-      return <Insights />;
+      return <Insights days={days} today={today} day={route.query.day} />;
     case "settings":
       return <Settings tab={route.params.tab ?? "general"} />;
     default:

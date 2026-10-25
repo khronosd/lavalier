@@ -19,7 +19,7 @@ export const TOO_SLOW = "The provider took too long to answer";
 const PRESS_TEST = "Press Test to list the models Ollama has pulled";
 const BASE_URL_HELP = "Leave empty for OpenAI. Any OpenAI-compatible endpoint works here.";
 export const NOT_ENCRYPTED = "This endpoint is not encrypted: the key and the text travel in the clear.";
-const AUTO_LABEL = "Generate automatically once a day is complete";
+export const AUTO_LABEL = "Generate automatically once a day is complete";
 const AUTO_HELP = "A day is complete at 04:00 the next morning and is sent once its audio has come in from the pendant. Days from before you chose a model, saved its key or turned this on are never sent unless you ask.";
 
 interface Props {

@@ -1,7 +1,7 @@
 // The day's Insights tab, as pure helpers: which state it shows, and the sentences and links in it.
 
-import { ApiError, JobError, UNAUTHORISED, type DayView, type DayWithout, type FollowUp, type InsightDayState,
-  type InsightRecord, type ProviderFacts, type RangeResult } from "./api";
+import { ApiError, type DaySummary, JobError, UNAUTHORISED, type DayView, type DayWithout, type FollowUp, type InsightDayState,
+  type InsightRecord, type InsightsIndex, type IsoDate, type ProviderFacts, type RangeResult } from "./api";
 import { dayTitle, hm } from "./format";
 
 /** The privacy sentence for Insights, also shown on Settings > Model. */
@@ -128,4 +128,46 @@ export function rangeResult(r: RangeResult): string {
 /** A day's Insights tab, for the links from people and topics. */
 export function dayInsightsHref(day: string): string {
   return `#/day/${day}?tab=insights`;
+}
+
+// --- the Insights page's day rows ---
+
+export type DayRowState = "done" | "generating" | "none" | "error" | "no-speech" | "waiting";
+
+export interface DayRow {
+  day: IsoDate;
+  state: DayRowState;
+  /** The row's second line: "Done", "Generating…", "Not generated", "Could not generate · <reason>", "No speech",
+   *  "Not complete yet". */
+  line: string;
+  followUps: number;
+}
+
+/** Each day with clips, newest first, with its insight state read from the index: generating first, then a
+ *  day without an insight (with its error when the last run failed), a day with no speech, a day not yet
+ *  complete (today), else done. */
+export function dayRows(index: InsightsIndex, days: DaySummary[], today: IsoDate): DayRow[] {
+  const without = new Map(index.days_without.map((d) => [d.day, d]));
+  const generating = new Set(index.generating);
+  const followUps = new Map<IsoDate, number>();
+  for (const fu of index.follow_ups) followUps.set(fu.day, (followUps.get(fu.day) ?? 0) + 1);
+  return [...days].sort((a, b) => b.day.localeCompare(a.day)).map((d) => {
+    const n = followUps.get(d.day) ?? 0;
+    if (generating.has(d.day)) return { day: d.day, state: "generating", line: "Generating…", followUps: n };
+    const w = without.get(d.day);
+    if (w?.error) return { day: d.day, state: "error", line: `Could not generate · ${w.error}`, followUps: n };
+    if (w) return { day: d.day, state: "none", line: "Not generated", followUps: n };
+    if (d.speech_ms === 0) return { day: d.day, state: "no-speech", line: "No speech", followUps: n };
+    if (d.day >= today) return { day: d.day, state: "waiting", line: "Not complete yet", followUps: n };
+    return { day: d.day, state: "done", line: "Done", followUps: n };
+  });
+}
+
+/** The toolbar's line: "5 days done · 1 generating · 2 waiting", the zero parts left out. */
+export function daysLine(rows: DayRow[], index: InsightsIndex): string {
+  const done = rows.filter((r) => r.state === "done").length;
+  const parts = [`${done} ${done === 1 ? "day" : "days"} done`];
+  if (index.generating.length > 0) parts.push(`${index.generating.length} generating`);
+  if (index.days_without.length > 0) parts.push(`${index.days_without.length} waiting`);
+  return parts.join(" · ");
 }

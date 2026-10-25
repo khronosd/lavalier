@@ -86,3 +86,58 @@ a.fu-jump:hover { color: var(--accent); text-decoration: underline; }
 .inspector .ask-row { flex-direction: column; align-items: stretch; }
 .inspector .ask-input { background: var(--field-deep); border: 0; box-shadow: inset 0 0 0 0.5px var(--hair2); }
 .inspector .ask-row .btn { align-self: flex-end; }
+
+/* The Insights page's list column: All days, then a row per day with its state as a dot and, beside a day
+   without an insight, Generate (a button next to the row, not inside the link). */
+.row-wrap { position: relative; }
+.row.ins-row { flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; }
+.row-icon { display: inline-flex; width: 16px; height: 16px; flex: none; color: var(--accent); }
+.row-icon svg { width: 16px; height: 16px; }
+.dot { width: 8px; height: 8px; flex: none; border-radius: var(--radius-m); background: var(--bar); }
+.dot.done { background: var(--ok); }
+.dot.generating {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), 0 0 12px color-mix(in srgb, var(--accent) 75%, transparent);
+}
+.dot.error { background: var(--warn); }
+.row.selected .dot, .row.selected .row-icon { background: var(--on-accent); color: var(--on-accent); box-shadow: none; }
+.row.selected .row-icon { background: transparent; }
+.row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row-sub { font-size: 11.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-count { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.row.selected .row-sub, .row.selected .row-count { color: color-mix(in srgb, var(--on-accent) 72%, transparent); }
+.row-generate {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%); border: 0; padding: 0 4px; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: default;
+}
+.row-wrap:has(.row-generate) .row-text { padding-right: 64px; }
+.list-error { margin: 0; padding: 0 12px; }
+
+/* one day's insight in the content column: the summary as a lead */
+.ins-page .insights { max-width: 60ch; }
+.ins-page .ins-summary { font-size: 17px; line-height: 1.55; }
+
+/* the inspector: the model card, the automatic switch in a group, catch up */
+.model-card { display: flex; align-items: center; gap: 10px; }
+.model-card .tile {
+  width: 28px; height: 28px; flex: none; border-radius: var(--radius-s); background: var(--accent-soft); color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.model-card .tile svg { width: 15px; height: 15px; }
+.model-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.model-title { font-size: 13px; font-weight: 600; }
+.model-sub { font-size: 11.5px; color: var(--text-2); }
+.group { flex: none; border-radius: var(--radius-l); background: var(--panel); box-shadow: inset 0 0 0 0.5px var(--ring); overflow: hidden; }
+.g-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; font-size: 12.5px; }
+.g-row + .g-row { border-top: 1px solid var(--hairline); }
+.g-row > span:first-child { flex: 1; }
+.g-row .switch-row { flex: 1; flex-direction: row-reverse; justify-content: space-between; gap: 12px; font-size: 12.5px; line-height: 1.35; }
+.g-value { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.group .field-error { margin: 0; padding: 0 14px 8px; }
+.inspector .xd-range { margin: 0; padding: 0; border: 0; max-width: none; }
+.inspector .xd-range-row { flex-direction: column; gap: 8px; }
+.catch { display: flex; flex-direction: column; gap: 3px; }
+.catch .btn { justify-content: flex-start; }
+.btn-sub { padding-left: 2px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.inspector .xd-confirm, .inspector .xd-status { margin-top: 10px; }
+.inspector .xd-generating { margin: 0 0 8px; }

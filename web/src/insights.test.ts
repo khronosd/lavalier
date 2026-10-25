@@ -6,6 +6,7 @@ import { ApiError, JobError } from "./api";
 import {
   followUpHref, generatedLine, generateSentence, money, NO_SPEECH, pollError, rangeEstimate, rangeResult, tabState,
   VANISHED,
+  dayRows, daysLine,
 } from "./insights";
 
 test("no provider configured comes first, unless the day already has its insight", () => {
@@ -122,4 +123,36 @@ test("a job the app no longer knows (it restarted) reads as such", () => {
   expect(pollError(new ApiError(400, "No model chosen."))).toBe("No model chosen.");
   expect(pollError(new JobError({ id: "j", kind: "generate", key: "", state: "error", result: null, error: "boom",
     started_ms: 0, finished_ms: 1 }))).toBe("boom");
+});
+
+const summary = (day: string, speech_ms = 10_000) => ({ day, speech_ms, conversations: 1, stars: 0, noise_clips: 0 });
+const index = (over: Partial<Parameters<typeof dayRows>[0]> = {}) => ({
+  follow_ups: [], people: [], topics: [], days_without: [], generating: [], due: [], auto: true, ...over,
+});
+
+test("dayRows reads each day's state from the index, newest first", () => {
+  const rows = dayRows(index({
+    follow_ups: [
+      { day: "2026-10-23", text: "a", at_ms: null, line_id: null }, { day: "2026-10-23", text: "b", at_ms: null, line_id: null },
+    ],
+    days_without: [{ day: "2026-10-22", chars: 100, error: null }, { day: "2026-10-20", chars: 100, error: "rate limited" }],
+    generating: ["2026-10-19"],
+  }), [summary("2026-10-20"), summary("2026-10-24"), summary("2026-10-21", 0), summary("2026-10-23"), summary("2026-10-22"), summary("2026-10-19")],
+  "2026-10-24");
+  expect(rows.map((r) => [r.day, r.state, r.line, r.followUps])).toEqual([
+    ["2026-10-24", "waiting", "Not complete yet", 0],
+    ["2026-10-23", "done", "Done", 2],
+    ["2026-10-22", "none", "Not generated", 0],
+    ["2026-10-21", "no-speech", "No speech", 0],
+    ["2026-10-20", "error", "Could not generate · rate limited", 0],
+    ["2026-10-19", "generating", "Generating…", 0],
+  ]);
+});
+
+test("daysLine counts the days, leaving out the zero parts", () => {
+  const rows = dayRows(index({ days_without: [{ day: "2026-10-22", chars: 1, error: null }], generating: ["2026-10-21"] }),
+    [summary("2026-10-23"), summary("2026-10-22"), summary("2026-10-21")], "2026-10-24");
+  expect(daysLine(rows, index({ days_without: [{ day: "2026-10-22", chars: 1, error: null }], generating: ["2026-10-21"] })))
+    .toBe("1 day done · 1 generating · 1 waiting");
+  expect(daysLine(dayRows(index(), [summary("2026-10-23"), summary("2026-10-22")], "2026-10-24"), index())).toBe("2 days done");
 });
