@@ -97,7 +97,7 @@ class App:
         self.config_error: Optional[str] = None  # why the last reload failed, if it did
         self._audio_locks: dict[str, list] = {}  # clip id -> [asyncio.Lock, users]: one transcode per clip
         self.jobs = JobTable(lambda: self._now_ms())
-        # builds the configured provider on the loop (one Keychain read); tests hand back a fake
+        # builds the configured provider in a job's prepare step (one Keychain read); tests hand back a fake
         self.provider_factory: Callable[[Config], Optional[Provider]] = lambda cfg: registry.make_provider(cfg)
         self._insights_job: Optional[str] = None  # the loop's latest automatic run
         self._attempted: set[date] = set()          # days the automatic run tried in this process
@@ -345,8 +345,10 @@ class App:
                 if stage.day_is_complete(d, now) and not _is_done(self.db.insight(d))]
 
     async def insights_if_due(self) -> bool:
-        """One due day per loop turn, like retention: under the process lock, never waiting for it (a due
-        day that finds it held is tried on a later turn). It runs as a `day:` job, so a Generate for the
+        """One due day per loop turn, after the drain. It starts only when the process lock is free (a due
+        day that finds it held is tried on a later turn) and, for a keyed provider, when its key is known
+        present. The provider is built first with no lock held, then the day is generated under the
+        process lock. It runs as a `day:` job, so a Generate for the
         same day is refused meanwhile and the day reads "generating"; the job is not awaited, so a slow
         model never holds up the scheduled drain. Each day is tried at most once per process, whatever
         the outcome, except when the key was missing (it is tried again once one is saved). True when a
