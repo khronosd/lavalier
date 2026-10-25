@@ -492,8 +492,14 @@ def get(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
     return _request(server, "GET", route, token, origin)
 
 
-def post(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
-    return _request(server, "POST", route, token, origin)
+def post(server, route: str, body=None, *, token=_DEFAULT, origin=None) -> Reply:
+    """POST, with a JSON body when one is given (bytes are sent as they are)."""
+    data = None if body is None else body if isinstance(body, bytes) else json.dumps(body).encode()
+    return _request(server, "POST", route, token, origin, data)
+
+
+def delete(server, route: str, *, token=_DEFAULT, origin=None) -> Reply:
+    return _request(server, "DELETE", route, token, origin)
 
 
 def put(server, route: str, body, *, token=_DEFAULT, origin=None) -> Reply:
