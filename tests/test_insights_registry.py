@@ -90,3 +90,38 @@ def test_provider_facts_reads_the_keychain_once(memory_keyring):
     memory_keyring.get_password = lambda s, u: (calls.append(u), orig(s, u))[1]
     f = provider_facts(Config(insights_provider="openai"))
     assert f["key_present"] is True and f["keychain_error"] is None and len(calls) == 1
+
+
+# --- final fix wave: the endpoint is named and has its own key (R23, R24)
+
+ENDPOINT = Config(insights_provider="openai", insights_base_url="https://llm.example.net/v1")
+
+
+def test_an_endpoint_is_named_as_the_endpoint_not_openai():
+    from lavalier.insights.registry import display_name
+    assert display_name(ENDPOINT) == "the endpoint at llm.example.net"
+    assert display_name(Config(insights_provider="openai")) == "OpenAI"
+    f = provider_facts(ENDPOINT)
+    assert f["display"] == "the endpoint at llm.example.net"
+    assert f["sentence"].startswith("Sends each day's transcript text to the endpoint at llm.example.net once")
+    assert "OpenAI" not in f["sentence"]
+
+
+def test_each_endpoint_has_its_own_keychain_account():
+    from lavalier.insights.registry import key_account
+    assert key_account(Config(insights_provider="openai")) == "openai"
+    assert key_account(ENDPOINT) == "openai@llm.example.net"
+    assert key_account(Config(insights_provider="anthropic", insights_base_url="https://x/v1")) == "anthropic"
+    assert key_account(ENDPOINT, "anthropic") == "anthropic"
+    assert key_account(Config(insights_provider="anthropic", insights_base_url="https://x/v1"), "openai") == "openai@x"
+
+
+def test_changing_the_base_url_changes_the_account_read(memory_keyring):
+    keys.set_key("openai", "sk-openai")
+    assert provider_facts(Config(insights_provider="openai"))["key_present"] is True
+    assert provider_facts(ENDPOINT)["key_present"] is False          # the OpenAI key is not sent elsewhere
+    assert make_provider(ENDPOINT)._client is None
+    keys.set_key("openai@llm.example.net", "sk-endpoint")
+    assert provider_facts(ENDPOINT)["key_present"] is True
+    assert make_provider(ENDPOINT)._client.api_key == "sk-endpoint"
+    assert make_provider(Config(insights_provider="openai"))._client.api_key == "sk-openai"

@@ -261,10 +261,11 @@ class App:
         if not name:
             return NO_MODEL
         if name in registry.KEYED:
-            error = self._key_errors.get(name)
+            account = self._key_account()
+            error = self._key_errors.get(account)
             if error is not None:
                 return error if keychain_errors else None
-            if self._key_present.get(name) is False:
+            if self._key_present.get(account) is False:
                 return NO_KEY
         return None
 
@@ -278,15 +279,14 @@ class App:
             raise ValueError(reason)
 
     def _key_account(self, cfg: Optional[Config] = None) -> str:
-        """The Keychain account the key cache is kept under for the configured provider."""
-        return (cfg or self.cfg).insights_provider
+        """The Keychain account the key cache is kept under for the configured provider (one per endpoint)."""
+        return registry.key_account(cfg or self.cfg)
 
     def _build_provider(self, cfg: Config) -> Provider:
         """Worker thread only: the Keychain read and the provider, with the key cache brought up to date."""
-        name = cfg.insights_provider
-        if name in registry.KEYED:
+        if cfg.insights_provider in registry.KEYED:
             try:
-                present = self._read_key_presence(name)
+                present = self._read_key_presence(self._key_account(cfg))
             except keys.KeychainError as e:
                 raise JobFailed(str(e)) from None
             if not present:
@@ -735,7 +735,7 @@ class App:
         try:
             server.start()
             if self.cfg.insights_provider in registry.KEYED:  # the key cache, read off the loop, not awaited
-                self._fill_key_cache(self.cfg.insights_provider)
+                self._fill_key_cache(self._key_account())
             try:
                 await self.process_pending_if_any()
             except Exception:

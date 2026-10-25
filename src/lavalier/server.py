@@ -345,9 +345,13 @@ def _note_key(srv, provider: str, present, error=None) -> None:
 
 
 def _providers(srv, req):
-    facts = registry.provider_facts(_app_cfg(srv))
+    cfg = _app_cfg(srv)
+    try:
+        facts = registry.provider_facts(cfg)
+    except ValueError as e:  # an unknown provider in config.toml
+        raise _BadRequest(str(e)) from None
     if facts["key_present"] is not None or facts["keychain_error"] is not None:
-        _note_key(srv, facts["provider"], facts["key_present"], facts["keychain_error"])
+        _note_key(srv, registry.key_account(cfg), facts["key_present"], facts["keychain_error"])
     return _json({**facts, "check": None})
 
 
@@ -361,33 +365,35 @@ def _check(srv, req):
     return _json(to_json(result))
 
 
-def _key_provider(req) -> str:
+def _key_account(srv, req) -> str:
+    """The Keychain account a key route acts on: the provider's own, or for "openai" the current
+    endpoint's (`openai@<host>` when a base URL is set), so a key is only ever sent where it was saved for."""
     name = req.groups[0]
     if name not in registry.KEYED:
         raise _BadRequest("unknown provider")
-    return name
+    return registry.key_account(_app_cfg(srv), name)
 
 
 def _put_key(srv, req):
-    name = _key_provider(req)
     key = _body_object(req).get("key")
     if not isinstance(key, str):
         raise _BadRequest("key must be a string")
+    account = _key_account(srv, req)
     try:
-        keys.set_key(name, key)
+        keys.set_key(account, key)
     except keys.KeychainError as e:
         raise _KeychainRefused(str(e)) from None
-    _note_key(srv, name, bool(key.strip()))
+    _note_key(srv, account, bool(key.strip()))
     return _Response(204, b"")
 
 
 def _delete_key(srv, req):
-    name = _key_provider(req)
+    account = _key_account(srv, req)
     try:
-        keys.delete_key(name)
+        keys.delete_key(account)
     except keys.KeychainError as e:
         raise _KeychainRefused(str(e)) from None
-    _note_key(srv, name, False)
+    _note_key(srv, account, False)
     return _Response(204, b"")
 
 

@@ -180,3 +180,28 @@ def test_a_stopping_app_refuses_new_insights_work_with_503(insights_server):
     insights_server.app._app._stopping = True
     assert post(insights_server, f"/api/insights/generate/{DAY}").status == 503
     assert post(insights_server, "/api/ask", {"day": DAY, "question": "who?"}).status == 503
+
+
+# --- final fix wave
+
+def test_the_key_routes_use_the_current_endpoints_account(app_env, db, seeded_2026_10_23_subset, memory_keyring):
+    for srv in _serve_real_app(app_env(FakePendant()), db):
+        assert put(srv, "/api/settings", {"insights_provider": "openai"}).status == 200
+        assert put(srv, "/api/keys/openai", {"key": "sk-openai"}).status == 204
+        assert keys.get_key("openai") == "sk-openai"
+        assert put(srv, "/api/settings", {"insights_base_url": "http://llm.example.net:8000/v1"}).status == 200
+        f = _body(get(srv, "/api/insights/providers"))
+        assert f["key_present"] is False and f["display"] == "the endpoint at llm.example.net:8000"
+        assert _body(get(srv, f"/api/insights/{DAY}"))["reason"] == "No key saved. Add one in Settings › Model."
+        assert put(srv, "/api/keys/openai", {"key": "sk-endpoint"}).status == 204
+        assert keys.get_key("openai@llm.example.net:8000") == "sk-endpoint" and keys.get_key("openai") == "sk-openai"
+        assert _body(get(srv, "/api/insights/providers"))["key_present"] is True
+        assert _body(get(srv, f"/api/insights/{DAY}"))["reason"] is None
+        assert delete(srv, "/api/keys/openai").status == 204
+        assert keys.get_key("openai@llm.example.net:8000") is None and keys.get_key("openai") == "sk-openai"
+
+
+def test_providers_with_an_unknown_provider_in_config_is_400(server_no_provider):
+    server_no_provider.app._app.cfg = dataclasses.replace(server_no_provider.app._app.cfg, insights_provider="nope")
+    r = get(server_no_provider, "/api/insights/providers")
+    assert r.status == 400 and "nope" in _body(r)["error"]

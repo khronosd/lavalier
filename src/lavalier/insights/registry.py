@@ -5,13 +5,15 @@ from typing import Optional
 
 from lavalier.config import Config
 from lavalier.insights import keys
+from lavalier.insights.names import DISPLAY, display_name, provider_id
 from lavalier.insights.providers import anthropic, google, ollama, openai
 from lavalier.insights.providers.base import Provider, ProviderCheck
+
+__all__ = ["DISPLAY", "KEYED", "SENTENCE", "check", "display_name", "key_account", "make_provider", "provider_facts"]
 
 KEYED = ("anthropic", "openai", "google")
 SENTENCE = ("Sends each day's transcript text to {provider} once the day is complete, "
             "and whenever you press Generate or ask a question. Audio is never sent.")
-DISPLAY = {"ollama": "Ollama on this Mac", "anthropic": "Anthropic", "openai": "OpenAI", "google": "Google"}
 _MODULES = {"ollama": ollama, "anthropic": anthropic, "openai": openai, "google": google}
 
 
@@ -20,6 +22,13 @@ def _module(name: str):
         return _MODULES[name]
     except KeyError:
         raise ValueError(f"Unknown provider: {name!r}") from None
+
+
+def key_account(cfg: Config, provider: Optional[str] = None) -> str:
+    """The Keychain account of a provider's key (the configured one by default): its name, or
+    `openai@<host>` for OpenAI through a base URL, so the OpenAI key is never sent to another endpoint."""
+    name = cfg.insights_provider if provider is None else provider
+    return provider_id(name, cfg.insights_base_url)
 
 
 def _build(cfg: Config, key: Optional[str], memory_gb: Optional[float]) -> Provider:
@@ -43,7 +52,7 @@ def make_provider(cfg: Config, *, memory_gb: Optional[float] = None) -> Optional
     if not name:
         return None
     _module(name)
-    return _build(cfg, keys.get_key(name) if name in KEYED else None, memory_gb)
+    return _build(cfg, keys.get_key(key_account(cfg)) if name in KEYED else None, memory_gb)
 
 
 def provider_facts(cfg: Config) -> dict:
@@ -54,13 +63,13 @@ def provider_facts(cfg: Config) -> dict:
     if not name:
         return out
     mod = _module(name)
-    out["display"] = DISPLAY[name]
-    out["sentence"] = SENTENCE.format(provider=DISPLAY[name])
+    out["display"] = display_name(cfg)
+    out["sentence"] = SENTENCE.format(provider=out["display"])
     key = None
     if name in KEYED:
         out["models"] = [asdict(m) for m in mod.MODELS]
         try:
-            key = keys.get_key(name)  # one Keychain read; each can prompt
+            key = keys.get_key(key_account(cfg))  # one Keychain read; each can prompt
             out["key_present"] = key is not None
         except keys.KeychainError as e:
             out["keychain_error"] = str(e)
