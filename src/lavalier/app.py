@@ -22,7 +22,12 @@ from typing import Callable, Optional
 from lavalier import actions, audio, client, journal, pipeline, playback, search, settings
 from lavalier.charger import cdc_present as _cdc_in, read_ioreg
 from lavalier.config import Config, ConfigError, load_config
-from lavalier.db import Database, now_ms as _now_ms
+from lavalier.db import Database, InsightRecord, now_ms as _now_ms
+from lavalier.insights import keys, registry, stage
+from lavalier.insights.prompt import day_text
+from lavalier.insights.providers.anthropic import NO_KEY
+from lavalier.insights.providers.base import Provider, ProviderError
+from lavalier.jobs import JobFailed, JobRunning, JobTable
 from lavalier.lock import SyncLock
 from lavalier.logsetup import quiet_fork_chatter
 from lavalier.paths import Paths, default_root
@@ -34,6 +39,10 @@ from lavalier.transcribe import MlxWhisperTranscriber, Transcriber
 ACTIONS = ("sync", "mute", "unmute", "status-live")
 SERVER_FILE = ".server.json"
 RETENTION_EVERY_MS = 86_400_000  # retention also runs at the end of every process
+NO_MODEL = "No model chosen."
+NO_QUESTION = "Ask a question."
+RANGE_MAX_DAYS = 365
+RANGE_KEY = "range"
 
 _log = logging.getLogger("lavalier.app")
 
@@ -84,6 +93,11 @@ class App:
         self.started_ms = now_ms()             # reset when run() starts the loop's work
         self.config_error: Optional[str] = None  # why the last reload failed, if it did
         self._audio_locks: dict[str, list] = {}  # clip id -> [asyncio.Lock, users]: one transcode per clip
+        self.jobs = JobTable(lambda: self._now_ms())
+        # builds the configured provider on the loop (one Keychain read); tests hand back a fake
+        self.provider_factory: Callable[[Config], Optional[Provider]] = lambda cfg: registry.make_provider(cfg)
+        self._insights_worker: Optional[asyncio.Future] = None  # the loop's latest automatic run
+        self._asks = 0
 
     # state
 
@@ -110,8 +124,11 @@ class App:
         return self._device_lock.locked()
 
     def snapshot(self) -> dict:
-        return {**status_summary(self.db, self.paths, self.cfg, now_ms=self._now_ms()),
-                "busy": self.busy, "next_poll_ms": self.next_poll_ms,
+        summary = status_summary(self.db, self.paths, self.cfg, now_ms=self._now_ms())
+        summary["insights"] = {**summary.get("insights", {}), "provider": self.cfg.insights_provider,
+                               "model": self.cfg.insights_model, "auto": self.cfg.insights_auto,
+                               "generating": self._generating_days()}
+        return {**summary, "busy": self.busy, "next_poll_ms": self.next_poll_ms,
                 "app": {"version": _package_version(), "pid": os.getpid(), "started_ms": self.started_ms}}
 
     # the window's data; called on the loop, the only thread that uses self.db
@@ -144,13 +161,21 @@ class App:
         """Patch config.toml as it is on disk (another writer, the window, may have saved since this
         process read it), then use the result, so the next tick and action see the new values. A
         drain already running keeps the Config it started with."""
+        before = self.cfg.insights_provider
         try:
             self.cfg = settings.apply(self.cfg, patch, self.paths.config)
         except ConfigError as e:
             self.config_error = str(e)
             raise RuntimeError(f"not saved: {e}") from e
         self.config_error = None
+        self._note_provider_chosen(before)
         return self.get_settings()
+
+    def _note_provider_chosen(self, before: str) -> None:
+        """Automatic insights cover the days completed after a provider was chosen, never the backlog:
+        choosing one (or another) records when. Clearing it leaves the moment as it was."""
+        if self.cfg.insights_provider and self.cfg.insights_provider != before:
+            self.db.set_status("insights_enabled_at_ms", str(self._now_ms()))
 
     async def audio_file(self, clip_id: str) -> Path:
         """The clip's AAC file, transcoded once on first use. The row is read here on the loop; only
@@ -168,11 +193,200 @@ class App:
             if not entry[1]:
                 del self._audio_locks[clip_id]
 
+
+    # insights: the loop's automatic run, and the jobs the window and the CLI start and poll
+
+    def _unusable_reason(self) -> Optional[str]:
+        """Why Generate and Ask are refused, without any call to the provider; None when usable."""
+        name = self.cfg.insights_provider
+        if not name:
+            return NO_MODEL
+        if name in registry.KEYED:
+            try:
+                if not keys.has_key(name):
+                    return NO_KEY
+            except keys.KeychainError as e:
+                return str(e)
+        return None
+
+    def _usable_provider(self) -> Provider:
+        reason = self._unusable_reason()
+        if reason is not None:
+            raise ValueError(reason)
+        try:
+            provider = self.provider_factory(self.cfg)
+        except (keys.KeychainError, ValueError) as e:
+            raise ValueError(str(e)) from None
+        if provider is None:
+            raise ValueError(NO_MODEL)
+        return provider
+
+    def _generating_days(self) -> list[str]:
+        return sorted(k.split(":", 1)[1] for k in self.jobs.running_keys() if k.startswith("day:"))
+
+    def _days_without_done(self) -> list[date]:
+        """Complete days with speech that have no done row (an error row counts as none); oldest first."""
+        now = self._now_ms()
+        return [d for d in self.db.days_with_speech()
+                if stage.day_is_complete(d, now) and not _is_done(self.db.insight(d))]
+
+    async def insights_if_due(self) -> bool:
+        """One due day per loop turn, like retention: under the process lock, never waiting for it (a
+        due day that finds it held is tried on a later turn). The worker thread is not awaited, so a
+        slow model never holds up the scheduled drain; the lock is released when the thread ends.
+        True when a run was started."""
+        if not self.cfg.insights_provider or not self._process_lock_free():
+            return False
+        raw = self.db.get_status("insights_enabled_at_ms")
+        due = [d for d in stage.due_days(self.db, self.cfg, now_ms=self._now_ms(),
+                                         enabled_at_ms=int(raw) if raw else None)
+               if self.jobs.running(f"day:{d.isoformat()}") is None]
+        if not due:
+            return False
+        day = due[0]
+        try:
+            provider = self.provider_factory(self.cfg)
+        except (keys.KeychainError, ValueError) as e:
+            _log.warning("insights: %s skipped: %s", day.isoformat(), e)
+            return False
+        if provider is None:
+            return False
+        cfg = self.cfg
+        await self._process_lock.acquire()  # free: returns without yielding
+        try:
+            worker = asyncio.ensure_future(asyncio.to_thread(self._insights_tick, cfg, provider, day))
+        except BaseException:
+            self._process_lock.release()
+            raise
+        worker.add_done_callback(lambda w: self._insights_finished(day, w))
+        self._insights_worker = worker
+        return True
+
+    def _insights_tick(self, cfg: Config, provider: Provider, day: date) -> InsightRecord:
+        """Runs in a worker thread, on its own connection, like _retention."""
+        db = Database(self.paths.db)
+        try:
+            return stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
+        finally:
+            db.close()
+
+    def _insights_finished(self, day: date, worker: asyncio.Future) -> None:
+        self._process_lock.release()
+        if worker.cancelled():
+            return
+        if worker.exception() is not None:
+            _log.error("insights: %s failed", day.isoformat(), exc_info=worker.exception())
+            return
+        rec = worker.result()
+        if rec.state == "done":
+            _log.info("insights: %s done by %s", day.isoformat(), rec.model)
+        else:
+            _log.warning("insights: %s failed: %s", day.isoformat(), rec.error)
+
+    def generate(self, day: date) -> str:
+        """Generate (or regenerate) one day as a job. It waits for the process lock before its thread
+        starts and releases it when the thread ends."""
+        key = f"day:{day.isoformat()}"
+        if self.jobs.running(key) is not None:
+            raise JobRunning(key)
+        provider, cfg = self._usable_provider(), self.cfg
+        return self.jobs.start("generate", key, lambda: self._generate_job(cfg, provider, day),
+                               lock=self._process_lock)
+
+    def _generate_job(self, cfg: Config, provider: Provider, day: date) -> dict:
+        db = Database(self.paths.db)
+        try:
+            rec = stage.generate_day(db, self.paths, cfg, provider, day, now_ms=self._now_ms())
+            return {"record": journal.to_json(rec), "stored": _is_stored(db, rec)}
+        finally:
+            db.close()
+
+    def generate_range(self, days: int) -> str:
+        """One job for the newest `days` complete days with speech and no done row, generated oldest first."""
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= RANGE_MAX_DAYS:
+            raise ValueError(f"days must be a whole number from 1 to {RANGE_MAX_DAYS}")
+        if self.jobs.running(RANGE_KEY) is not None:
+            raise JobRunning(RANGE_KEY)
+        provider, cfg = self._usable_provider(), self.cfg
+        todo = self._days_without_done()[-days:]
+        return self.jobs.start("generate_range", RANGE_KEY, lambda: self._range_job(cfg, provider, todo),
+                               lock=self._process_lock)
+
+    def _range_job(self, cfg: Config, provider: Provider, todo: list[date]) -> dict:
+        db = Database(self.paths.db)
+        done, errors = 0, []
+        try:
+            for d in todo:
+                if _is_done(db.insight(d)):  # generated on its own while this job waited for the lock
+                    continue
+                rec = stage.generate_day(db, self.paths, cfg, provider, d, now_ms=self._now_ms())
+                if rec.state == "done":
+                    done += 1
+                else:
+                    errors.append({"day": d.isoformat(), "error": rec.error})
+        finally:
+            db.close()
+        return {"done": done, "errors": errors}
+
+    def ask(self, day: date, question: str) -> str:
+        """A question about one day, as a job. It only reads, so it takes no lock."""
+        q = question.strip() if isinstance(question, str) else ""
+        if not q:
+            raise ValueError(NO_QUESTION)
+        provider, cfg = self._usable_provider(), self.cfg
+        self._asks += 1
+        return self.jobs.start("ask", f"ask:{day.isoformat()}:{self._asks}",
+                               lambda: self._ask_job(cfg, provider, day, q))
+
+    def _ask_job(self, cfg: Config, provider: Provider, day: date, question: str) -> dict:
+        db = Database(self.paths.db)
+        try:
+            return {"answer": stage.ask_day(db, cfg, provider, day, question, now_ms=self._now_ms())}
+        except (ProviderError, keys.KeychainError) as e:
+            raise JobFailed(str(e)) from None
+        finally:
+            db.close()
+
+    def job(self, job_id: str) -> dict:
+        j = self.jobs.get(job_id)
+        if j is None:
+            raise NotFound(job_id)
+        return j
+
+    def insights_day(self, day: date) -> dict:
+        rec = self.db.insight(day)
+        job = self.jobs.running(f"day:{day.isoformat()}")
+        state = "generating" if job is not None else rec.state if rec is not None else "none"
+        reason = self._unusable_reason()
+        if reason is None and day not in self.db.days_with_speech():
+            reason = stage.NO_SPEECH
+        return {"state": state, "record": journal.to_json(rec) if rec is not None else None,
+                "reason": reason, "job": job}
+
+    def insights_index(self) -> dict:
+        now = self._now_ms()
+        done = self.db.insights_all()  # newest day first
+        follow_ups = sorted(({"day": r.day.isoformat(), "text": f.text, "at_ms": f.at_ms, "line_id": f.line_id}
+                             for r in done for f in r.insight.follow_ups),
+                            key=lambda f: (f["day"], f["at_ms"] or 0), reverse=True)
+        without = []
+        for d in reversed(self._days_without_done()):  # newest first
+            rec = self.db.insight(d)
+            chars = rec.input_chars if rec is not None else day_text(self.db, d, self.cfg, now_ms=now).chars
+            without.append({"day": d.isoformat(), "chars": chars, "error": rec.error if rec is not None else None})
+        raw = self.db.get_status("insights_enabled_at_ms")
+        due = stage.due_days(self.db, self.cfg, now_ms=now, enabled_at_ms=int(raw) if raw else None)
+        return {"follow_ups": follow_ups, "people": _by_name(done, "people"), "topics": _by_name(done, "topics"),
+                "days_without": without, "generating": self._generating_days(),
+                "due": [d.isoformat() for d in due],
+                "auto": bool(self.cfg.insights_auto and self.cfg.insights_provider)}
+
     # device work, always under self._device_lock
 
     def reload_config(self) -> bool:
         """Re-read config.toml; the next tick and action use the new values.
         An unreadable file keeps the old config, is logged, and returns False."""
+        before = self.cfg.insights_provider
         try:
             self.cfg = load_config(self.paths.config)
         except ConfigError as e:
@@ -180,6 +394,7 @@ class App:
             self.config_error = str(e)
             return False
         self.config_error = None
+        self._note_provider_chosen(before)
         return True
 
     def _make_pendant(self, cfg: Config):
@@ -281,6 +496,13 @@ class App:
         _log.info("start-up processing: %d transcribed, %d failed, %d day file(s) written",
                   r.transcribed, r.failed, len(r.days_written))
 
+    def _process_lock_free(self) -> bool:
+        """Whether acquiring the process lock now returns without yielding. A generate job queued for
+        it counts as held: just after a release the lock reads free while that waiter is owed it, and
+        an acquire then would queue behind the job."""
+        return not self._process_lock.locked() and not any(
+            k.startswith("day:") or k == RANGE_KEY for k in self.jobs.running_keys())
+
     def _retention(self) -> ProcessReport:
         """Runs in a worker thread, like _process, on its own connection."""
         db = Database(self.paths.db)
@@ -296,7 +518,7 @@ class App:
         is released when the worker thread ends. True when it ran (or failed, logged: either way the
         next is a day later)."""
         now = self._now_ms()
-        if now < self.next_retention_ms or self._process_lock.locked():
+        if now < self.next_retention_ms or not self._process_lock_free():
             return False
         await self._process_lock.acquire()  # free: returns without yielding
         try:
@@ -423,6 +645,10 @@ class App:
                 except Exception:
                     _log.exception("retention failed")
                 try:
+                    await self.insights_if_due()
+                except Exception:
+                    _log.exception("insights failed")
+                try:
                     await self.tick()
                 except Exception:
                     _log.exception("scheduled sync failed")
@@ -444,6 +670,28 @@ class App:
                 server.stop()
                 self._lock.release()  # only if this process still holds it
                 self.close()
+
+
+def _is_done(rec: Optional[InsightRecord]) -> bool:
+    return rec is not None and rec.state == "done"
+
+
+def _is_stored(db: Database, rec: InsightRecord) -> bool:
+    """Whether the record a generate returned is the day's row now (a failed regenerate is not)."""
+    row = db.insight(rec.day)
+    return row is not None and (row.state, row.generated_ms, row.error) == (rec.state, rec.generated_ms, rec.error)
+
+
+def _by_name(records: list[InsightRecord], attr: str) -> list[dict]:
+    """Each name (people or topics) with the days it appears on, newest first; the most days first,
+    names compared without case (the first spelling seen is kept)."""
+    names: dict[str, dict] = {}
+    for r in records:
+        for name in getattr(r.insight, attr):
+            entry = names.setdefault(name.casefold(), {"name": name, "days": []})
+            if r.day.isoformat() not in entry["days"]:
+                entry["days"].append(r.day.isoformat())
+    return sorted(names.values(), key=lambda e: (-len(e["days"]), e["name"].casefold()))
 
 
 def _configure_logging(paths: Paths) -> None:
