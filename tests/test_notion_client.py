@@ -85,8 +85,19 @@ def test_check_names_a_database_the_integration_cannot_see():
     c.visible = False
     with pytest.raises(NotionError) as e:
         notion(c).check(fn.DATABASE_ID)
-    assert str(e.value) == "The integration cannot see this database; share it with the integration in Notion"
+    assert str(e.value) == ("The integration cannot see this database; share it with the integration in Notion. "
+                            "Open the database itself and copy its link; a page link does not work here.")
     assert c.writes() == []
+
+
+def test_a_page_link_pasted_as_the_database_says_to_copy_the_databases_own_link():
+    c = fn.FakeNotionClient()
+    c.fail("databases.retrieve", fn.api_error(400, fn.APIErrorCode.ValidationError,
+                                              message="Provided ID is a page, not a database."))
+    with pytest.raises(NotionError) as e:
+        notion(c).check(fn.DATABASE_ID)
+    assert str(e.value) == "Open the database itself and copy its link; a page link does not work here."
+    assert e.value.status == 400 and c.writes() == []
 
 
 def test_a_forbidden_database_reads_the_same():

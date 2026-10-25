@@ -21,6 +21,7 @@ from lavalier.connectors.notion_render import BATCH, BATCH_BYTES, OWNED_MARKER, 
 NOTION_VERSION = "2025-09-03"
 NO_TOKEN = "No token saved. Add one in Settings › Connectors."
 CANNOT_SEE = "The integration cannot see this database; share it with the integration in Notion"
+PAGE_LINK = "Open the database itself and copy its link; a page link does not work here."
 GONE = "Notion could not find the day's page or block; it may have been deleted"
 REFUSED_TOKEN = "The token was refused"
 RATE_LIMITED = "Notion is rate-limiting; try again in a minute"
@@ -227,7 +228,16 @@ class Notion:
 
     def check(self, database_id: str) -> DatabaseInfo:
         self._call("users.me")
-        db = self._call("databases.retrieve", database_id=database_id)
+        try:
+            db = self._call("databases.retrieve", database_id=database_id)
+        except NotionError as e:
+            # a page's id (or anything else that is not a database) is a validation error; a database the
+            # integration was not given reads as not found, and so does a page it cannot see
+            if e.status == 400:
+                raise NotionError(PAGE_LINK, 400) from None
+            if e.status == 404:
+                raise NotionError(f"{CANNOT_SEE}. {PAGE_LINK}", 404) from None
+            raise
         sources = db.get("data_sources") or []
         if not sources:
             raise NotionError("This database has no data source to write to")
