@@ -44,13 +44,20 @@ leaves the window signed out, so open the `?token=` URL again.
 ## Layout
 
 - `src/api.ts`: the token, `api()`, `fetchAudioBlobUrl()` and the types of the server's JSON
-- `src/router.ts`: hash routes `#/today`, `#/day/<date>`, `#/starred`, `#/search?q=`, `#/insights`, `#/settings/<tab>`
+- `src/router.ts`: hash routes `#/today`, `#/day/<date>`, `#/starred`, `#/search?q=`, `#/insights`, `#/settings/<tab>`;
+  a day keeps `?tab=`, `?conv=` and `?at=`, Search `&hit=`, Starred `?star=`, Insights `?day=` (the selected row)
 - `src/theme.ts`: `applyAppearance("system" | "light" | "dark")`
 - `src/format.ts`: times, durations and day titles, in fixed English
 - `src/styles/tokens.css`: colours for light and dark (dark is design E); `src/styles/base.css`: base rules and
   the sidebar; `src/styles/shell.css`: the toolbar, the panes, the pendant pill and the popovers
 - `src/shellState.ts`: what the shell shares with the frames under it (route, pendant status, which panes show)
-- `src/components/`: `Shell` (sidebar + frame), `Frame` (a page's toolbar, list column, content and inspector),
-  `Toolbar`, `PendantPill`, the sidebar, the empty state; `src/pages/`: the routed pages, each rendering a `Frame`
+- `src/playback.tsx`: the window's one `<audio>` element and what the mini-player draws; `src/dayCache.ts`: a day's view
+  for the pages that show one conversation of it (Search, Starred, Insights)
+- `src/day.ts`, `src/selection.ts`, `src/timeline.ts`, `src/wave.ts`, `src/search.ts`, `src/insights.ts`, `src/pendant.ts`:
+  pure helpers with their tests (the band's line, which conversation is selected, the timeline's geometry, the
+  placeholder waveform, word marking and recent searches, the days' insight states, the pendant's words)
+- `src/components/`: `Shell` (sidebar + frame), `Frame` (a page's toolbar, band, list column, content and inspector),
+  `Toolbar`, `PendantPill`, `TimelineBand`, `MiniPlayer`, `ConversationRow`, the sidebar, the empty state;
+  `src/pages/`: the routed pages, each rendering a `Frame`; `src/styles/`: one sheet per region or page
 - `reference/`: the design the window follows: `design-e.md` is the contract, the `e-*.dc.html` files and the two
   earlier mockups are look and copy, not specs
