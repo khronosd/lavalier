@@ -10,9 +10,10 @@ import sys
 import sysconfig
 from pathlib import Path
 
+from lavalier import __version__ as VERSION  # the bundle carries the package's version
+
 BUNDLE_ID = "io.github.khronosd.lavalier"
 DEV_IDENTITY = "Lavalier Dev"
-VERSION = "0.2.0"
 PYTHON_FRAMEWORK = Path("/opt/homebrew/opt/python@3.12/Frameworks/Python.framework/Versions/3.12")
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent

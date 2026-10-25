@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lavalier"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local macOS tool that turns BLE audio pendant captures into transcripts and Markdown day files"
 readme = "README.md"
 license = { text = "MIT" }
