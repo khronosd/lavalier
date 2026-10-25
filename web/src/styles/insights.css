@@ -1,0 +1,44 @@
+/* The day's Insights tab. The summary and the answer are prose about the person's day, so they take the
+   reading face; everything else is chrome in the system face. Hairlines between blocks, no cards. */
+
+.insights { max-width: 66ch; }
+
+.ins-block { padding: 18px 0; }
+.ins-block + .ins-block { border-top: 1px solid var(--hairline); }
+.insights > .ins-block:first-child, .insights > .ins-reason:first-child { margin-top: 14px; }
+
+.ins-summary { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* follow-ups sit on the transcript's margin grid; a time with a line behind it is a link to that line */
+.follow-ups .line > p { overflow-wrap: anywhere; }
+a.fu-jump { color: var(--text-2); border-radius: 4px; }
+a.fu-jump:hover { color: var(--accent); text-decoration: underline; }
+
+.ins-names { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+
+.ins-foot { display: flex; flex-direction: column; gap: 8px; }
+.ins-meta { margin: 0; color: var(--text-3); font-size: 12px; }
+
+.ins-action { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.ins-help { color: var(--text-2); font-size: 12.5px; }
+
+.ins-quiet { margin: 0; color: var(--text-2); }
+.ins-loading { margin: 22px 0 0; color: var(--text-3); }
+.ins-error { margin: 0 0 12px; color: var(--warn); font-size: 12.5px; overflow-wrap: anywhere; }
+.ins-block > .ins-error:last-child { margin-bottom: 0; }
+.ins-reason { margin: 0; color: var(--text-2); }
+.ins-link { color: var(--accent); white-space: nowrap; }
+.ins-link:hover { text-decoration: underline; }
+.empty .ins-link { display: inline-block; margin-top: 4px; }
+
+/* the question box: a field and Ask, the answer under it */
+.ask-form .section-title { display: block; }
+.ask-row { display: flex; gap: 8px; align-items: center; }
+.ask-input {
+  flex: 1; min-width: 0; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--text);
+  background: var(--field); border: 1px solid var(--field-b); border-radius: 8px;
+}
+.ask-input::placeholder { color: var(--text-3); }
+.ask-input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.ask .ins-quiet, .ask .ins-error { margin: 12px 0 0; }
+.ask-answer { margin: 12px 0 0; white-space: pre-line; overflow-wrap: anywhere; }

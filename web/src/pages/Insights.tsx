@@ -1,10 +1,11 @@
-import { InsightsTab } from "../components/InsightsTab";
+import { Empty } from "../components/Empty";
+import { MODEL_PRIVACY } from "../insights";
 
 export function Insights() {
   return (
     <div class="page">
       <h1 class="page-title">Insights</h1>
-      <InsightsTab />
+      <Empty title="Insights arrive in a later release.">{MODEL_PRIVACY}</Empty>
     </div>
   );
 }
