@@ -47,6 +47,10 @@ leaves the window signed out, so open the `?token=` URL again.
 - `src/router.ts`: hash routes `#/today`, `#/day/<date>`, `#/starred`, `#/search?q=`, `#/insights`, `#/settings/<tab>`
 - `src/theme.ts`: `applyAppearance("system" | "light" | "dark")`
 - `src/format.ts`: times, durations and day titles, in fixed English
-- `src/styles/tokens.css`: colours for light and dark; `src/styles/base.css`: base rules and the shell
-- `src/components/`: the shell, the sidebar, the empty state; `src/pages/`: the routed pages
-- `reference/`: the two design mockups the window follows (look and copy, not specs)
+- `src/styles/tokens.css`: colours for light and dark (dark is design E); `src/styles/base.css`: base rules and
+  the sidebar; `src/styles/shell.css`: the toolbar, the panes, the pendant pill and the popovers
+- `src/shellState.ts`: what the shell shares with the frames under it (route, pendant status, which panes show)
+- `src/components/`: `Shell` (sidebar + frame), `Frame` (a page's toolbar, list column, content and inspector),
+  `Toolbar`, `PendantPill`, the sidebar, the empty state; `src/pages/`: the routed pages, each rendering a `Frame`
+- `reference/`: the design the window follows: `design-e.md` is the contract, the `e-*.dc.html` files and the two
+  earlier mockups are look and copy, not specs

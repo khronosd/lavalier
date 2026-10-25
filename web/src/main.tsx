@@ -4,6 +4,7 @@ import { start } from "./boot";
 import { App } from "./app";
 import "./styles/tokens.css";
 import "./styles/base.css";
+import "./styles/shell.css";
 import "./styles/day.css";
 import "./styles/lists.css";
 import "./styles/audio.css";

@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { navigate, replaceHash, type Route, toHash } from "../router";
-import { SearchIcon } from "./icons";
+import { CloseIcon, SearchIcon } from "./icons";
 
 /** How long typing has to pause before the search runs. */
 export const SEARCH_PAUSE_MS = 300;
 
+interface Props {
+  route: Route;
+  /** The Search page's own field in the toolbar's title group: 420 px instead of 180. */
+  wide?: boolean;
+}
+
 /** "Search every day": Enter or a short pause opens #/search?q=; the field follows the search page's query. */
-export function SearchBox({ route }: { route: Route }) {
+export function SearchBox({ route, wide }: Props) {
   const routeQ = route.name === "search" ? route.query.q ?? "" : "";
   const [text, setText] = useState(routeQ);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -51,14 +57,12 @@ export function SearchBox({ route }: { route: Route }) {
   }
 
   return (
-    <div class="search-box" role="search">
+    <div class={wide ? "search-box wide" : "search-box"} role="search">
       <SearchIcon />
       <input type="search" class="search-input" placeholder="Search every day" aria-label="Search every day"
         value={text} onInput={onInput} onKeyDown={onKeyDown} spellcheck={false} autoComplete="off" />
       {text && (
-        <button type="button" class="search-clear" aria-label="Clear search" onClick={clear}>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></svg>
-        </button>
+        <button type="button" class="search-clear" aria-label="Clear search" onClick={clear}><CloseIcon /></button>
       )}
     </div>
   );

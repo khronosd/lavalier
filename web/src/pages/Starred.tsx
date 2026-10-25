@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, explainError, type StarredEntry } from "../api";
 import { Empty } from "../components/Empty";
+import { Frame } from "../components/Frame";
 import { dayTitle, hms, noQuote } from "../format";
 import { convStart, groupByDay, jumpHref } from "../search";
 
@@ -54,9 +55,11 @@ export function StarredPage() {
   }
 
   return (
-    <div class="page list-page">
-      <h1 class="page-title">Starred</h1>
-      {body}
-    </div>
+    <Frame toolbar={{ title: "Starred" }}>
+      <div class="page list-page">
+        <h1 class="page-title">Starred</h1>
+        {body}
+      </div>
+    </Frame>
   );
 }

@@ -6,27 +6,27 @@
 .day-summary { margin: 8px 0 0; color: var(--text-2); font-size: 14px; max-width: 62ch; }
 .day-summary.loading { color: var(--text-3); }
 
-/* small bordered buttons, and links drawn the same way */
+/* buttons, and links drawn the same way: a control fill with an inset ring; primary ones take the accent */
 .btn {
-  display: inline-block; font: inherit; font-size: 12px; line-height: 1.4; color: var(--text-2);
-  background: transparent; border: 1px solid var(--field-b); border-radius: 6px; padding: 3px 9px; cursor: default;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 12px; flex: none;
+  border: 0; border-radius: var(--radius-s); font: inherit; font-size: 12.5px; font-weight: 500; line-height: 1;
+  color: var(--text); background: var(--control-2); box-shadow: inset 0 0 0 0.5px var(--ring); cursor: default; white-space: nowrap;
 }
-.btn:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--text); background: var(--chip); }
-.btn:disabled, .btn[aria-disabled="true"] { color: var(--text-3); border-color: var(--hairline); }
+.btn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--control-3); }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; }
+.btn.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: none; }
+.btn svg { width: 14px; height: 14px; }
 
 .day-nav { margin-left: auto; display: flex; gap: 4px; flex: none; }
 
-/* Transcript, Insights, Audio */
-.segmented {
-  display: inline-flex; gap: 2px; margin: 22px 0 0; padding: 2px;
-  background: var(--chip); border-radius: 8px;
+/* Transcript, Audio: a segmented control, each segment a link */
+.segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--control); border-radius: 8px; }
+.segment {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 14px; border-radius: 6px;
+  color: var(--text-2); font-size: 12.5px; font-weight: 500;
 }
-.segment { padding: 3px 14px; border-radius: 6px; color: var(--text-2); font-size: 12.5px; }
 .segment:hover { color: var(--text); }
-.segment[aria-current="page"] {
-  background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px var(--hairline);
-}
-:root[data-theme="dark"] .segment[aria-current="page"] { background: var(--select); box-shadow: none; }
+.segment[aria-current="page"] { background: var(--control-3); color: var(--text); font-weight: 600; box-shadow: var(--shadow-s); }
 
 .day-body { padding-top: 8px; }
 

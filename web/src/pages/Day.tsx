@@ -6,6 +6,7 @@ import { AudioTab } from "../components/AudioTab";
 import { Conversation } from "../components/Conversation";
 import { DayHeader } from "../components/DayHeader";
 import { Empty } from "../components/Empty";
+import { Frame } from "../components/Frame";
 import { Starred } from "../components/Starred";
 import { Tabs, tabOf } from "../components/Tabs";
 import { pendingSentence, summarySentence } from "../day";
@@ -44,7 +45,7 @@ function TabPanel({ route, view, onPin }: {
   }
 }
 
-/** A day: its title and summary, the tabs, and the transcript with starred moments and pins. */
+/** A day: its title and summary, the tabs in the toolbar, and the transcript with starred moments and pins. */
 export function Day({ date, isToday, route, nav }: Props) {
   const [load, setLoad] = useState<Load>({ date, view: null, error: null });
 
@@ -85,39 +86,33 @@ export function Day({ date, isToday, route, nav }: Props) {
   const error = load.date === date ? load.error : null;
   useJumpTo(route.query.at, view !== null);
 
+  const frame = (body: ComponentChildren, busy = false) => (
+    <Frame toolbar={{ children: <Tabs route={route} /> }}>
+      <div class="page day-page" aria-busy={busy ? "true" : undefined}>{body}</div>
+    </Frame>
+  );
   if (error) {
-    return (
-      <div class="page day-page">
-        <DayHeader date={date} nav={nav} />
-        <p class="notice warn" role="alert">{error}</p>
-      </div>
-    );
+    return frame(<><DayHeader date={date} nav={nav} /><p class="notice warn" role="alert">{error}</p></>);
   }
   if (!view) {
-    return (
-      <div class="page day-page" aria-busy="true">
-        <DayHeader date={date} nav={nav} />
-        <p class="day-summary loading">Loading this day</p>
-      </div>
-    );
+    return frame(<><DayHeader date={date} nav={nav} /><p class="day-summary loading">Loading this day</p></>, true);
   }
   if (view.conversations.length === 0) {
-    return (
-      <div class="page day-page">
+    return frame(
+      <>
         <DayHeader date={date} nav={nav} />
         {isToday
           ? <Empty title="Nothing recorded yet today">{pendingSentence(view.pending_pages)}</Empty>
           : <Empty title="No conversations on this day" />}
-      </div>
+      </>,
     );
   }
-  return (
-    <div class="page day-page">
+  return frame(
+    <>
       <DayHeader date={date} summary={summarySentence(view)} nav={nav} />
-      <Tabs route={route} />
       <div class="day-body">
         <TabPanel route={route} view={view} onPin={pin} />
       </div>
-    </div>
+    </>,
   );
 }

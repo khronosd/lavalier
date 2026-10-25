@@ -200,7 +200,7 @@ test("no provider: the day tab's copy and a link to the Model tab, and nothing t
     "Pick a model in Settings › Model to get a summary, follow-ups, people and topics for each day.")).toBeTruthy();
   expect(screen.getByText(MODEL_PRIVACY, { exact: false })).toBeTruthy();
   expect(screen.getByRole("link", { name: "Open Settings › Model" }).getAttribute("href")).toBe("#/settings/model");
-  expect(screen.queryByRole("button")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByRole("button")).toBeNull(); // nothing to generate with
 });
 
 test("a failed load says so", async () => {

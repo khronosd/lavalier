@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, explainError, type Hit } from "../api";
 import { Empty } from "../components/Empty";
+import { Frame } from "../components/Frame";
 import { dayTitle, hms } from "../format";
 import { convStart, groupHits, jumpHref, renderSnippet } from "../search";
 
@@ -63,9 +64,11 @@ export function Search({ q }: { q: string }) {
   }
 
   return (
-    <div class="page list-page">
-      <h1 class="page-title">Search</h1>
-      {body}
-    </div>
+    <Frame toolbar={{ search: "title" }}>
+      <div class="page list-page">
+        <h1 class="page-title">Search</h1>
+        {body}
+      </div>
+    </Frame>
   );
 }

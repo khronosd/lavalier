@@ -127,3 +127,36 @@ export function lastReadLine(status: Status | null): string {
   if (!d || !d.has_all_fields) return "No reading yet";
   return `${stateText(lampState(status))} ${age(d.age_s)}, battery ${d.soc}%`;
 }
+
+/** Sync now, Mute and Unmute, as the pill and the card name them. */
+export type PendantAction = "sync" | "mute" | "unmute";
+
+const BUSY_WORDS: Record<PendantAction, string> = { sync: "Syncing…", mute: "Muting…", unmute: "Unmuting…" };
+
+/** The pill's state word: what is in flight first, "Not set" without an address, else the lamp's word. */
+export function pillWord(lamp: LampState, noAddress: boolean, busyWith: PendantAction | null): string {
+  if (busyWith) return BUSY_WORDS[busyWith];
+  if (noAddress) return "Not set";
+  return stateText(lamp);
+}
+
+/** "787 pages", "1 page", "12k pages" above 9,999; "" with none. */
+export function pagesShort(pages: number): string {
+  if (pages <= 0) return "";
+  if (pages > 9999) return `${Math.round(pages / 1000)}k pages`;
+  return pages === 1 ? "1 page" : `${pages} pages`;
+}
+
+/** The pill's accessible name: "Pendant: listening, battery 94 percent, 787 pages waiting". */
+export function pillLabel(status: Status | null, noAddress: boolean, busyWith: PendantAction | null): string {
+  const lamp = noAddress ? "unknown" : lampState(status);
+  const word = pillWord(lamp, noAddress, busyWith);
+  const parts = [word.charAt(0).toLowerCase() + word.slice(1)];
+  const device = lamp === "unknown" ? null : status?.device;
+  if (device) {
+    parts.push(`battery ${device.soc} percent`);
+    const pages = pagesShort(device.pages_waiting);
+    if (pages) parts.push(`${pages} waiting`);
+  }
+  return `Pendant: ${parts.join(", ")}`;
+}

@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { ApiError, type SyncReportJson } from "./api";
 import { device, status } from "./pendant.fixtures";
 import {
-  batteryLine, buttonsDisabled, isNoAddress, lampState, pagesSentence, pendingUnmuteLine, requestErrorLine,
-  shouldRefresh, stateText, syncResultLine, toggleResultLine,
+  batteryLine, buttonsDisabled, isNoAddress, lampState, pagesSentence, pagesShort, pendingUnmuteLine, pillLabel, pillWord,
+  requestErrorLine, shouldRefresh, stateText, syncResultLine, toggleResultLine,
 } from "./pendant";
 
 const run = (outcome: string) => ({
@@ -99,4 +99,34 @@ test("a pending unmute is named with its time", () => {
   const since = new Date(2026, 9, 24, 9, 5).getTime();
   expect(pendingUnmuteLine(status({ unmute_pending_since_ms: since })))
     .toBe("Unmute pending since 09:05, hold the button or press Unmute");
+});
+
+test("the pill's word follows the lamp, the address and the action in flight", () => {
+  expect(pillWord("listening", false, null)).toBe("Listening");
+  expect(pillWord("recording", false, null)).toBe("Recording");
+  expect(pillWord("muted", false, null)).toBe("Muted");
+  expect(pillWord("unknown", false, null)).toBe("No reading yet");
+  expect(pillWord("unknown", true, null)).toBe("Not set");
+  expect(pillWord("listening", false, "sync")).toBe("Syncing…");
+  expect(pillWord("listening", false, "mute")).toBe("Muting…");
+  expect(pillWord("muted", false, "unmute")).toBe("Unmuting…");
+});
+
+test("the pill's label says the lamp, the battery and the pages in one breath", () => {
+  expect(pillLabel(status(), false, null)).toBe("Pendant: listening, battery 94 percent, 787 pages waiting");
+  expect(pillLabel(status({ device: device({ pages_waiting: 0 }) }), false, null)).toBe("Pendant: listening, battery 94 percent");
+  expect(pillLabel(status({ device: device({ pages_waiting: 1 }) }), false, null)).toBe("Pendant: listening, battery 94 percent, 1 page waiting");
+  expect(pillLabel(status({ device: device({ pages_waiting: 12_345 }) }), false, null)).toBe("Pendant: listening, battery 94 percent, 12k pages waiting");
+  expect(pillLabel(status({ device: null }), false, null)).toBe("Pendant: no reading yet");
+  expect(pillLabel(status({ device: null }), true, null)).toBe("Pendant: not set");
+  expect(pillLabel(status(), false, "sync")).toBe("Pendant: syncing…, battery 94 percent, 787 pages waiting");
+});
+
+test("pages in the pill are short above 9,999", () => {
+  expect(pagesShort(0)).toBe("");
+  expect(pagesShort(1)).toBe("1 page");
+  expect(pagesShort(787)).toBe("787 pages");
+  expect(pagesShort(9999)).toBe("9999 pages");
+  expect(pagesShort(10_000)).toBe("10k pages");
+  expect(pagesShort(15_400)).toBe("15k pages");
 });

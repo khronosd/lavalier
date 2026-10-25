@@ -60,3 +60,10 @@ export function isoDay(ms: number): string {
 export function noQuote(star: { conversation_id: string | null }): string {
   return star.conversation_id === null ? "No speech recorded nearby" : "Nothing was said at this moment";
 }
+
+/** "2026-10-23" -> "October"; with the year when it is not today's: "December 2025". */
+export function monthName(iso: string, today: string): string {
+  const [y, m] = iso.split("-").map(Number);
+  const name = MONTHS[m - 1];
+  return String(y) === today.slice(0, 4) ? name : `${name} ${y}`;
+}

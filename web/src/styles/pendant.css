@@ -4,7 +4,19 @@
 .pendant {
   background: var(--slate); color: var(--on-slate); border-radius: var(--radius-l); padding: 14px 14px 12px;
 }
-:root[data-theme="dark"] .pendant { box-shadow: 0 0 0 1px var(--hairline); }
+/* in the dark theme the card sits on the panel tint inside the pill's popover; the lamp is the pill's green */
+:root[data-theme="dark"] .pendant { background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 0.5px var(--ring); }
+:root[data-theme="dark"] .pendant-facts, :root[data-theme="dark"] .pendant-note, :root[data-theme="dark"] .pendant-result { color: var(--text-2); }
+:root[data-theme="dark"] .pendant-strong, :root[data-theme="dark"] .pendant-pending { color: var(--text); }
+:root[data-theme="dark"] .pendant-btn { color: var(--text); background: var(--control-2); border: 0; box-shadow: inset 0 0 0 0.5px var(--ring); }
+:root[data-theme="dark"] .pendant-btn.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: none; }
+:root[data-theme="dark"] .pendant .lamp-listening { background: var(--ok); box-shadow: 0 0 10px 1px color-mix(in srgb, var(--ok) 50%, transparent); }
+:root[data-theme="dark"] .pendant .lamp-recording {
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--ok), 0 0 12px 3px color-mix(in srgb, var(--ok) 45%, transparent);
+}
+:root[data-theme="dark"] .pendant .lamp-muted { background: var(--text-3); border: 0; }
+:root[data-theme="dark"] .pendant .lamp-unknown { border-color: var(--text-3); }
 
 .pendant-state { display: flex; align-items: center; gap: 11px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 

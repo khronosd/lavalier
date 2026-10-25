@@ -151,7 +151,7 @@ test("a status-driven refetch of an equal day does not restart the audio that is
 });
 
 const insightsLink = () =>
-  within(screen.getByRole("complementary", { name: "Sections" })).getByRole("link", { name: /^Insights/ });
+  within(screen.getByRole("navigation", { name: "Sidebar" })).getByRole("link", { name: /^Insights/ });
 
 test("the Insights link counts the days without insights once a provider is set", async () => {
   const insights = { days_done: 1, days_error: 0, provider: "ollama", model: "", auto: true, generating: [] };

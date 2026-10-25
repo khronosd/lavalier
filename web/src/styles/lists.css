@@ -1,25 +1,27 @@
 /* Search and Starred: results grouped under day headings, on the transcript's margin-column grid.
    No cards; the only motion is the fade of a jumped-to line, which answers the person's click. */
 
-/* the sidebar field, drawn as the mockup's search field */
+/* the toolbar field: 180px at the right of every page, 420px in the Search page's title group */
 .search-box {
-  display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 5px 6px 5px 9px;
-  background: var(--field); border: 1px solid var(--field-b); border-radius: 8px; color: var(--text-3);
+  display: flex; align-items: center; gap: 6px; width: 180px; height: 28px; padding: 0 8px; flex: none;
+  border-radius: var(--radius-s); background: var(--control); box-shadow: inset 0 0 0 0.5px var(--ring); color: var(--text-3);
 }
-.search-box:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.search-box.wide { width: 420px; height: 30px; padding: 0 6px 0 10px; gap: 8px; border-radius: 8px; margin-left: 4px; }
+.search-box:focus-within { box-shadow: inset 0 0 0 0.5px var(--ring), 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
 .search-box > svg { width: 13px; height: 13px; flex: none; }
+.search-box.wide > svg { width: 14px; height: 14px; }
 .search-input {
   flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; outline: none;
-  font: inherit; font-size: 13px; color: var(--text); -webkit-appearance: none; appearance: none;
+  font: inherit; font-size: 12.5px; color: var(--text); -webkit-appearance: none; appearance: none;
 }
+.search-box.wide .search-input { font-size: 13px; }
 .search-input::placeholder { color: var(--text-3); }
 .search-input::-webkit-search-cancel-button { display: none; }
 .search-clear {
   flex: none; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
-  border: 0; border-radius: 50%; background: transparent; color: var(--text-3); cursor: default;
+  border: 0; border-radius: 50%; background: var(--bar); color: var(--bg); cursor: default;
 }
-.search-clear:hover { color: var(--text-2); }
-.search-clear svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.search-clear svg { width: 9px; height: 9px; stroke-width: 2.4; }
 
 .list-page .loading { color: var(--text-3); }
 .list-page .page-lead + .day-group .group-title { margin-top: 18px; }

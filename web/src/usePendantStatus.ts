@@ -7,18 +7,22 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import {
   api, ApiError, type LiveResult, type Status, type SyncActionResult, type ToggleResult,
 } from "./api";
-import { isNoAddress, requestErrorLine, shouldRefresh, syncResultLine, toggleResultLine } from "./pendant";
+import {
+  isNoAddress, type PendantAction, requestErrorLine, shouldRefresh, syncResultLine, toggleResultLine,
+} from "./pendant";
 
 export const STATUS_EVERY_MS = 15_000;
 export const LIVE_EVERY_MS = 60_000;
 const NOT_IN_RANGE = "Pendant not in range";
 
-export type PendantAction = "sync" | "mute" | "unmute";
+export type { PendantAction };
 
 export interface PendantStatus {
   status: Status | null;
   /** A request of this card (an action or a live read) is in flight. */
   inflight: boolean;
+  /** The action running now, for the pill's word; null during a live read or when idle. */
+  busyWith: PendantAction | null;
   /** The last action's result in one line. */
   result: string | null;
   /** Why the last live read failed, when it did. */
@@ -36,6 +40,7 @@ const isFocused = () => document.hasFocus();
 export function usePendantStatus(): PendantStatus {
   const [status, setStatus] = useState<Status | null>(null);
   const [inflight, setInflight] = useState(false);
+  const [busyWith, setBusyWith] = useState<PendantAction | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [noAddress, setNoAddress] = useState(false);
@@ -106,6 +111,7 @@ export function usePendantStatus(): PendantStatus {
     if (inflightRef.current) return;
     inflightRef.current = true;
     setInflight(true);
+    setBusyWith(action);
     setResult(null);
     let refused = false;
     try {
@@ -127,7 +133,10 @@ export function usePendantStatus(): PendantStatus {
       if (isNoAddress(e instanceof Error ? e.message : null)) setNoAddress(true);
     } finally {
       inflightRef.current = false;
-      if (mounted.current) setInflight(false);
+      if (mounted.current) {
+        setInflight(false);
+        setBusyWith(null);
+      }
     }
     // read again at once: the app's view, then the pendant's own (an action is a reason to look)
     absentSince.current = undefined;
@@ -160,5 +169,5 @@ export function usePendantStatus(): PendantStatus {
     };
   }, []);
 
-  return { status, inflight, result, liveError, noAddress, unreachable, run };
+  return { status, inflight, busyWith, result, liveError, noAddress, unreachable, run };
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { age, dayTitle, duration, hm, hms, isoDay } from "./format";
+import { age, dayTitle, duration, hm, hms, isoDay, monthName } from "./format";
 
 test.each([
   [16_000, "16 s"],
@@ -30,4 +30,10 @@ test("hms and hm give the local wall-clock time of an epoch ms", () => {
 test("isoDay is the local date", () => {
   expect(isoDay(new Date(2026, 9, 24, 0, 30).getTime())).toBe("2026-10-24");
   expect(isoDay(new Date(2026, 0, 5, 23, 59).getTime())).toBe("2026-01-05");
+});
+
+test("monthName names the month, with the year only when it is not this year", () => {
+  expect(monthName("2026-10-23", "2026-10-24")).toBe("October");
+  expect(monthName("2026-01-02", "2026-10-24")).toBe("January");
+  expect(monthName("2025-12-31", "2026-10-24")).toBe("December 2025");
 });

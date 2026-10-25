@@ -5,6 +5,7 @@ import {
 import { CalendarConnector } from "../components/CalendarConnector";
 import { NotionConnector } from "../components/NotionConnector";
 import { Field } from "../components/Field";
+import { Frame } from "../components/Frame";
 import { ProviderPicker } from "../components/ProviderPicker";
 import { SettingsTabs } from "../components/SettingsTabs";
 import { Toast } from "../components/Toast";
@@ -252,12 +253,14 @@ export function Settings({ tab }: { tab: string }) {
   }
 
   return (
-    <div class="set-layout">
-      <SettingsTabs tab={tab} />
-      <div class="set-main">
-        <div class="set-body">{body}</div>
-        <Toast text={toast.n > 0 ? "Saved" : ""} on={toast.on} />
+    <Frame toolbar={{ title: "Settings", subtitle: settings ? `Saved to /config.toml` : undefined }}>
+      <div class="set-layout">
+        <SettingsTabs tab={tab} />
+        <div class="set-main">
+          <div class="set-body">{body}</div>
+          <Toast text={toast.n > 0 ? "Saved" : ""} on={toast.on} />
+        </div>
       </div>
-    </div>
+    </Frame>
   );
 }

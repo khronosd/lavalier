@@ -1,11 +1,11 @@
-/* Base rules and the shell. Hairlines, 7-12px radii, no gradients, no decorative animation. */
+/* Base rules, the shell and the sidebar. Hairlines, 7-14px radii, no gradients, no decorative animation. */
 * { box-sizing: border-box; }
 
 html, body, #app { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--surface);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--ui);
   font-size: 13px;
@@ -20,40 +20,46 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* what people said, as opposed to what the app says */
-.reading { font-family: var(--reading); font-size: 15.5px; line-height: 1.6; max-width: 66ch; }
+.reading { font-family: var(--reading); font-size: 15.5px; line-height: 1.6; max-width: 66ch; color: var(--text-reading); }
 .time { font-variant-numeric: tabular-nums; color: var(--text-3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* shell */
-.shell { display: flex; height: 100%; }
-.main { flex: 1; min-width: 0; overflow-y: auto; background: var(--surface); }
-.page { padding: 28px 40px 40px; }
-.page-title { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
-.page-lead { margin: 6px 0 0; color: var(--text-2); font-size: 14px; max-width: 70ch; }
+.shell { display: flex; height: 100%; position: relative; overflow: hidden; }
+.page { padding: 22px 30px 84px; }
+.page-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.page-lead { margin: 6px 0 0; color: var(--text-2); font-size: 12.5px; max-width: 70ch; }
 
-/* sidebar */
+/* sidebar: the first 38px stay free for the native title bar */
 .sidebar {
   width: 236px; flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--sidebar); border-right: 1px solid var(--hairline); padding: 12px 10px;
+  background: var(--sidebar); border-right: 1px solid var(--hairline); padding: 38px 10px 10px;
 }
+.sidebar-hidden .sidebar { display: none; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-.nav { list-style: none; margin: 0; padding: 0; }
+.nav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .nav-item {
-  display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: var(--radius-s); color: var(--text);
+  display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 10px; border-radius: var(--radius-s);
+  color: var(--text-reading);
 }
-.nav-item svg { width: 15px; height: 15px; flex: none; color: var(--text-2); }
-.nav-item[aria-current] { background: var(--select); font-weight: 600; }
+.nav-item svg { width: 16px; height: 16px; flex: none; color: var(--text-2); }
+.nav-item > span { white-space: nowrap; }
+.nav-item > span:not(.nav-count) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nav-item > .nav-count { flex: none; }
+.nav-item:hover { background: var(--hover-row); }
+.nav-item[aria-current] { background: var(--select); color: var(--text); font-weight: 600; }
 .nav-item[aria-current] svg { color: var(--text); }
-/* the section an open day belongs to: named, not filled, so the day itself stands out */
-.nav-item[aria-current="true"] { background: transparent; }
-.nav-count { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.nav-count .stars { color: var(--star); margin-left: 4px; }
-.nav-item.day { padding-left: 33px; }
-.nav-note { padding: 4px 9px 4px 33px; color: var(--text-3); font-size: 12px; }
+.nav-count {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--text-3);
+  font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums;
+}
+.nav-count .stars { display: inline-flex; align-items: center; gap: 2px; color: var(--accent); }
+.nav-count .star-fill { width: 10px; height: 10px; }
+.nav-item.day { padding-left: 36px; }
+.nav-head { margin: 20px 0 6px; padding: 0 10px; }
+.nav-note { margin: 20px 0 0; padding: 4px 10px 4px 36px; color: var(--text-3); font-size: 12px; }
 
-.sidebar-foot { margin-top: 10px; border-top: 1px solid var(--hairline); padding-top: 10px; }
-.pendant-slot:empty { display: none; }
-.pendant-slot { margin-bottom: 6px; }
-.sidebar-foot .nav-item { color: var(--text-2); }
+.sidebar-foot { margin-top: auto; border-top: 1px solid var(--hairline); padding-top: 8px; }
 
 /* empty states */
 .empty { margin: 48px auto 0; max-width: 46ch; text-align: center; color: var(--text-2); }
@@ -64,6 +70,6 @@ button { font: inherit; color: inherit; }
   margin: 0 0 18px; padding: 10px 12px; border-radius: var(--radius-m);
   background: var(--accent-soft); color: var(--text); font-size: 12.5px; max-width: 66ch;
 }
-/* something went wrong: the warning colour, not the informational one */
-.notice.warn { background: transparent; border: 1px solid var(--warn); border-left-width: 3px; }
-.page-notice { padding-bottom: 0; }
+/* something went wrong: the warning colour, not the informational one; the only left border in the window */
+.notice.warn { background: transparent; border: 1px solid var(--warn); border-left-width: 3px; color: var(--warn); }
+.page-notice { padding: 10px 14px 0; }

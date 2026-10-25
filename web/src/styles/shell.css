@@ -1,0 +1,71 @@
+/* The frame each page fills: a 52px toolbar, then the list column, the content column and the inspector.
+   Hairlines between regions, a faint tint on the side columns, shadows only under the floating pieces. */
+
+.hd { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); }
+
+.frame { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+
+/* toolbar */
+.toolbar { height: 52px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--hairline); }
+.tb {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; flex: none;
+  border: 0; border-radius: var(--radius-s); background: transparent; color: var(--text-2); cursor: default;
+}
+.tb:hover { background: var(--hover); color: var(--text); }
+.tb svg { width: 16px; height: 16px; }
+.tb-title { width: 236px; flex: none; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; margin-left: 4px; }
+.tb-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-sub { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-spacer { flex: 1; }
+.toolbar .segmented { margin-left: 4px; }
+
+/* panes */
+.panes { flex: 1; min-height: 0; display: flex; }
+.list-col {
+  width: 300px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 0;
+  background: var(--column); border-right: 1px solid var(--hairline); overflow-y: auto;
+}
+.list-col > .hd { padding: 8px 12px 4px; }
+.content { flex: 1; min-width: 0; position: relative; overflow-y: auto; }
+.inspector {
+  width: 260px; flex: none; display: flex; flex-direction: column; gap: 16px; padding: 20px 18px 16px;
+  background: var(--column); border-left: 1px solid var(--hairline); overflow-y: auto;
+}
+.inspector:focus { outline: none; }
+.inspector:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* popovers: anchored under their button, right-aligned; a clear scrim behind them takes the click outside */
+.popover-anchor { position: relative; display: inline-flex; flex: none; }
+.popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  background: var(--glass); -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6);
+  border-radius: var(--radius-l); box-shadow: var(--shadow-l), inset 0 0 0 0.5px var(--ring);
+}
+.pill-popover { width: 320px; padding: 8px; }
+.inspector-popover .inspector { width: 300px; max-height: 70vh; border-left: 0; background: transparent; }
+.scrim { position: fixed; inset: 0; z-index: 20; background: var(--scrim); }
+.scrim.clear { background: transparent; }
+
+/* narrower windows: the sidebar waits behind its toggle and opens over the list column */
+.shell.narrow .sidebar { display: none; }
+.shell.narrow.sidebar-overlay .sidebar { display: flex; position: absolute; top: 0; bottom: 0; left: 0; z-index: 25; }
+
+/* the pendant pill */
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 11px 0 9px; flex: none;
+  border: 0; border-radius: 14px; background: var(--control); box-shadow: inset 0 0 0 0.5px var(--ring);
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--text); cursor: default;
+}
+.pill:hover { background: var(--control-2); }
+.pill .lamp { width: 8px; height: 8px; border: 0; }
+.pill .lamp-listening, .pill .lamp-recording {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent), 0 0 12px color-mix(in srgb, var(--ok) 75%, transparent);
+}
+.pill .lamp-muted { background: var(--text-3); box-shadow: none; }
+.pill .lamp-unknown { background: transparent; border: 1.5px solid var(--text-3); }
+.pill-divider { width: 1px; height: 14px; background: var(--hair2); }
+.pill .battery { width: 15px; height: 15px; }
+.pill-soc { font-variant-numeric: tabular-nums; }
+.pill-pending { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.pill[aria-busy="true"] .pill-word { color: var(--text-2); }

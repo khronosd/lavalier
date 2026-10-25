@@ -3,6 +3,7 @@ import {
   api, ApiError, explainError, JobError, pause, pollJob, type DayFollowUp, type InsightsIndex, type NamedDays, type ProviderFacts, type RangeResult,
 } from "../api";
 import { Empty } from "../components/Empty";
+import { Frame } from "../components/Frame";
 import { FollowUpLine } from "../components/FollowUps";
 import { dayMonth, dayTitle } from "../format";
 import {
@@ -207,9 +208,11 @@ export function Insights() {
   }
 
   return (
-    <div class="page list-page xd-page">
-      <h1 class="page-title">Insights</h1>
-      {body}
-    </div>
+    <Frame toolbar={{ title: "Insights" }}>
+      <div class="page list-page xd-page">
+        <h1 class="page-title">Insights</h1>
+        {body}
+      </div>
+    </Frame>
   );
 }

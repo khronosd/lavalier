@@ -18,7 +18,7 @@
   --control: rgba(0, 0, 0, 0.05); --control-2: rgba(0, 0, 0, 0.07); --control-3: rgba(0, 0, 0, 0.11);
   --hover: rgba(0, 0, 0, 0.05); --hover-row: rgba(0, 0, 0, 0.03); --bar: rgba(0, 0, 0, 0.18);
   --ring: rgba(0, 0, 0, 0.1); --field-deep: #FFFFFF;
-  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.12); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.16);
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.12); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.16); --scrim: rgba(0, 0, 0, 0.25);
 }
 
 :root[data-theme="dark"] {
@@ -32,7 +32,7 @@
   --control-3: rgba(255, 255, 255, 0.14); --hover: rgba(255, 255, 255, 0.08); --hover-row: rgba(255, 255, 255, 0.05);
   --bar: rgba(255, 255, 255, 0.22); --ring: rgba(255, 255, 255, 0.12); --field-deep: rgba(0, 0, 0, 0.35);
   --ok: #34C759; --warn: #FF6B6B;
-  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.3); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.3); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.4); --scrim: rgba(0, 0, 0, 0.4);
   /* the older names, on E's values; the amber accent is also the star colour */
   --surface: var(--bg); --chip: var(--control-2); --field: var(--control); --field-b: var(--ring);
   --slate: var(--sidebar); --slate-2: var(--text-2); --star: var(--accent); --flash-bg: var(--accent-tint);
