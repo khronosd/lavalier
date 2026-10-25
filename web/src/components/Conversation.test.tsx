@@ -22,6 +22,15 @@ test("the heading names the overlapping event after the speech total", () => {
   expect(screen.getByText("Shall we start?")).toBeTruthy();
 });
 
+test("the stars come before the label, as in the day file", () => {
+  render(<Conversation conv={{ ...conv, label: "Weekly sync", star_ms: [at(9, 40), at(9, 50)] }} onPin={noop}
+    onPlay={() => undefined} />);
+  const head = screen.getByRole("heading", { level: 2 }).closest("header")!;
+  expect(head.textContent).toContain("16 min speech ★★ · Weekly sync");
+  expect(head.querySelector(".conv-stars")!.textContent).toBe("★★");
+  expect(head.querySelector(".conv-stars")!.getAttribute("aria-label")).toBe("2 starred");
+});
+
 test("without a label the heading shows the speech total only", () => {
   render(<Conversation conv={conv} onPin={noop} onPlay={() => undefined} />);
   const head = screen.getByRole("heading", { level: 2 }).closest("header")!;

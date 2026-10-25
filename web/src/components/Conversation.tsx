@@ -18,8 +18,8 @@ export function span(conv: ConversationView): string {
   return start === end ? start : `${start} to ${end}`;
 }
 
-/** One conversation of the transcript: its heading (with the calendar event it overlaps, when labelled),
- *  tools, and lines with stars in place. */
+/** One conversation of the transcript: its heading in the day file's order ("16 min speech ★★ · Weekly
+ *  sync": the stars, then the calendar event it overlaps when labelled), tools, and lines with stars in place. */
 export function Conversation({ conv, onPin, onPlay }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,9 +44,10 @@ export function Conversation({ conv, onPin, onPlay }: Props) {
         <h2 class="conv-title" id={`h-${conv.conversation_id}`}>{span(conv)}</h2>
         <span class="conv-dur">
           {`${duration(conv.speech_ms)} speech`}
+          {stars > 0 && " "}
+          {stars > 0 && <span class="conv-stars" aria-label={`${stars} starred`}>{"★".repeat(stars)}</span>}
           {conv.label && <span class="conv-label">{` · ${conv.label}`}</span>}
         </span>
-        {stars > 0 && <span class="conv-stars" aria-label={`${stars} starred`}>{"★".repeat(stars)}</span>}
         {conv.pinned && <span class="conv-pinned">pinned</span>}
         <div class="conv-tools">
           <button type="button" class="btn" onClick={onPlay} disabled={!conv.audio_available}
