@@ -89,7 +89,7 @@ function abortError(): DOMException {
 }
 
 /** Wait `ms`, or reject at once when `signal` aborts. */
-function pause(ms: number, signal?: AbortSignal): Promise<void> {
+export function pause(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortError());
     const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
@@ -100,9 +100,9 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** Ask GET /api/jobs/<id> now and then every `every` ms until the job is done (resolves with it) or
  *  failed (rejects with a JobError carrying its error text). Aborting `signal` stops it with an
- *  AbortError; past 30 minutes it gives up. */
-export async function pollJob(id: string, { every = 1000, signal }: { every?: number; signal?: AbortSignal } = {}):
-  Promise<Job> {
+ *  AbortError; past `cap` (30 minutes by default; 0 for none) it gives up. */
+export async function pollJob(id: string, { every = 1000, signal, cap = POLL_CAP_MS }:
+  { every?: number; signal?: AbortSignal; /** ms; 0 asks until the job ends */ cap?: number } = {}): Promise<Job> {
   const started = Date.now();
   for (;;) {
     if (signal?.aborted) throw abortError();
@@ -110,7 +110,7 @@ export async function pollJob(id: string, { every = 1000, signal }: { every?: nu
     if (signal?.aborted) throw abortError();
     if (job.state === "done") return job;
     if (job.state === "error") throw new JobError(job);
-    if (Date.now() - started + every > POLL_CAP_MS) throw new Error("The job did not finish within 30 minutes.");
+    if (cap > 0 && Date.now() - started + every > cap) throw new Error("The job did not finish within 30 minutes.");
     await pause(every, signal);
   }
 }

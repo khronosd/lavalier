@@ -292,7 +292,7 @@ test("Model: a key is saved to the Keychain and never echoed or kept", async () 
   expect(screen.getByText("No key saved")).toBeTruthy();
   const input = screen.getByLabelText("API key") as HTMLInputElement;
   expect(input.type).toBe("password");
-  expect(input.getAttribute("autocomplete")).toBe("off");
+  expect(input.getAttribute("autocomplete")).toBe("new-password");
   expect((screen.getByRole("button", { name: "Save key" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   fireEvent.input(input, { target: { value: "sk-secret-1" } });
@@ -386,4 +386,35 @@ test("Model: the automatic switch saves insights_auto and says when a day is com
   fireEvent.click(sw);
   await waitFor(() => expect(puts).toEqual([{ insights_auto: false }]));
   expect(sw.checked).toBe(false);
+});
+
+test("Model: the base URL and another model id save on blur or Enter, never half typed", async () => {
+  await model("openai", gpt);
+  const base = screen.getByLabelText("Base URL") as HTMLInputElement;
+  fireEvent.input(base, { target: { value: "http://local" } });
+  await new Promise((r) => setTimeout(r, 400)); // past the 300 ms a plain field waits
+  expect(puts).toEqual([]);
+  fireEvent.keyDown(base, { key: "Enter" });
+  await waitFor(() => expect(puts).toEqual([{ insights_base_url: "http://local" }]));
+  const other = screen.getByLabelText("Another model id") as HTMLInputElement;
+  fireEvent.input(other, { target: { value: "gpt-x" } });
+  await new Promise((r) => setTimeout(r, 400));
+  expect(puts).toHaveLength(1);
+  fireEvent.blur(other);
+  await waitFor(() => expect(puts).toEqual([{ insights_base_url: "http://local" }, { insights_model: "gpt-x" }]));
+});
+
+test("Model: a failed Ollama Test replaces the hint with its error, said once", async () => {
+  await model("ollama", ollama);
+  otherReply = (key) => key === "POST /api/insights/check"
+    ? json({ ok: false, detail: "Ollama did not answer. Start it and try again.", models: [] }) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Test" }));
+  await screen.findByText("Ollama did not answer. Start it and try again.");
+  expect(screen.getAllByText("Ollama did not answer. Start it and try again.")).toHaveLength(1);
+  expect(screen.queryByText("Press Test to list the models Ollama has pulled")).toBeNull();
+  otherReply = (key) => key === "POST /api/insights/check" ? json({ error: "timeout" }, 504) : undefined;
+  fireEvent.click(screen.getByRole("button", { name: "Test" }));
+  await screen.findByText("The provider took too long to answer");
+  expect(screen.getAllByText("The provider took too long to answer")).toHaveLength(1);
+  expect(screen.queryByText("Press Test to list the models Ollama has pulled")).toBeNull();
 });

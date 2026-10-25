@@ -171,3 +171,17 @@ test("pollJob gives up after 30 minutes", async () => {
     vi.useRealTimers();
   }
 });
+
+test("pollJob with cap 0 keeps asking past 30 minutes, until done", async () => {
+  vi.useFakeTimers();
+  try {
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
+      reply(200, job(++n > 40 ? "done" : "running"))));
+    const outcome = pollJob("j1", { every: 60_000, cap: 0 }).then((j) => j.state, (e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(41 * 60_000);
+    expect(await outcome).toBe("done");
+  } finally {
+    vi.useRealTimers();
+  }
+});

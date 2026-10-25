@@ -48,7 +48,7 @@ export function KeyField({ provider, present, keychainError, onChanged }: Props)
     <div class="field key-field">
       <label for={id}>API key</label>
       <form class="key-row" onSubmit={(e) => { e.preventDefault(); void change("PUT"); }}>
-        <input id={id} ref={input} type="password" autocomplete="off" spellcheck={false}
+        <input id={id} ref={input} type="password" autocomplete="new-password" spellcheck={false}
           aria-describedby={saved !== null ? `${id}-state` : undefined}
           onInput={(e) => { setHasText(e.currentTarget.value !== ""); setError(null); }} />
         <button class="btn" type="submit" disabled={!hasText || busy}>Save key</button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
-  api, ApiError, explainError, pollJob, type InsightsIndex, type NamedDays, type ProviderFacts, type RangeResult,
+  api, ApiError, explainError, JobError, pause, pollJob, type DayFollowUp, type InsightsIndex, type NamedDays, type ProviderFacts, type RangeResult,
 } from "../api";
 import { Empty } from "../components/Empty";
 import { FollowUpLine } from "../components/FollowUps";
@@ -15,12 +15,18 @@ const RANGES = [7, 30] as const;
 /** While a day is generating, the index is read again this often to see it finish. */
 const GENERATING_EVERY_MS = 5000;
 const RANGE_RUNNING = "Days are already being generated. Wait for that run to finish.";
+export const STILL_GENERATING = "Still generating; the results will appear here when it finishes";
+/** After a failed poll, the range job is asked about again this much later. */
+const RETRY_MS = 5000;
 
 type Run =
   | { phase: "idle" }
   | { phase: "confirm"; n: number }
-  | { phase: "running"; days: number }
+  | { phase: "running"; days: number; still?: boolean }
   | { phase: "result" | "error"; text: string };
+
+/** A day's follow-ups in time order; one without a time comes first, as the server orders them. */
+const inTimeOrder = (items: DayFollowUp[]) => [...items].sort((a, b) => (a.at_ms ?? 0) - (b.at_ms ?? 0));
 
 function FollowUpsAcross({ index }: { index: InsightsIndex }) {
   if (index.follow_ups.length === 0) return null;
@@ -30,7 +36,7 @@ function FollowUpsAcross({ index }: { index: InsightsIndex }) {
       {groupByDay(index.follow_ups).map((g) => (
         <div class="day-group" key={g.day}>
           <h3 class="group-title">{dayTitle(g.day)}</h3>
-          {g.items.map((fu, i) => <FollowUpLine key={i} day={g.day} fu={fu} />)}
+          {inTimeOrder(g.items).map((fu, i) => <FollowUpLine key={i} day={g.day} fu={fu} />)}
         </div>
       ))}
     </section>
@@ -77,12 +83,25 @@ function RangeControl({ index, facts, onDone }: { index: InsightsIndex; facts: P
       setRun({ phase: "error", text: e instanceof ApiError && e.status === 409 ? RANGE_RUNNING : actionError(e) });
       return;
     }
-    try {
-      const done = await pollJob(job, { signal: ctl.signal });
-      setRun({ phase: "result", text: rangeResult(done.result as RangeResult) });
-    } catch (e) {
-      if (ctl.signal.aborted) return;
-      setRun({ phase: "error", text: pollError(e) });
+    // a range can run for hours on this Mac: no cap, and a failed poll is asked again after a pause
+    for (;;) {
+      try {
+        const done = await pollJob(job, { signal: ctl.signal, cap: 0 });
+        setRun({ phase: "result", text: rangeResult(done.result as RangeResult) });
+        break;
+      } catch (e) {
+        if (ctl.signal.aborted) return;
+        if (e instanceof JobError || (e instanceof ApiError && (e.status === 404 || e.status === 401))) {
+          setRun({ phase: "error", text: pollError(e) });
+          break;
+        }
+        setRun({ phase: "running", days, still: true });
+        try {
+          await pause(RETRY_MS, ctl.signal);
+        } catch {
+          return; // left the page
+        }
+      }
     }
     notifyInsightsChanged();
     onDone();
@@ -110,7 +129,9 @@ function RangeControl({ index, facts, onDone }: { index: InsightsIndex; facts: P
         </div>
       )}
       {run.phase === "running" && (
-        <p class="ins-quiet xd-status" role="status">{`Generating ${run.days} ${run.days === 1 ? "day" : "days"}…`}</p>
+        <p class="ins-quiet xd-status" role="status">
+          {run.still ? STILL_GENERATING : `Generating ${run.days} ${run.days === 1 ? "day" : "days"}…`}
+        </p>
       )}
       {run.phase === "result" && <p class="ins-quiet xd-status" role="status">{run.text}</p>}
       {run.phase === "error" && <p class="ins-error xd-status" role="alert">{run.text}</p>}

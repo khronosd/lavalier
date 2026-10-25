@@ -37,6 +37,7 @@ let indexes: InsightsIndex[]; // one per GET; the last repeats
 let jobs: Job[];
 let post: () => Response;
 let jobGone: boolean;
+let jobFails: number; // how many job GETs answer 500 before the queue
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -46,12 +47,14 @@ beforeEach(() => {
   jobs = [job({ kind: "generate_range", key: "range" })];
   post = () => json({ job: "j1" }, 202);
   jobGone = false;
+  jobFails = 0;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${url}`;
     calls.push({ key, body: init?.body ? JSON.parse(init.body as string) : undefined });
     if (key === "GET /api/insights/providers") return json(facts);
     if (key === "GET /api/insights") return json(indexes.length > 1 ? indexes.shift() : indexes[0]);
     if (key === "GET /api/jobs/j1" && jobGone) return json({ error: "not found" }, 404);
+    if (key === "GET /api/jobs/j1" && jobFails > 0) { jobFails--; return json({ error: "boom" }, 500); }
     if (key === "GET /api/jobs/j1") return json(jobs.length > 1 ? jobs.shift() : jobs[0]);
     if (key === "POST /api/insights/generate-range") return post();
     throw new Error(`unexpected ${key}`);
@@ -78,8 +81,9 @@ test("follow-ups across days, newest day first, under the day's title on the mar
   const groups = [...section.querySelectorAll(".day-group")];
   expect(groups.map((g) => g.querySelector(".group-title")!.textContent)).toEqual(["Friday, 23 October", "Thursday, 22 October"]);
   const rows = groups.map((g) => [...g.querySelectorAll(".line")].map((r) => r.textContent));
+  // days newest first; within a day, in time order
   expect(rows).toEqual([
-    ["23:04:00Plug the pendant in before the sync", "22:56:09Check the mute survives a reboot"],
+    ["22:56:09Check the mute survives a reboot", "23:04:00Plug the pendant in before the sync"],
     ["09:30:00Call <b>Ana</b> back"],
   ]);
   const jump = within(groups[0] as HTMLElement).getByRole("link", { name: "22:56:09" });
@@ -204,4 +208,55 @@ test("a failed load says so", async () => {
   await show();
   expect(screen.getByRole("alert").textContent)
     .toBe("Insights could not be loaded (Failed to fetch). Check that the lavalier app is running.");
+});
+
+test("a range already running says so", async () => {
+  indexes = [full({ days_without: without(2) })];
+  post = () => json({ error: "already running" }, 409);
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Generate for the last 7 days" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  await flush();
+  expect(screen.getByRole("alert").textContent).toBe("Days are already being generated. Wait for that run to finish.");
+});
+
+test("a poll that fails says the range is still generating and keeps polling", async () => {
+  indexes = [full({ days_without: without(2) })];
+  jobFails = 1;
+  jobs = [job({ kind: "generate_range", key: "range", state: "done", result: { done: 2, errors: [] } })];
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Generate for the last 7 days" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  await flush();
+  expect(screen.getByText("Still generating; the results will appear here when it finishes")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  await tick(5000);
+  expect(screen.getByText("Generated 2 days.")).toBeTruthy();
+  expect(screen.queryByText(/Still generating/)).toBeNull();
+});
+
+test("a range poll is not capped at 30 minutes", async () => {
+  indexes = [full({ days_without: without(2) })];
+  await show();
+  fireEvent.click(screen.getByRole("button", { name: "Generate for the last 7 days" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  await flush();
+  await tick(31 * 60_000);
+  expect(screen.getByText("Generating 2 days…")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/30 minutes/)).toBeNull();
+});
+
+test("leaving the page stops polling the range", async () => {
+  indexes = [full({ days_without: without(2) })];
+  const { unmount } = await show();
+  fireEvent.click(screen.getByRole("button", { name: "Generate for the last 7 days" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  await flush();
+  await tick();
+  const polled = calls.filter((c) => c.key === "GET /api/jobs/j1").length;
+  expect(polled).toBe(2);
+  unmount();
+  await tick(10_000);
+  expect(calls.filter((c) => c.key === "GET /api/jobs/j1")).toHaveLength(polled);
 });

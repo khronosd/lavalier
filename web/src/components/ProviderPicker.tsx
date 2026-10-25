@@ -113,10 +113,13 @@ export function ProviderPicker({ settings, setSettings, save, errors, clearError
   if (shown && provider === "ollama") {
     // Ollama's models are only known from a check; a "Pull …" detail is said by the picker instead
     const listed = check !== null && (check.models.length > 0 || check.detail.startsWith("Pull "));
+    const failed = test !== null && !test.ok; // said here, in place of the hint, not beside Test
     picker = (
       <fieldset class="radios model-picker">
         <legend>Model</legend>
-        {!listed && <p class="field-help">{PRESS_TEST}</p>}
+        {!listed && (failed
+          ? <p class="field-error" role="alert">{test!.text}</p>
+          : <p class="field-help">{PRESS_TEST}</p>)}
         {listed && check!.models.map((m) => (
           <ModelRadio key={m.id} m={{ ...m, cost_per_day: null }} checked={chosen === m.id}
             onChoose={() => saveAndRead({ insights_model: m.id })} />
@@ -139,14 +142,15 @@ export function ProviderPicker({ settings, setSettings, save, errors, clearError
             ))}
           </fieldset>
         )}
-        <Field key={`model-${provider}`} name="insights_model" label="Another model id"
+        <Field key={`model-${provider}`} name="insights_model" label="Another model id" blurOnly
           value={known ? "" : settings.insights_model} error={errors.insights_model}
           onEdit={() => clearError("insights_model")} onCommit={(t) => saveAndRead({ insights_model: t.trim() })} />
       </>
     );
   }
 
-  const hideTestDetail = provider === "ollama" && test !== null && test.text.startsWith("Pull ");
+  // for Ollama a failure (or a "Pull …" detail) is said by the picker
+  const hideTestDetail = provider === "ollama" && test !== null && !test.ok;
   return (
     <>
       <fieldset class="radios providers">
@@ -180,7 +184,7 @@ export function ProviderPicker({ settings, setSettings, save, errors, clearError
               onChanged={readFacts} />
           )}
           {provider === "openai" && (
-            <Field key="insights_base_url" name="insights_base_url" label="Base URL" value={settings.insights_base_url}
+            <Field key="insights_base_url" name="insights_base_url" label="Base URL" blurOnly value={settings.insights_base_url}
               help={BASE_URL_HELP} error={errors.insights_base_url} onEdit={() => clearError("insights_base_url")}
               onCommit={(t) => saveAndRead({ insights_base_url: t.trim() })} />
           )}
