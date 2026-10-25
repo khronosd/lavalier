@@ -612,6 +612,12 @@ test("Connectors: the export list, newest first, with Export again on a stopped 
   await waitFor(() => expect(screen.queryByText("stopped: edited by hand")).toBeNull());
   expect(others.find((o) => o.key === "POST /api/connectors/notion/export")!.body).toEqual({ day: "2026-10-22", force: true });
   expect(screen.getAllByRole("button", { name: "Export again" }).length).toBe(1);
+  conn = connectors({ notion: { enabled: true, last: [exportRow("2026-10-23", "done"), exportRow("2026-10-22", "done"),
+    exportRow("2026-10-21", "done")] } });
+  fireEvent.click(screen.getByRole("button", { name: "Export again" }));      // the failed day: retried, not forced
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Export again" })).toBeNull());
+  const posts = others.filter((o) => o.key === "POST /api/connectors/notion/export");
+  expect(posts.map((p) => p.body)).toEqual([{ day: "2026-10-22", force: true }, { day: "2026-10-21" }]);
 });
 
 test("Connectors: the calendar authorisation states", async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { exportResultLine, exportRowState, normaliseNotionId, toggleCalendar } from "./connectors";
+import { againBody, exportResultLine, exportRowState, normaliseNotionId, toggleCalendar } from "./connectors";
 
 const HEX = "0123456789abcdef0123456789abcdef";
 
@@ -59,4 +59,11 @@ test("toggleCalendar keeps the list comma-separated and keeps ids it does not sh
   expect(toggleCalendar("gone, work,\nhome", "work", false)).toBe("gone,home");
   expect(toggleCalendar("work", "work", true)).toBe("work");
   expect(toggleCalendar("work", "work", false)).toBe("");
+});
+
+test("Export again forces only a day stopped by a hand edit; a failed day is retried as it is", () => {
+  const row = { day: "2026-10-23", connector: "notion", page_id: "p", block_id: "b", content_hash: "h",
+    exported_ms: null, error: "x" };
+  expect(againBody({ ...row, state: "stopped" })).toEqual({ day: "2026-10-23", force: true });
+  expect(againBody({ ...row, state: "error" })).toEqual({ day: "2026-10-23" });
 });

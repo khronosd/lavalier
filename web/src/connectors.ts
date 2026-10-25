@@ -74,6 +74,12 @@ export function exportRowState(row: ExportRow): string {
 /** A row offers Export again when it was stopped by a hand edit or failed. */
 export const canExportAgain = (row: ExportRow) => row.state === "stopped" || row.state === "error";
 
+/** What Export again sends: only a day stopped by a hand edit is forced (overwritten once); a failed day is
+ *  simply tried again, so a hand edit made since is still noticed. */
+export function againBody(row: ExportRow): { day: string; force?: true } {
+  return row.state === "stopped" ? { day: row.day, force: true } : { day: row.day };
+}
+
 /** `calendar_ids` as identifiers: separated by commas or lines, blanks dropped (calendar.chosen_calendar_ids). */
 export function calendarIds(raw: string): string[] {
   return raw.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);

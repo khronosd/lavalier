@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, pollJob, type ConnectorsState, type DatabaseInfo, type ExportResult, type Settings, type SettingsPatch } from "../api";
-import { EXPORT_DAYS, exportResultLine, normaliseNotionId, NOTION_SENTENCE } from "../connectors";
+import { againBody, EXPORT_DAYS, exportResultLine, normaliseNotionId, NOTION_SENTENCE } from "../connectors";
 import { actionError, pollError } from "../insights";
 import { ConnectorSwitch } from "./ConnectorSwitch";
 import { ExportList } from "./ExportList";
@@ -61,7 +61,7 @@ export function NotionConnector({ settings, state, saveAndRead, setSettings, err
   }
 
   /** Start an export job, follow it to its end, say what it did and read the list again. */
-  async function runExport(body: { days: number } | { day: string; force: true }) {
+  async function runExport(body: { days: number } | { day: string; force?: true }) {
     poll.current?.abort();
     const ctl = new AbortController();
     poll.current = ctl;
@@ -113,7 +113,7 @@ export function NotionConnector({ settings, state, saveAndRead, setSettings, err
           <span class={result.ok ? "ins-help" : "ins-help con-bad"} role={result.ok ? "status" : "alert"}>{result.text}</span>
         )}
       </div>
-      {state && <ExportList rows={state.notion.last} busy={running} onAgain={(day) => runExport({ day, force: true })} />}
+      {state && <ExportList rows={state.notion.last} busy={running} onAgain={(row) => runExport(againBody(row))} />}
     </section>
   );
 }

@@ -6,7 +6,7 @@ interface Props {
   rows: ExportRow[];
   /** An export is running: Export again waits for it. */
   busy: boolean;
-  onAgain: (day: string) => void;
+  onAgain: (row: ExportRow) => void;
 }
 
 /** The last exports to Notion, newest first: the day, when it went or why not, and Export again on a day
@@ -25,7 +25,7 @@ export function ExportList({ rows, busy, onAgain }: Props) {
                 <span class="exp-day">{dayTitle(row.day)}</span>
                 <span class="exp-state">{exportRowState(row)}</span>
                 {canExportAgain(row) && (
-                  <button class="btn" type="button" disabled={busy} onClick={() => onAgain(row.day)}>Export again</button>
+                  <button class="btn" type="button" disabled={busy} onClick={() => onAgain(row)}>Export again</button>
                 )}
               </li>
             ))}
