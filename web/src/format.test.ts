@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { age, dayTitle, duration, hm, hms, isoDay, monthName } from "./format";
+import { age, clock, dayTitle, duration, hm, hms, isoDay, monthName } from "./format";
 
 test.each([
   [16_000, "16 s"],
@@ -36,4 +36,9 @@ test("monthName names the month, with the year only when it is not this year", (
   expect(monthName("2026-10-23", "2026-10-24")).toBe("October");
   expect(monthName("2026-01-02", "2026-10-24")).toBe("January");
   expect(monthName("2025-12-31", "2026-10-24")).toBe("December 2025");
+});
+
+test("clock shows seconds as minutes and seconds, and nothing finite as 0:00", () => {
+  expect([0, 7, 59.9, 60, 252.4, 3599, Number.NaN, Number.POSITIVE_INFINITY].map(clock))
+    .toEqual(["0:00", "0:07", "0:59", "1:00", "4:12", "59:59", "0:00", "0:00"]);
 });

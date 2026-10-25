@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, type DaySummary, explainError, type InsightsIndex, type Status } from "./api";
 import { Shell } from "./components/Shell";
 import { isoDay } from "./format";
+import { PlaybackProvider } from "./playback";
 import { Journal } from "./pages/Journal";
 import { Insights } from "./pages/Insights";
 import { Search } from "./pages/Search";
@@ -85,11 +86,13 @@ export function App() {
 
   return (
     <DataVersion.Provider value={version}>
+      <PlaybackProvider>
       <Shell route={route} days={days} today={today} pendant={pendant}
         insightsTodo={insightsTodo}>
         {error && <div class="page page-notice"><p class="notice warn" role="alert">{error}</p></div>}
         <Page route={route} today={today} days={days} />
       </Shell>
+      </PlaybackProvider>
     </DataVersion.Provider>
   );
 }

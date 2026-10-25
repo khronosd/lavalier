@@ -1,33 +1,14 @@
-import type { RefObject } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useRef } from "preact/hooks";
 import type { DayView } from "../api";
 import { type Route, toHash } from "../router";
 import { blocks, hourTicks, starDots, timelineRange } from "../timeline";
+import { useWidth } from "../useWidth";
 
 interface Props {
   view: DayView;
   selected: string | null;
   /** The route being shown; a block links to it with ?at= naming the conversation (a jump), the tab kept. */
   route: Route;
-}
-
-/** The element's width, followed as it changes; 0 until measured (jsdom never measures). */
-function useWidth(ref: RefObject<HTMLElement>): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const read = () => setWidth(el.clientWidth);
-    read();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", read);
-      return () => window.removeEventListener("resize", read);
-    }
-    const observer = new ResizeObserver(read);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  return width;
 }
 
 const at = (left: number) => `${left}%`;

@@ -67,3 +67,9 @@ export function monthName(iso: string, today: string): string {
   const name = MONTHS[m - 1];
   return String(y) === today.slice(0, 4) ? name : `${name} ${y}`;
 }
+
+/** Seconds of a clip as "4:12"; anything not finite is "0:00". */
+export function clock(seconds: number): string {
+  const whole = Number.isFinite(seconds) ? Math.floor(seconds) : 0;
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}

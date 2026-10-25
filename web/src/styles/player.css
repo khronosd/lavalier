@@ -1,0 +1,35 @@
+/* The mini-player: a glass bar floating 14px above the bottom of the content column, 16px in from each side.
+   The scrubber's bars fill left to right as the clip plays; that is the window's one motion besides the flash. */
+.content-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
+.content-wrap > .content { flex: 1; min-width: 0; }
+
+.mini {
+  position: absolute; left: 16px; right: 16px; bottom: 14px; height: 56px; z-index: 10;
+  display: flex; align-items: center; gap: 10px; padding: 0 12px 0 10px;
+  border-radius: var(--radius-xl); background: var(--glass);
+  -webkit-backdrop-filter: blur(30px) saturate(1.6); backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow: var(--shadow-l), inset 0 0 0 0.5px var(--ring);
+}
+.mini-play {
+  width: 34px; height: 34px; flex: none; border: 0; padding: 0; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; cursor: default;
+}
+.mini-play svg { width: 16px; height: 16px; }
+.mini-play:disabled { opacity: 0.45; }
+.mini-step { width: 24px; height: 24px; }
+.mini-step:disabled { opacity: 0.35; }
+.mini-title { display: flex; flex-direction: column; line-height: 1.2; width: 118px; flex: none; min-width: 0; }
+.mini-title.warn { width: auto; flex: 0 1 auto; }
+.mini-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-sub {
+  font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mini-error { color: var(--warn); }
+.mini-scrub { flex: 1; min-width: 40px; display: flex; align-items: center; gap: 2px; height: 28px; overflow: hidden; cursor: default; border-radius: var(--radius-s); }
+.mini-scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mini-bar { width: 3px; height: var(--h); flex: none; border-radius: 1.5px; background: var(--bar); }
+.mini-bar.played { background: var(--accent); }
+.mini-time { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; flex: none; }
+.mini-speed { width: auto; padding: 0 8px; font-size: 11.5px; font-weight: 600; color: var(--text); }
+.mini-close { width: 24px; height: 24px; }

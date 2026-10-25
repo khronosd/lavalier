@@ -1,27 +1,16 @@
-/* The Audio tab: the day's line and Play day, the player, then a row per conversation. */
+/* The Audio tab: the day's line and Play day, then a row per conversation. What plays shows in the
+   mini-player (player.css). */
 
-.audio-day { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
+.audio-day { display: flex; align-items: center; gap: 12px; margin: 0; }
 .audio-kept { margin: 0; color: var(--text-2); }
 .audio-gone { margin: 8px 0 0; color: var(--text-2); font-size: 12.5px; }
 
-.player {
-  margin: 16px 0 0; padding: 12px 14px; background: var(--surface);
-  border: 1px solid var(--hairline); border-radius: var(--radius-m);
-}
-.player-head { display: flex; align-items: baseline; gap: 10px; }
-.player-title { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.player-index { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-.player-controls { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-.player-progress { flex: 1; min-width: 60px; height: 4px; margin-left: 6px; accent-color: var(--accent); }
-.player-time { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
-.player-error { margin: 8px 0 0; color: var(--warn); font-size: 12.5px; }
-
 .audio-list { list-style: none; margin: 14px 0 0; padding: 0; }
 .audio-row {
-  display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hair2);
+  display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hairline);
 }
 .audio-row:first-child { border-top: 0; }
 .audio-row-title { margin: 0; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.audio-dur { color: var(--text-2); font-size: 12px; }
+.audio-span, .audio-dur { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .audio-unavailable { color: var(--text-3); font-size: 12px; }
 .audio-row > .btn { margin-left: auto; }

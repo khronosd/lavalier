@@ -1,7 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { ComponentChildren } from "preact";
 import type { ConversationView, DayView } from "../api";
+import { PlaybackProvider } from "../playback";
 import { AudioTab } from "./AudioTab";
+import { MiniPlayer } from "./MiniPlayer";
+
+/** The tab as the window mounts it: under the playback provider, with the mini-player beside it. */
+const wrap = (ui: ComponentChildren) => <PlaybackProvider>{ui}<MiniPlayer /></PlaybackProvider>;
 
 const at = (h: number, m: number, s = 0) => new Date(2026, 9, 23, h, m, s).getTime();
 const conv = (id: string, start: number, end: number, clips: string[], audio_available = true): ConversationView => ({
@@ -53,7 +59,7 @@ afterEach(() => {
 });
 
 test("a row per conversation; the one whose audio is gone cannot be played; the day says how long audio is kept", () => {
-  const { container } = render(<AudioTab view={view} />);
+  const { container } = render(wrap(<AudioTab view={view} />));
   expect(screen.getByText("Audio is kept until 7 November.")).toBeTruthy();
   const rows = [...container.querySelectorAll(".audio-row")];
   expect(rows.map((r) => r.querySelector("h2")!.textContent)).toEqual(["09:00 to 09:10", "17:33 to 17:40", "22:56"]);
@@ -66,11 +72,11 @@ test("a row per conversation; the one whose audio is gone cannot be played; the 
 });
 
 test("Play day plays every kept clip in order, skips the gone conversation, and advances on ended", async () => {
-  const { container } = render(<AudioTab view={view} />);
+  const { container } = render(wrap(<AudioTab view={view} />));
   fireEvent.click(screen.getByRole("button", { name: "Play day" }));
   await waitFor(() => expect(screen.getByText("clip 1 of 3")).toBeTruthy());
   expect(screen.getByText("Not in the playlist, its audio is no longer kept: 09:00 to 09:10.")).toBeTruthy();
-  expect(container.querySelector(".player-title")!.textContent).toBe("17:33 to 17:40");
+  expect(container.querySelector(".mini-name")!.textContent).toBe("17:33 to 17:40");
   const audio = container.querySelector("audio")!;
   await waitFor(() => expect(audio.getAttribute("src")).toBe("blob:1"));
   expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
@@ -81,7 +87,7 @@ test("Play day plays every kept clip in order, skips the gone conversation, and 
   expect(revoked).toEqual(["blob:1"]);
 
   fireEvent.click(screen.getByRole("button", { name: "Next clip" }));
-  await waitFor(() => expect(container.querySelector(".player-title")!.textContent).toBe("22:56"));
+  await waitFor(() => expect(container.querySelector(".mini-name")!.textContent).toBe("22:56"));
   expect(screen.getByText("clip 3 of 3")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Next clip" }) as HTMLButtonElement).disabled).toBe(true);
   expect(fetched).toEqual(["c1", "c2", "c3"]);
@@ -92,7 +98,7 @@ test("Play day plays every kept clip in order, skips the gone conversation, and 
 });
 
 test("?conv= starts that conversation at once", async () => {
-  render(<AudioTab view={view} conv="test" />);
+  render(wrap(<AudioTab view={view} conv="test" />));
   await waitFor(() => expect(screen.getByText("clip 1 of 1")).toBeTruthy());
   expect(fetched).toEqual(["c3"]);
 });
@@ -101,7 +107,7 @@ test("a clip the app no longer keeps stops the player on it with the reason", as
   answer = (clip) => clip === "c2"
     ? new Response(JSON.stringify({ error: "gone" }), { status: 410, headers: { "Content-Type": "application/json" } })
     : new Response(new Blob(["aac"]), { status: 200 });
-  const { container } = render(<AudioTab view={view} conv="eve" />);
+  const { container } = render(wrap(<AudioTab view={view} conv="eve" />));
   const audio = await waitFor(() => {
     const a = container.querySelector("audio")!;
     expect(a.getAttribute("src")).toBe("blob:1");
@@ -116,14 +122,14 @@ test("a clip the app no longer keeps stops the player on it with the reason", as
 
 test("a 500 says the audio could not be prepared, with the app's message", async () => {
   answer = () => new Response(JSON.stringify({ error: "ffmpeg failed" }), { status: 500 });
-  render(<AudioTab view={view} conv="test" />);
+  render(wrap(<AudioTab view={view} conv="test" />));
   expect((await screen.findByRole("alert")).textContent).toBe("Could not prepare the audio: ffmpeg failed");
 });
 
 test("a day whose audio is gone says so and offers nothing to play", () => {
   const gone: DayView = { ...view, audio_until: null,
     conversations: view.conversations.map((c) => ({ ...c, audio_available: false })) };
-  render(<AudioTab view={gone} />);
+  render(wrap(<AudioTab view={gone} />));
   expect(screen.getByText("The audio for this day is no longer kept.")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Play day" }) as HTMLButtonElement).disabled).toBe(true);
 });
@@ -137,7 +143,7 @@ test("a clip that arrives after the player moved on is revoked, never played", a
     await gate;
     return answer(url);
   }));
-  render(<AudioTab view={view} conv="eve" />);
+  render(wrap(<AudioTab view={view} conv="eve" />));
   cleanup(); // closed before the first clip arrived
   release();
   await waitFor(() => expect(revoked).toEqual(["blob:1"]));
@@ -146,7 +152,7 @@ test("a clip that arrives after the player moved on is revoked, never played", a
 });
 
 test("a refetched day equal to the one shown leaves the playing clip alone; a changed clip loads", async () => {
-  const { container, rerender } = render(<AudioTab view={view} conv="eve" />);
+  const { container, rerender } = render(wrap(<AudioTab view={view} conv="eve" />));
   const audio = await waitFor(() => {
     const a = container.querySelector("audio")!;
     expect(a.getAttribute("src")).toBe("blob:1");
@@ -155,7 +161,7 @@ test("a refetched day equal to the one shown leaves the playing clip alone; a ch
   Object.defineProperty(audio, "currentTime", { configurable: true, value: 42 }); // mid-clip
   const plays = vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
 
-  rerender(<AudioTab view={JSON.parse(JSON.stringify(view)) as DayView} conv="eve" />); // as a refetch delivers it
+  rerender(wrap(<AudioTab view={JSON.parse(JSON.stringify(view)) as DayView} conv="eve" />)); // as a refetch delivers it
   await act(async () => { await Promise.resolve(); });
   expect(fetched).toEqual(["c1"]);
   expect(audio.getAttribute("src")).toBe("blob:1");
@@ -165,7 +171,7 @@ test("a refetched day equal to the one shown leaves the playing clip alone; a ch
   // the clip under the player changed: that one loads
   const changed: DayView = { ...view, conversations: view.conversations.map((c) =>
     c.conversation_id === "eve" ? { ...c, clip_ids: ["c1b", "c2"] } : c) };
-  rerender(<AudioTab view={changed} conv="eve" />);
+  rerender(wrap(<AudioTab view={changed} conv="eve" />));
   await waitFor(() => expect(audio.getAttribute("src")).toBe("blob:2"));
   expect(fetched).toEqual(["c1", "c1b"]);
 });

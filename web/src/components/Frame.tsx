@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { useShell } from "../shellState";
+import { MiniPlayer } from "./MiniPlayer";
 import { Toolbar, type ToolbarProps } from "./Toolbar";
 
 interface Props {
@@ -40,7 +41,10 @@ export function Frame({ toolbar, list, listLabel = "List", band, inspector, insp
       {band != null && <div class="band">{band}</div>}
       <div class="panes">
         {list != null && <section class="list-col" aria-label={listLabel}>{list}</section>}
-        <main class="content">{children}</main>
+        <div class="content-wrap">
+          <main class="content">{children}</main>
+          <MiniPlayer />
+        </div>
         {!folded && asideEl}
       </div>
     </>
