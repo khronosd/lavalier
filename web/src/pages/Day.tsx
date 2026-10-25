@@ -11,6 +11,7 @@ import { InsightsIcon } from "../components/icons";
 import { InsightsTab } from "../components/InsightsTab";
 import { Starred } from "../components/Starred";
 import { Tabs, tabOf } from "../components/Tabs";
+import { TimelineBand } from "../components/TimelineBand";
 import { partOfDay, pendingSentence, summaryLine } from "../day";
 import { useOnDataChange } from "../refresh";
 import { navigate, type Route, toHash } from "../router";
@@ -130,7 +131,12 @@ export function Day({ date, isToday, route, nav }: Props) {
 
   return (
     <Frame toolbar={{ children: <Tabs route={route} /> }}
-      band={<DayHeader date={date} summary={view ? summaryLine(view) : null} nav={nav} />}
+      band={(
+        <>
+          <DayHeader date={date} summary={view ? summaryLine(view) : null} nav={nav} />
+          {view && <TimelineBand view={view} selected={selected} route={route} />}
+        </>
+      )}
       list={list} listLabel="Conversations" inspector={inspector} inspectorLabel="Insights"
       focusInspector={route.query.tab === "insights" ? toHash(route) : undefined}>
       <div class="page day-page" aria-busy={!view && !error ? "true" : undefined}>

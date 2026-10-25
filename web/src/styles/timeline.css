@@ -1,0 +1,26 @@
+/* The timeline band: hour lines from 16px below the top to 24px above the bottom, the axis at 24px, blocks
+   standing on it, labels above them, star dots on it. Positions come from custom properties the component
+   sets (--left, --width, --h, --bottom); nothing moves. */
+.timeline { position: relative; height: 104px; margin-top: 6px; }
+.tl-hour { position: absolute; left: var(--left); top: 16px; bottom: 24px; width: 1px; background: var(--hairline); }
+.tl-hour-label {
+  position: absolute; left: 0; top: calc(100% + 24px); transform: translate(-50%, -100%); margin-top: -2px;
+  font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tl-axis { position: absolute; left: 0; right: 0; bottom: 24px; height: 1px; background: var(--hair2); }
+.tl-block {
+  position: absolute; left: var(--left); width: var(--width); height: var(--h); bottom: 28px;
+  border-radius: 6px; background: var(--control-3); cursor: default;
+}
+.tl-block.selected { background: var(--accent); box-shadow: 0 0 22px var(--accent-glow); }
+.tl-label {
+  position: absolute; left: var(--left); bottom: var(--bottom); transform: translateX(-50%); pointer-events: none;
+  font-size: 11px; color: var(--text-2); white-space: nowrap;
+}
+.tl-label.selected { color: var(--text); font-weight: 600; }
+.tl-label.dropped { display: none; }
+.tl-block:hover + .tl-label.dropped { display: block; }
+.tl-star {
+  position: absolute; left: var(--left); bottom: 21.5px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); transform: translateX(-50%); box-shadow: 0 0 8px var(--accent-glow);
+}

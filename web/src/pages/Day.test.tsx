@@ -96,6 +96,11 @@ test("a day shows its band, a row per conversation, the first one's transcript, 
   const links = within(inspector).getAllByRole("link", { name: "in the 22:56 conversation" });
   expect(links.map((a) => a.getAttribute("href"))).toEqual(["#/day/2026-10-23?at=c-conv_test", "#/day/2026-10-23?at=c-conv_test"]);
 
+  // the timeline has a block per conversation, linking to it as a jump
+  const band = screen.getByRole("navigation", { name: "Timeline of the day" });
+  expect(within(band).getAllByRole("link").map((a) => a.getAttribute("href")))
+    .toEqual(["#/day/2026-10-23?at=c-conv_long", "#/day/2026-10-23?at=c-conv_test"]);
+
   // previous is disabled at the oldest day; next goes to today's page
   expect(screen.getByText("Previous").closest("[aria-disabled]")!.getAttribute("aria-disabled")).toBe("true");
   expect(screen.getByRole("link", { name: /^Next day/ }).getAttribute("href")).toBe("#/today");
@@ -115,7 +120,8 @@ test("?conv= selects a row, and its conversation shows its lines with the starre
   expect(section.querySelector(".conv-stars")!.textContent).toBe("★★");
   // the heading shows the wall-clock range and, beside it, the speech total (not the span's length)
   expect(section.querySelector(".conv-dur")!.textContent).toBe("16 s speech ★★");
-  expect(screen.getByRole("link", { name: /^22:56/ }).getAttribute("aria-current")).toBe("true");
+  const list = screen.getByRole("region", { name: "Conversations" });
+  expect(within(list).getByRole("link", { name: /^22:56/ }).getAttribute("aria-current")).toBe("true");
 });
 
 test("a star after the last line keeps its own row at its exact time", async () => {
@@ -170,7 +176,8 @@ test("?at= selects the line's conversation, scrolls to the line, flashes it, dro
     rerender(<Journal route={parseHash(window.location.hash)} today="2026-10-24" days={days} />);
     expect(container.querySelector("#c-conv_test")).toBeTruthy();
     expect(container.querySelector("#c-conv_long")).toBeNull();
-    expect(screen.getByRole("link", { name: /^22:56/ }).getAttribute("aria-current")).toBe("true");
+    const list = screen.getByRole("region", { name: "Conversations" });
+  expect(within(list).getByRole("link", { name: /^22:56/ }).getAttribute("aria-current")).toBe("true");
     await waitFor(() => expect(container.querySelector(".flash")).toBeNull(), { timeout: 2500 });
   } finally {
     Element.prototype.scrollIntoView = original;

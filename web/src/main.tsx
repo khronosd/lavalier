@@ -6,6 +6,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/day.css";
+import "./styles/timeline.css";
 import "./styles/lists.css";
 import "./styles/audio.css";
 import "./styles/insights.css";

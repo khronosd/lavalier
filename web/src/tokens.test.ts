@@ -23,8 +23,8 @@ const light = block(':root[data-theme="light"]');
 const dark = block(':root[data-theme="dark"]');
 const shared = block(":root {");
 
-/** Custom properties set on an element, not tokens: a calendar's colour dot. */
-const LOCAL = new Set(["--dot"]);
+/** Custom properties set on an element, not tokens: a calendar's colour dot, the timeline's geometry. */
+const LOCAL = new Set(["--dot", "--left", "--width", "--h", "--bottom"]);
 
 test("every token the stylesheets read is defined for both themes", () => {
   const used = new Set<string>();
