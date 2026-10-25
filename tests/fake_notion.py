@@ -51,12 +51,14 @@ DEFAULT_PROPERTIES = {"Name": {"id": "title", "name": "Name", "type": "title", "
 
 
 class FakeNotionClient:
-    def __init__(self, *, properties: Optional[dict] = None, title: str = "Journal", list_page_size: int = 100):
+    def __init__(self, *, properties: Optional[dict] = None, title: str = "Journal", list_page_size: int = 100,
+                 uuid_ids: bool = False):
         self.calls: list[tuple[str, dict]] = []
         self.clock = None                     # set to a callable to timestamp every call into `stamps`
         self.stamps: list[float] = []
         self.failures: dict[str, list[BaseException]] = {}
         self.list_page_size = list_page_size
+        self.uuid_ids = uuid_ids              # ids in Notion's dashed UUID form instead of "page-0001"
         self.visible = True
         self.databases_store = {DATABASE_ID: {"object": "database", "id": DATABASE_ID,
                                               "title": [_text(title)],
@@ -120,7 +122,10 @@ class FakeNotionClient:
         return call
 
     def _new_id(self, prefix: str) -> str:
-        return f"{prefix}-{next(self._ids):04d}"
+        n = next(self._ids)
+        if self.uuid_ids:
+            return f"{n:08x}-0000-4000-8000-{n:012x}"
+        return f"{prefix}-{n:04d}"
 
     def _parent_children(self, parent_id: str) -> list:
         if parent_id in self.page_store:

@@ -338,3 +338,31 @@ def test_a_failure_after_the_page_is_created_never_duplicates_it(db, ncfg, seede
     again = export_day(db, ncfg, client, DAY, now_ms=NOW)
     assert again.state == "done" and again.page_id == pid and len(fake.page_store) == 1
     assert _owned_text(fake, again.block_id) == again.plain_text
+
+
+# --- fix round 2: a transient failure never forgets the ids it did not replace
+
+@pytest.mark.parametrize("err", [fn.server_error, fn.timeout, lambda: fn.rate_limited("0")])
+def test_a_transient_block_check_failure_keeps_the_stored_ids(err, db, ncfg, seeded_2026_10_23_subset, fake, client):
+    first = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    _insight(db)
+    fake.fail("blocks.retrieve", err(), err())                         # a 429 is retried once, so fail twice
+    failed = export_day(db, ncfg, client, DAY, now_ms=NOW + 1)
+    assert failed.state == "error"
+    assert (failed.page_id, failed.block_id, failed.plain_text, failed.content_hash) == (
+        first.page_id, first.block_id, first.plain_text, first.content_hash)
+    fake.failures.clear()
+    edited = fake.block_children(first.block_id)[0]["id"]
+    fake.edit_block_text(edited, "hand edit")
+    fake.calls.clear()
+    rec = export_day(db, ncfg, client, DAY, now_ms=NOW + 2)
+    assert rec.state == "stopped" and rec.block_id == first.block_id and fake.writes() == []
+    b = fake.block_store[edited]
+    assert b[b["type"]]["rich_text"][0]["text"]["content"] == "hand edit"
+
+
+def test_a_transient_page_check_failure_keeps_the_stored_ids(db, ncfg, seeded_2026_10_23_subset, fake, client):
+    first = export_day(db, ncfg, client, DAY, now_ms=NOW)
+    fake.fail("pages.retrieve", fn.server_error())
+    failed = export_day(db, ncfg, client, DAY, now_ms=NOW + 1)
+    assert failed.state == "error" and (failed.page_id, failed.block_id) == (first.page_id, first.block_id)

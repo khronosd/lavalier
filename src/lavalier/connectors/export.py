@@ -102,8 +102,11 @@ def export_day(db: Database, cfg: Config, client: Notion, day: date, *, now_ms: 
             client.replace_children(block_id, children)
             client.update_properties(page_id, page_properties(view))
     except NotionError as e:
-        if page_id is not None:   # keep the page the day now has, even when this run found or made it
-            row = _with_page(day, row, page_id, block_id)
+        # an error row records only ids this run established: a failure before the stored block was verified
+        # (a 5xx, a 429, a timeout) must not forget it, or the next run would skip the hand-edit check
+        if page_id is not None:
+            same_page = row is not None and row.page_id == page_id
+            row = _with_page(day, row, page_id, block_id or (row.block_id if same_page else None))
         rec = _error(day, row, str(e), wrote=wrote)
         db.set_export(rec)
         return rec

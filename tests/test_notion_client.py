@@ -328,12 +328,14 @@ def _page_with_block(c, n):
 
 
 def test_owned_block_ok_accepts_only_the_live_callout_on_its_page():
-    c = fn.FakeNotionClient()
+    c = fn.FakeNotionClient(uuid_ids=True)
     n = notion(c)
     pid, bid = _page_with_block(c, n)
     other_pid, other_bid = _page_with_block(c, n)
+    assert pid.count("-") == 4 and len(pid) == 36
     assert n.owned_block_ok(bid, pid) is True
-    assert n.owned_block_ok(bid, pid.replace("-", "")) is True or "-" not in pid
+    assert n.owned_block_ok(bid, pid.replace("-", "")) is True          # a stored id without dashes still matches
+    assert n.owned_block_ok(bid, pid.upper()) is True
     assert n.owned_block_ok(other_bid, pid) is False                     # another page's callout
     mine = c.add_owner_block(pid, "a paragraph")
     assert n.owned_block_ok(mine, pid) is False                          # not a callout
