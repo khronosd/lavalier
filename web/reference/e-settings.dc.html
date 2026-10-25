@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lavalier, settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}a:hover{color:inherit}
+.ui{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+.tnum{font-variant-numeric:tabular-nums}
+.glass{backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6)}
+.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tb{display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;border:0;border-radius:7px;background:transparent;color:#B8B8C2;padding:0;font:inherit}
+.tb:hover{background:rgba(255,255,255,.08)}
+.nav{display:flex;align-items:center;gap:9px;height:28px;padding:0 10px;border-radius:7px;font-size:13px;color:#E6E6EA}
+.nav .ico{width:17px;height:17px;color:#A4A4AC}
+.navcount{margin-left:auto;font-size:12px;color:#8E8E99;display:inline-flex;align-items:center;gap:4px}
+.hd{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8E8E99}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border:0;border-radius:7px;font:inherit;font-size:12.5px;font-weight:500;background:rgba(255,255,255,.1);color:#F2F2F5;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)}
+.btn .ico{width:14px;height:14px}
+.tile{width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:#FFFFFF;flex:none}
+.tile .ico{width:15px;height:15px;stroke-width:1.8}
+.group{border-radius:12px;background:rgba(255,255,255,.045);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.09);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;min-height:46px;padding:8px 16px;font-size:13px}
+.row+.row{border-top:1px solid rgba(255,255,255,.07)}
+.step{display:inline-flex;flex-direction:column;width:16px;height:22px;border-radius:5px;background:rgba(255,255,255,.12);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14);overflow:hidden}
+.step button{flex:1;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;color:#F2F2F5}
+.step .ico{width:8px;height:8px;stroke-width:2.2}
+.ok{display:flex;align-items:flex-start;gap:10px;padding:7px 0;font-size:12.5px;line-height:1.4;color:#CFCFD6}
+.ok .mark{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;margin-top:1px;background:#34C759;color:#0E2B16}
+.ok .mark .ico{width:10px;height:10px;stroke-width:2.6}
+input::placeholder{color:#8E8E99}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div class="ui" style="position:relative;width:1400px;height:920px;overflow:hidden;background:#0E111A;color:#F2F2F5;font-size:13px;line-height:1.45">
+<div aria-hidden="true" style="position:absolute;inset:0;overflow:hidden">
+<div style="position:absolute;left:-200px;top:-260px;width:860px;height:860px;border-radius:50%;background:#1B2A52;filter:blur(100px);opacity:.9"></div>
+<div style="position:absolute;right:-260px;top:40px;width:800px;height:800px;border-radius:50%;background:#3B2448;filter:blur(110px);opacity:.8"></div>
+<div style="position:absolute;left:400px;bottom:-360px;width:980px;height:640px;border-radius:50%;background:#12303A;filter:blur(100px);opacity:.9"></div>
+</div>
+<div style="position:absolute;left:40px;top:40px;width:1320px;height:840px;border-radius:12px;overflow:hidden;display:flex;background:#15151A;box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 .5px rgba(255,255,255,.14)">
+<nav aria-label="Sidebar" class="glass" style="width:236px;flex:none;display:flex;flex-direction:column;background:rgba(30,30,36,.74);border-right:1px solid rgba(255,255,255,.08);padding:14px 10px 10px">
+<div aria-hidden="true" style="display:flex;gap:8px;align-items:center;height:24px;padding-left:8px;margin-bottom:16px">
+<span style="width:12px;height:12px;border-radius:50%;background:#FF5F57;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+<span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+<span style="width:12px;height:12px;border-radius:50%;background:#28C840;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+</div>
+<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px">
+<li><a class="nav" href="#today"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg><span>Today</span></a></li>
+<li><a class="nav" href="#starred"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span>Starred</span><span class="navcount tnum">11</span></a></li>
+<li><a class="nav" href="#search"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span>Search</span></a></li>
+<li><a class="nav" href="#insights"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3zM13 11l.6 1.4 1.4.6-1.4.6L13 15l-.6-1.4-1.4-.6 1.4-.6z"/></svg><span>Insights</span><span class="navcount">2 new</span></a></li>
+</ul>
+<p class="hd" style="margin:20px 0 6px;padding:0 10px">October</p>
+<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+<li><a class="nav tnum" href="#day" style="padding-left:36px"><span>{{d.name}}</span><span class="navcount"><sc-if value="{{d.stars}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:10px;height:10px;color:{{accent}};fill:currentColor"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span>{{d.stars}}</span></sc-if><span>{{d.len}}</span></span></a></li>
+</sc-for>
+<li><a class="nav" href="#earlier" style="padding-left:36px;color:#8E8E99"><span>Earlier…</span></a></li>
+</ul>
+<div style="margin-top:auto;border-top:1px solid rgba(255,255,255,.08);padding-top:8px">
+<a class="nav" href="#settings" aria-current="page" style="background:rgba(255,255,255,.1);font-weight:600"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="color:#F2F2F5"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg><span>Settings</span></a>
+</div>
+</nav>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02)">
+<button type="button" class="tb" aria-label="Hide sidebar"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="2.5"/><path d="M6 3v10"/></svg></button>
+<div style="width:236px;flex:none;display:flex;flex-direction:column;line-height:1.2;margin-left:4px">
+<span style="font-size:13px;font-weight:600">Settings</span>
+<span style="font-size:11px;color:#A4A4AC">Saved to ~/Pendant/config.toml</span>
+</div>
+<div style="flex:1"></div>
+<button type="button" aria-label="Pendant: listening, battery 82 percent, 312 pages waiting" style="display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 11px 0 9px;border:0;border-radius:14px;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12);font:inherit;font-size:12px;font-weight:500;color:#F2F2F5">
+<span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;background:#34C759;box-shadow:0 0 0 3px rgba(52,199,89,.2),0 0 12px rgba(52,199,89,.75)"></span><span>Listening</span><span aria-hidden="true" style="width:1px;height:14px;background:rgba(255,255,255,.14)"></span><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:15px;height:15px"><rect x="1" y="4.5" width="12" height="7" rx="2"/><path d="M14.5 7v2"/><rect x="2.3" y="5.8" width="7.8" height="4.4" rx="1" fill="currentColor" stroke="none"/></svg><span class="tnum">82%</span>
+</button>
+</div>
+<div style="flex:1;min-height:0;display:flex">
+<section aria-label="Settings sections" style="width:300px;flex:none;display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-right:1px solid rgba(255,255,255,.08);overflow:hidden;padding:6px 8px 0">
+<p class="hd" style="padding:8px 12px 4px">Sections</p>
+<sc-for list="{{sections}}" as="s" hint-placeholder-count="5">
+<a href="#section" style="display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:9px;background:{{s.bg}};color:{{s.fg}}">
+<span class="tile" style="background:{{s.tile}}"><sc-if value="{{s.isPendant}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 5l7 6-3.5 3.5v-13L11.5 5l-7 6"/></svg></sc-if><sc-if value="{{s.isStorage}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="9" width="12" height="5" rx="1.5"/><path d="M3.5 9l1.5-6h6l1.5 6M11.5 11.5h.01"/></svg></sc-if><sc-if value="{{s.isModel}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3zM13 11l.6 1.4 1.4.6-1.4.6L13 15l-.6-1.4-1.4-.6 1.4-.6z"/></svg></sc-if><sc-if value="{{s.isConnectors}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5l3-3M5 7L3.5 8.5a2.5 2.5 0 0 0 3.5 3.5L8.5 10.5M11 9l1.5-1.5a2.5 2.5 0 0 0-3.5-3.5L7.5 5.5"/></svg></sc-if><sc-if value="{{s.isAppearance}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" stroke="none"/></svg></sc-if></span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font-size:13px;font-weight:600">{{s.name}}</span><span style="font-size:11.5px;color:{{s.meta}};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{s.sub}}</span></div>
+<svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:12px;height:12px;color:{{s.meta}}"><path d="M6 3l5 5-5 5"/></svg>
+</a>
+</sc-for>
+<div style="margin-top:auto;padding:12px 12px 14px;font-size:11.5px;line-height:1.5;color:#8E8E99">Lavalier 0.4 · state in <span class="mono" style="color:#CFCFD6">~/Pendant</span><br>Audio never leaves this Mac.</div>
+</section>
+<article aria-label="Pendant settings" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;padding:22px 30px 0">
+<h1 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.2">Pendant</h1>
+<p style="margin:6px 0 0;font-size:12.5px;color:#A4A4AC">How often the recorder visits the pendant, and when it drains.</p>
+<div class="group" style="margin-top:20px">
+<div class="row"><span style="flex:1">Pendant address</span><span class="mono" style="font-size:12px;color:#CFCFD6">6B1E0D5C-14A2-4F7E-9B21-0C3D8E5A4F2A</span><button type="button" class="btn" style="height:24px;padding:0 10px;font-size:12px">Find…</button></div>
+<div class="row"><span style="flex:1">Check the pendant every</span><span class="tnum">10 min</span><span class="step"><button type="button" aria-label="Longer interval"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11l5-6 5 6"/></svg></button><button type="button" aria-label="Shorter interval"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5l5 6 5-6"/></svg></button></span></div>
+<div class="row"><span style="flex:1">Drain when this many pages are waiting</span><span class="tnum">1,000</span><span class="step"><button type="button" aria-label="More pages"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11l5-6 5 6"/></svg></button><button type="button" aria-label="Fewer pages"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5l5 6 5-6"/></svg></button></span></div>
+<div class="row"><span style="flex:1">Drain at least every</span><span class="tnum">24 hours</span><span class="step"><button type="button" aria-label="Longer"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11l5-6 5 6"/></svg></button><button type="button" aria-label="Shorter"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5l5 6 5-6"/></svg></button></span></div>
+<div class="row"><span style="flex:1">Drain whenever it is on the charger</span><button type="button" role="switch" aria-checked="true" aria-label="Drain whenever it is on the charger" style="width:38px;height:22px;border-radius:11px;border:0;padding:0;background:{{accent}};position:relative;flex:none"><span aria-hidden="true" style="position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span></button></div>
+<div class="row"><span style="flex:1">Require firmware</span><span class="mono" style="font-size:12px;color:#CFCFD6">1.1.3</span><button type="button" role="switch" aria-checked="true" aria-label="Require firmware 1.1.3" style="width:38px;height:22px;border-radius:11px;border:0;padding:0;background:{{accent}};position:relative;flex:none"><span aria-hidden="true" style="position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span></button></div>
+</div>
+<p style="margin:10px 2px 0;font-size:11.5px;line-height:1.45;color:#8E8E99">The recorder reads status, sets the clock and drains pages. It never changes the firmware and never retries a command on its own.</p>
+<p class="hd" style="margin-top:22px">Mute</p>
+<div class="group" style="margin-top:8px">
+<div class="row"><span style="flex:1">Who muted the pendant</span><span style="color:#A4A4AC">Nobody · listening</span><button type="button" class="btn" style="height:24px;padding:0 10px;font-size:12px">Mute</button></div>
+<div class="row"><span style="flex:1">Last sync</span><span class="tnum" style="color:#A4A4AC">9:31 · drained 212 pages in 48 s</span><button type="button" class="btn" style="height:24px;padding:0 10px;font-size:12px">Sync now</button></div>
+<div class="row"><span style="flex:1;line-height:1.35">Unmute pending<br><span style="font-size:11.5px;color:#8E8E99">If the recorder's unmute is not confirmed, it retries for 30 minutes, then leaves it to you.</span></span><span style="color:#A4A4AC">None</span></div>
+</div>
+</article>
+<aside aria-label="Doctor" style="width:260px;flex:none;display:flex;flex-direction:column;gap:14px;background:rgba(255,255,255,.025);border-left:1px solid rgba(255,255,255,.08);padding:20px 18px 16px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="color:#34C759"><circle cx="8" cy="8" r="6"/><path d="M5.5 8.2l1.8 1.8 3.4-3.8"/></svg><span style="font-size:13px;font-weight:600">Everything checks out</span><span class="tnum" style="margin-left:auto;font-size:11px;color:#8E8E99">9:31</span></div>
+<div style="display:flex;flex-direction:column">
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="7">
+<div class="ok"><span class="mark"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg></span><span><span style="color:#F2F2F5">{{c.name}}</span><br><span style="font-size:11.5px;color:#8E8E99">{{c.detail}}</span></span></div>
+</sc-for>
+</div>
+<button type="button" class="btn" style="align-self:flex-start"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v2.5H11"/></svg><span>Run doctor again</span></button>
+<p style="margin:auto 0 0;font-size:11.5px;line-height:1.5;color:#8E8E99">Doctor reads the pendant's status once and changes nothing. Downloading the speech model is the only step that ever touches the network.</p>
+</aside>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#F2B340","options":["#F2B340","#5AC8FA","#FF6B6B","#64D2A3"]},"$preview":{"width":1400,"height":920}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? "#F2B340";
+    const onAccent = "#1C1A14";
+    const days = [
+      { name: "Today", len: "41 min", stars: 0 },
+      { name: "Friday 23", len: "3 h 1 m", stars: 4 },
+      { name: "Thursday 22", len: "2 h 18 m", stars: 1 },
+      { name: "Wednesday 21", len: "1 h 52 m", stars: 0 },
+      { name: "Tuesday 20", len: "2 h 40 m", stars: 2 },
+      { name: "Monday 19", len: "3 h 25 m", stars: 0 },
+      { name: "Sunday 18", len: "48 min", stars: 0 }
+    ];
+    const section = (key, name, sub, tile, selected) => ({
+      name, sub, tile,
+      isPendant: key === "pendant", isStorage: key === "storage", isModel: key === "model", isConnectors: key === "connectors", isAppearance: key === "appearance",
+      bg: selected ? accent : "transparent",
+      fg: selected ? onAccent : "#F2F2F5",
+      meta: selected ? "rgba(28,26,20,.72)" : "#A4A4AC"
+    });
+    const sections = [
+      section("pendant", "Pendant", "Every 10 min · drain at 1,000 pages", "#1A6FE6", true),
+      section("storage", "Storage", "Keep audio 30 days · 2.4 GB on disk", "#8E8E93", false),
+      section("model", "Model", "Ollama · llama3.1 8B · automatic", "#AF52DE", false),
+      section("connectors", "Connectors", "Notion on · Calendar off", "#34A853", false),
+      section("appearance", "Appearance", "Dark · window size remembered", "#2C2C30", false)
+    ];
+    const checks = [
+      { name: "Python 3.12", detail: "/opt/homebrew/bin/python3.12" },
+      { name: "ffmpeg 7.1", detail: "decodes the captures" },
+      { name: "Speech model cached", detail: "whisper large-v3-turbo · 1.5 GB" },
+      { name: "State root", detail: "~/Pendant · 2.4 GB audio, 0.9 GB captures" },
+      { name: "Pendant reachable", detail: "read-only status 2 min ago · firmware 1.1.3" },
+      { name: "Launch agent running", detail: "since login · next sync in 6 min" },
+      { name: "No other agent syncs the pendant", detail: "one Bluetooth link at a time" }
+    ];
+    return { accent, days, sections, checks };
+  }
+}
+</script>
+</body>
+</html>

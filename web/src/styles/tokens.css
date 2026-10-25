@@ -1,4 +1,7 @@
-/* Colour and type tokens, from web/reference/gui-v2b.html. Light by default; theme.ts sets data-theme. */
+/* Colour and type tokens. The light theme is web/reference/gui-v2b.html; the dark theme is design E
+   (web/reference/design-e.md). theme.ts sets data-theme. The older names some rules still read (--surface,
+   --field, --field-b, --chip, --slate, --slate-2, --star, --flash-bg) keep their light values and map onto
+   E's values in the dark theme. */
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
@@ -8,15 +11,31 @@
   --chip: #F0F0F3; --ok: #2E8B57; --warn: #C6771B;
   /* matched words in search results (--star at low alpha), and the moment a jump lands on */
   --mark-bg: rgba(183, 121, 31, 0.2); --flash-bg: var(--accent-soft);
+  /* the three-pane layout's tokens, derived from the palette above until a light variant of E is designed */
+  --column: rgba(0, 0, 0, 0.025); --panel: #FFFFFF; --glass: rgba(255, 255, 255, 0.92);
+  --text-reading: #1D1D1F; --text-soft: #3A3A3C; --on-accent: #FFFFFF;
+  --accent-tint: rgba(47, 111, 222, 0.08); --accent-glow: rgba(47, 111, 222, 0.35);
+  --control: rgba(0, 0, 0, 0.05); --control-2: rgba(0, 0, 0, 0.07); --control-3: rgba(0, 0, 0, 0.11);
+  --hover: rgba(0, 0, 0, 0.05); --hover-row: rgba(0, 0, 0, 0.03); --bar: rgba(0, 0, 0, 0.18);
+  --ring: rgba(0, 0, 0, 0.1); --field-deep: #FFFFFF;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.12); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.16);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #1E1E20; --sidebar: #242427; --surface: #1C1C1E; --hairline: #343437; --hair2: #2C2C2F;
-  --text: #F2F2F4; --text-2: #A7A7AD; --text-3: #6F6F76; --select: #3A3A3F; --field: #2A2A2E; --field-b: #3E3E44;
-  --slate: #0E0E10; --slate-2: #8F8F96; --star: #D9A441; --accent: #5B93F0; --accent-soft: #233454;
-  --chip: #2E2E33; --ok: #4FBF7B; --warn: #E29A3C;
-  --mark-bg: rgba(217, 164, 65, 0.28); --flash-bg: var(--accent-soft);
+  --bg: #15151A; --sidebar: #202026; --column: rgba(255, 255, 255, 0.025); --panel: rgba(255, 255, 255, 0.045);
+  --glass: rgba(32, 32, 38, 0.82); --hairline: rgba(255, 255, 255, 0.08); --hair2: rgba(255, 255, 255, 0.14);
+  --text: #F2F2F5; --text-reading: #E6E6EA; --text-soft: #CFCFD6; --text-2: #A4A4AC; --text-3: #8E8E99;
+  --accent: #F2B340; --on-accent: #1C1A14; --accent-soft: rgba(242, 179, 64, 0.16);
+  --accent-tint: rgba(242, 179, 64, 0.1); --accent-glow: rgba(242, 179, 64, 0.45); --mark-bg: rgba(242, 179, 64, 0.22);
+  --select: rgba(255, 255, 255, 0.1); --control: rgba(255, 255, 255, 0.06); --control-2: rgba(255, 255, 255, 0.1);
+  --control-3: rgba(255, 255, 255, 0.14); --hover: rgba(255, 255, 255, 0.08); --hover-row: rgba(255, 255, 255, 0.05);
+  --bar: rgba(255, 255, 255, 0.22); --ring: rgba(255, 255, 255, 0.12); --field-deep: rgba(0, 0, 0, 0.35);
+  --ok: #34C759; --warn: #FF6B6B;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.3); --shadow-l: 0 8px 30px rgba(0, 0, 0, 0.4);
+  /* the older names, on E's values; the amber accent is also the star colour */
+  --surface: var(--bg); --chip: var(--control-2); --field: var(--control); --field-b: var(--ring);
+  --slate: var(--sidebar); --slate-2: var(--text-2); --star: var(--accent); --flash-bg: var(--accent-tint);
 }
 
 :root {
@@ -25,6 +44,7 @@
   --radius-s: 7px;
   --radius-m: 9px;
   --radius-l: 12px;
+  --radius-xl: 14px;
   /* text on the pendant card, which is dark (--slate) in both themes */
   --on-slate: #F5F5F7;
 }

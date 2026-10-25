@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lavalier, three-pane night window with timeline</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}a:hover{color:inherit}
+.ui{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.reading{font-family:ui-serif,"New York","Iowan Old Style",Charter,Georgia,serif}
+.tnum{font-variant-numeric:tabular-nums}
+.glass{backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6)}
+.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tb{display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;border:0;border-radius:7px;background:transparent;color:#B8B8C2;padding:0;font:inherit}
+.tb:hover{background:rgba(255,255,255,.08)}
+.nav{display:flex;align-items:center;gap:9px;height:28px;padding:0 10px;border-radius:7px;font-size:13px;color:#E6E6EA}
+.nav .ico{width:17px;height:17px;color:#A4A4AC}
+.navcount{margin-left:auto;font-size:12px;color:#8E8E99;display:inline-flex;align-items:center;gap:4px}
+.hd{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8E8E99}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:12px;background:rgba(255,255,255,.08);font-size:12px;color:#E6E6EA}
+.seg{height:24px;padding:0 14px;border:0;border-radius:6px;font:inherit;font-size:12.5px;font-weight:500;background:transparent;color:#B8B8C2}
+.seg[aria-selected="true"]{font-weight:600;background:rgba(255,255,255,.14);color:#F2F2F5;box-shadow:0 1px 2px rgba(0,0,0,.3),0 0 0 .5px rgba(255,255,255,.08)}
+input::placeholder{color:#8E8E99}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div class="ui" style="position:relative;width:1400px;height:920px;overflow:hidden;background:#0E111A;color:#F2F2F5;font-size:13px;line-height:1.45">
+<div aria-hidden="true" style="position:absolute;inset:0;overflow:hidden">
+<div style="position:absolute;left:-200px;top:-260px;width:860px;height:860px;border-radius:50%;background:#1B2A52;filter:blur(100px);opacity:.9"></div>
+<div style="position:absolute;right:-260px;top:40px;width:800px;height:800px;border-radius:50%;background:#3B2448;filter:blur(110px);opacity:.8"></div>
+<div style="position:absolute;left:400px;bottom:-360px;width:980px;height:640px;border-radius:50%;background:#12303A;filter:blur(100px);opacity:.9"></div>
+</div>
+<div style="position:absolute;left:40px;top:40px;width:1320px;height:840px;border-radius:12px;overflow:hidden;display:flex;background:#15151A;box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 .5px rgba(255,255,255,.14)">
+<nav aria-label="Sidebar" class="glass" style="width:236px;flex:none;display:flex;flex-direction:column;background:rgba(30,30,36,.74);border-right:1px solid rgba(255,255,255,.08);padding:14px 10px 10px">
+<div aria-hidden="true" style="display:flex;gap:8px;align-items:center;height:24px;padding-left:8px;margin-bottom:16px">
+<span style="width:12px;height:12px;border-radius:50%;background:#FF5F57;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+<span style="width:12px;height:12px;border-radius:50%;background:#FEBC2E;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+<span style="width:12px;height:12px;border-radius:50%;background:#28C840;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)"></span>
+</div>
+<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px">
+<li><a class="nav" href="#today"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg><span>Today</span></a></li>
+<li><a class="nav" href="#starred"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span>Starred</span><span class="navcount tnum">11</span></a></li>
+<li><a class="nav" href="#search"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span>Search</span></a></li>
+<li><a class="nav" href="#insights"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3zM13 11l.6 1.4 1.4.6-1.4.6L13 15l-.6-1.4-1.4-.6 1.4-.6z"/></svg><span>Insights</span><span class="navcount">2 new</span></a></li>
+</ul>
+<p class="hd" style="margin:20px 0 6px;padding:0 10px">October</p>
+<ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+<li><a class="nav tnum" href="#day" style="padding-left:36px;background:{{d.bg}};font-weight:{{d.weight}}"><span>{{d.name}}</span><span class="navcount"><sc-if value="{{d.stars}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:10px;height:10px;color:{{accent}};fill:currentColor"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span>{{d.stars}}</span></sc-if><span>{{d.len}}</span></span></a></li>
+</sc-for>
+<li><a class="nav" href="#earlier" style="padding-left:36px;color:#8E8E99"><span>Earlier…</span></a></li>
+</ul>
+<div style="margin-top:auto;border-top:1px solid rgba(255,255,255,.08);padding-top:8px">
+<a class="nav" href="#settings"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg><span>Settings</span></a>
+</div>
+</nav>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02)">
+<button type="button" class="tb" aria-label="Hide sidebar"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="2.5"/><path d="M6 3v10"/></svg></button>
+<div role="tablist" aria-label="View" style="display:inline-flex;padding:2px;border-radius:8px;background:rgba(255,255,255,.06);gap:2px;margin-left:4px">
+<button type="button" role="tab" class="seg" aria-selected="true">Transcript</button>
+<button type="button" role="tab" class="seg" aria-selected="false">Insights</button>
+<button type="button" role="tab" class="seg" aria-selected="false">Audio</button>
+</div>
+<div style="flex:1"></div>
+<button type="button" class="tb" aria-label="Star this moment"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg></button>
+<button type="button" class="tb" aria-label="Keep this conversation's audio"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4l-.5 4 2.5 2.5V10H4V8.5L6.5 6zM8 10v4.5"/></svg></button>
+<button type="button" class="tb" aria-label="Share"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8M5 4.5l3-3 3 3M3.5 8v5.5h9V8"/></svg></button>
+<label style="position:relative;display:flex;align-items:center;gap:6px;width:180px;height:28px;padding:0 8px;border-radius:7px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12);color:#8E8E99"><span class="sr">Search every day</span><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:13px;height:13px"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><input type="search" placeholder="Search every day" style="flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:12.5px;color:#F2F2F5;outline:none;padding:0"></label>
+<button type="button" aria-label="Pendant: listening, battery 82 percent, 312 pages waiting" style="display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 11px 0 9px;border:0;border-radius:14px;background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12);font:inherit;font-size:12px;font-weight:500;color:#F2F2F5">
+<span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;background:#34C759;box-shadow:0 0 0 3px rgba(52,199,89,.2),0 0 12px rgba(52,199,89,.75)"></span><span>Listening</span><span aria-hidden="true" style="width:1px;height:14px;background:rgba(255,255,255,.14)"></span><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:15px;height:15px"><rect x="1" y="4.5" width="12" height="7" rx="2"/><path d="M14.5 7v2"/><rect x="2.3" y="5.8" width="7.8" height="4.4" rx="1" fill="currentColor" stroke="none"/></svg><span class="tnum">82%</span>
+</button>
+</div>
+<div style="flex:none;padding:14px 24px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+<div style="display:flex;align-items:flex-end;gap:10px">
+<h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-.025em;line-height:1">Friday</h1>
+<span style="font-size:20px;font-weight:400;color:#8E8E99;letter-spacing:-.015em;line-height:1.1">October 23</span>
+<span class="tnum" style="margin-left:8px;font-size:12.5px;color:#A4A4AC;line-height:1.3">7 conversations · 3 h 1 m of speech · 4 starred moments</span>
+<div style="flex:1"></div>
+<div style="display:inline-flex;align-items:center;padding:2px;border-radius:8px;background:rgba(255,255,255,.06);gap:2px">
+<button type="button" class="tb" aria-label="Previous day" style="height:24px"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg></button>
+<button type="button" class="tb" aria-label="Go to today" style="width:auto;height:24px;padding:0 10px;font-size:12px;font-weight:600;color:#F2F2F5">Today</button>
+<button type="button" class="tb" aria-label="Next day" style="height:24px"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
+</div>
+</div>
+<div aria-label="Timeline of the day" style="position:relative;height:104px;margin-top:6px">
+<sc-for list="{{hours}}" as="h" hint-placeholder-count="12">
+<div aria-hidden="true" style="position:absolute;left:{{h.left}}%;top:16px;bottom:24px;width:1px;background:rgba(255,255,255,.06)"></div>
+<span class="tnum" style="position:absolute;left:{{h.left}}%;bottom:2px;transform:translateX(-50%);font-size:10.5px;color:#8E8E99">{{h.label}}</span>
+</sc-for>
+<div aria-hidden="true" style="position:absolute;left:0;right:0;bottom:24px;height:1px;background:rgba(255,255,255,.14)"></div>
+<sc-for list="{{convs}}" as="c" hint-placeholder-count="7">
+<a href="#conversation" aria-label="{{c.title}}, {{c.time}}" style="position:absolute;left:{{c.left}}%;width:{{c.width}}%;bottom:28px;height:{{c.h}}px;border-radius:6px;background:{{c.bg}};box-shadow:{{c.shadow}}"></a>
+<span aria-hidden="true" style="position:absolute;left:{{c.center}}%;bottom:{{c.labelBottom}}px;transform:translateX(-50%);white-space:nowrap;font-size:11px;font-weight:{{c.weight}};color:{{c.labelColor}}">{{c.title}}</span>
+</sc-for>
+<sc-for list="{{stars}}" as="s" hint-placeholder-count="4">
+<span aria-hidden="true" style="position:absolute;left:{{s.left}}%;bottom:21.5px;width:6px;height:6px;border-radius:50%;background:{{accent}};transform:translateX(-50%);box-shadow:0 0 8px {{accentGlow}}"></span>
+</sc-for>
+</div>
+</div>
+<div style="flex:1;min-height:0;display:flex">
+<section aria-label="Conversations" style="width:300px;flex:none;display:flex;flex-direction:column;gap:2px;background:rgba(255,255,255,.025);border-right:1px solid rgba(255,255,255,.08);overflow:hidden;padding:6px 8px 0">
+<p class="hd" style="padding:8px 12px 4px">Morning</p>
+<sc-for list="{{morning}}" as="c" hint-placeholder-count="3">
+<a href="#conversation" style="display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:9px;background:{{c.bg}};color:{{c.fg}}">
+<div style="display:flex;align-items:center;gap:8px"><span style="flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{c.title}}</span><span class="tnum" style="font-size:11.5px;color:{{c.meta}}">{{c.time}}</span></div>
+<div style="display:flex;align-items:center;gap:10px"><span style="flex:1;min-width:0;font-size:12.5px;color:{{c.meta}};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{c.snippet}}</span><span aria-hidden="true" style="display:flex;align-items:center;gap:2px;height:16px;flex:none"><sc-for list="{{c.bars}}" as="b" hint-placeholder-count="14"><span style="width:2px;border-radius:1px;background:{{c.bar}};height:{{b.h}}px"></span></sc-for></span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:11.5px;color:{{c.meta}}"><span class="tnum">{{c.len}}</span><sc-if value="{{c.stars}}" hint-placeholder-val="{{false}}"><span style="display:inline-flex;align-items:center;gap:3px;color:{{c.star}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:10px;height:10px;fill:currentColor"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span class="tnum">{{c.stars}}</span></span></sc-if></div>
+</a>
+</sc-for>
+<p class="hd" style="padding:14px 12px 4px">Afternoon</p>
+<sc-for list="{{afternoon}}" as="c" hint-placeholder-count="4">
+<a href="#conversation" style="display:flex;flex-direction:column;gap:5px;padding:10px 12px;border-radius:9px;background:{{c.bg}};color:{{c.fg}}">
+<div style="display:flex;align-items:center;gap:8px"><span style="flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{c.title}}</span><span class="tnum" style="font-size:11.5px;color:{{c.meta}}">{{c.time}}</span></div>
+<div style="display:flex;align-items:center;gap:10px"><span style="flex:1;min-width:0;font-size:12.5px;color:{{c.meta}};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{c.snippet}}</span><span aria-hidden="true" style="display:flex;align-items:center;gap:2px;height:16px;flex:none"><sc-for list="{{c.bars}}" as="b" hint-placeholder-count="14"><span style="width:2px;border-radius:1px;background:{{c.bar}};height:{{b.h}}px"></span></sc-for></span></div>
+<div style="display:flex;align-items:center;gap:10px;font-size:11.5px;color:{{c.meta}}"><span class="tnum">{{c.len}}</span><sc-if value="{{c.stars}}" hint-placeholder-val="{{false}}"><span style="display:inline-flex;align-items:center;gap:3px;color:{{c.star}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:10px;height:10px;fill:currentColor"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg><span class="tnum">{{c.stars}}</span></span></sc-if></div>
+</a>
+</sc-for>
+</section>
+<article aria-label="Transcript" style="flex:1;min-width:0;position:relative;display:flex;flex-direction:column">
+<div style="flex:1;min-height:0;overflow:hidden;padding:22px 30px 0">
+<h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.2">Firmware standup</h2>
+<p class="tnum" style="margin:6px 0 0;font-size:12.5px;color:#A4A4AC">9:12 – 9:41 · 29 min of speech · 2 starred moments · audio kept until 22 Nov</p>
+<div class="reading" style="margin-top:18px;font-size:15.5px;line-height:1.6;color:#E6E6EA">
+<sc-for list="{{lines}}" as="l" hint-placeholder-count="10">
+<sc-if value="{{l.isGap}}" hint-placeholder-val="{{false}}"><div class="ui" style="display:flex;align-items:center;gap:10px;margin:8px 0;font-size:11.5px;color:#8E8E99"><span style="flex:1;height:1px;background:rgba(255,255,255,.1)"></span><span>{{l.gapText}}</span><span style="flex:1;height:1px;background:rgba(255,255,255,.1)"></span></div></sc-if>
+<sc-if value="{{l.isLine}}" hint-placeholder-val="{{true}}"><div style="display:grid;grid-template-columns:48px 1fr;gap:12px;padding:5px 8px;margin:0 -8px;border-radius:8px;background:{{l.bg}}"><span class="ui tnum" style="display:flex;align-items:flex-start;gap:4px;padding-top:4px;font-size:11.5px;color:#8E8E99"><sc-if value="{{l.star}}" hint-placeholder-val="{{false}}"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:10px;height:10px;margin-top:1px;color:{{accent}};fill:currentColor"><path d="M8 1.9l1.85 3.95 4.3.55-3.15 2.95.8 4.3L8 11.55l-3.8 2.1.8-4.3L1.85 6.4l4.3-.55z"/></svg></sc-if><span>{{l.t}}</span></span><p style="margin:0">{{l.text}}</p></div></sc-if>
+</sc-for>
+</div>
+</div>
+<div class="glass" style="position:absolute;left:16px;right:16px;bottom:14px;height:56px;border-radius:14px;background:rgba(32,32,38,.82);box-shadow:0 8px 30px rgba(0,0,0,.4),0 0 0 .5px rgba(255,255,255,.12);display:flex;align-items:center;gap:12px;padding:0 12px 0 10px">
+<button type="button" aria-label="Pause" style="width:34px;height:34px;border-radius:50%;border:0;padding:0;background:{{accent}};color:#1C1A14;display:inline-flex;align-items:center;justify-content:center;flex:none"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="stroke-width:2.2"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg></button>
+<div style="display:flex;flex-direction:column;line-height:1.2;width:118px;flex:none"><span style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Firmware standup</span><span class="tnum" style="font-size:11px;color:#A4A4AC">9:15 · starred moment</span></div>
+<div aria-hidden="true" style="flex:1;display:flex;align-items:center;gap:2px;height:28px;min-width:0;overflow:hidden"><sc-for list="{{waveBars}}" as="w" hint-placeholder-count="30"><span style="width:3px;flex:none;border-radius:1.5px;height:{{w.h}}px;background:{{w.c}}"></span></sc-for></div>
+<span class="tnum" style="font-size:11.5px;color:#A4A4AC;flex:none">4:12 / 29:03</span>
+<button type="button" class="tb" style="width:auto;padding:0 8px;font-size:11.5px;font-weight:600;color:#F2F2F5" aria-label="Playback speed, 1x">1×</button>
+</div>
+</article>
+<aside aria-label="Insights" style="width:260px;flex:none;display:flex;flex-direction:column;gap:16px;background:rgba(255,255,255,.025);border-left:1px solid rgba(255,255,255,.08);padding:20px 18px 16px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="color:{{accent}}"><path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3zM13 11l.6 1.4 1.4.6-1.4.6L13 15l-.6-1.4-1.4-.6 1.4-.6z"/></svg><span style="font-size:13px;font-weight:600">Insights</span><span style="margin-left:auto;font-size:11px;color:#8E8E99">Local model</span></div>
+<p style="margin:0;font-size:13px;line-height:1.5;color:#CFCFD6">A day spent closing the bootloader question and turning back to the recorder. The vendor call confirmed the signing key stays theirs. Afternoon planning settled retention at thirty days and put connectors behind a switch.</p>
+<div><p class="hd">Follow-ups</p><div style="display:flex;flex-direction:column;margin-top:6px"><sc-for list="{{followUps}}" as="f" hint-placeholder-count="3"><a href="#moment" style="display:flex;gap:8px;align-items:flex-start;padding:6px 0"><span class="tnum" style="flex:none;display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:10px;background:{{accentSoft}};color:{{accent}};font-size:11px;font-weight:600">{{f.t}}</span><span style="font-size:12.5px;line-height:1.4;color:#E6E6EA">{{f.text}}</span></a></sc-for></div></div>
+<div><p class="hd">People</p><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><sc-for list="{{people}}" as="p" hint-placeholder-count="3"><span class="chip">{{p.name}}</span></sc-for></div></div>
+<div><p class="hd">Topics</p><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"><sc-for list="{{topics}}" as="p" hint-placeholder-count="4"><span class="chip">{{p.name}}</span></sc-for></div></div>
+<label style="margin-top:auto;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:9px;background:rgba(0,0,0,.35);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14)"><span class="sr">Ask about this day</span><input type="text" placeholder="Ask about Friday…" style="flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:12.5px;color:#F2F2F5;outline:none;padding:0"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true" style="width:14px;height:14px;color:#8E8E99"><path d="M13 3v4.5a2 2 0 0 1-2 2H3M5.5 7L3 9.5 5.5 12"/></svg></label>
+</aside>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#F2B340","options":["#F2B340","#5AC8FA","#FF6B6B","#64D2A3"]},"$preview":{"width":1400,"height":920}}'>
+class Component extends DCLogic {
+  wave(seed, n, lo, hi) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const v = Math.abs(Math.sin(i * 0.9 + seed)) * 0.6 + Math.abs(Math.sin(i * 2.3 + seed * 1.7)) * 0.4;
+      out.push({ h: Math.round(lo + v * (hi - lo)) });
+    }
+    return out;
+  }
+  tint(hex, a) {
+    const h = hex.replace("#", "");
+    const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+  }
+  renderVals() {
+    const accent = this.props.accent ?? "#F2B340";
+    const accentSoft = this.tint(accent, 0.16);
+    const accentGlow = this.tint(accent, 0.7);
+    const onAccent = "#1C1A14";
+    const start = 8 * 60, span = 11 * 60;
+    const pct = (min) => Math.round(((min - start) / span) * 1000) / 10;
+    const hours = [];
+    for (let h = 8; h <= 19; h++) hours.push({ left: pct(h * 60), label: h + ":00" });
+    const block = (title, time, from, dur, h, selected) => ({
+      title, time, h,
+      left: pct(from), width: Math.round((dur / span) * 1000) / 10, center: pct(from + dur / 2),
+      labelBottom: 28 + h + 7,
+      bg: selected ? accent : "rgba(255,255,255,.14)",
+      shadow: selected ? "0 0 22px " + this.tint(accent, 0.45) : "none",
+      weight: selected ? 600 : 400,
+      labelColor: selected ? "#F2F2F5" : "#A4A4AC"
+    });
+    const convs = [
+      block("Coffee with Dana", "8:05 – 8:22", 485, 17, 34, false),
+      block("Firmware standup", "9:12 – 9:41", 552, 29, 48, true),
+      block("Call with the vendor", "11:30 – 11:52", 690, 22, 40, false),
+      block("Lunch on the patio", "13:10 – 13:48", 790, 38, 30, false),
+      block("Hallway, by the printer", "15:02 – 15:20", 902, 18, 26, false),
+      block("Planning: recorder release", "16:30 – 17:15", 990, 45, 52, false),
+      block("Phone, Mom", "18:40 – 18:52", 1120, 12, 36, false)
+    ];
+    const stars = [555, 568, 820, 1010].map((m) => ({ left: pct(m) }));
+    const conv = (title, time, len, snippet, stars, selected, seed) => ({
+      title, time, len, snippet, stars,
+      bg: selected ? accent : "transparent",
+      fg: selected ? onAccent : "#F2F2F5",
+      meta: selected ? "rgba(28,26,20,.72)" : "#A4A4AC",
+      bar: selected ? "rgba(28,26,20,.55)" : "rgba(255,255,255,.3)",
+      star: selected ? onAccent : accent,
+      bars: this.wave(seed, 14, 3, 16)
+    });
+    const morning = [
+      conv("Coffee with Dana", "8:05 – 8:22", "17 min", "The ferry timetable changes next week, so Thursday is out.", 0, false, 1),
+      conv("Firmware standup", "9:12 – 9:41", "29 min", "The bootloader question is closed. It checks the key hash first.", 2, true, 2),
+      conv("Call with the vendor", "11:30 – 11:52", "22 min", "They will not share the signing key, but the changelog is fine.", 0, false, 3)
+    ];
+    const afternoon = [
+      conv("Lunch on the patio", "13:10 – 13:48", "38 min", "Marcus thinks the window should open on today, not the last day.", 1, false, 4),
+      conv("Hallway, by the printer", "15:02 – 15:20", "18 min", "Short one about the retention default and who may change it.", 0, false, 5),
+      conv("Planning: recorder release", "16:30 – 17:15", "45 min", "Connectors ship behind a switch. Notion first, calendar after.", 1, false, 6),
+      conv("Phone, Mom", "18:40 – 18:52", "12 min", "Sunday lunch is at one. Bring the good bread.", 0, false, 7)
+    ];
+    const day = (name, len, stars, selected) => ({
+      name, len, stars,
+      bg: selected ? "rgba(255,255,255,.1)" : "transparent",
+      weight: selected ? 600 : 400
+    });
+    const days = [
+      day("Today", "41 min", 0, false),
+      day("Friday 23", "3 h 1 m", 4, true),
+      day("Thursday 22", "2 h 18 m", 1, false),
+      day("Wednesday 21", "1 h 52 m", 0, false),
+      day("Tuesday 20", "2 h 40 m", 2, false),
+      day("Monday 19", "3 h 25 m", 0, false),
+      day("Sunday 18", "48 min", 0, false)
+    ];
+    const L = (t, text, star) => ({ isLine: true, isGap: false, t, text, star: !!star, gapText: "", bg: star ? this.tint(accent, 0.1) : "transparent" });
+    const G = (text) => ({ isLine: false, isGap: true, gapText: text, t: "", text: "", star: false, bg: "transparent" });
+    const lines = [
+      L("9:12", "Morning. Quick one today, I have the vendor call at half eleven."),
+      L("9:13", "The bootloader question is closed. It checks the key hash before it looks at anything else, so the upload path is a dead end without the vendor key."),
+      L("9:14", "So we stop poking at it and go back to the recorder."),
+      L("9:15", "Agreed. Let's write it up properly today so nobody reopens it in six months.", true),
+      L("9:17", "The USB shell gives us a second way to read state. Read-only, and it stays that way."),
+      L("9:21", "Drain threshold stays at a thousand pages. Mornings on the charger are enough."),
+      G("6 minutes quiet"),
+      L("9:28", "Can you send me the retention numbers before Monday? I want to know how long the audio actually sits around.", true),
+      L("9:33", "Thirty days by default. Pinned conversations stay until you let them go."),
+      L("9:40", "Okay. Same time Monday.")
+    ];
+    const played = 9;
+    const waveBars = this.wave(9, 30, 4, 24).map((b, i) => ({ h: b.h, c: i < played ? accent : "rgba(255,255,255,.22)" }));
+    const followUps = [
+      { t: "9:28", text: "Send Dana the retention numbers before Monday" },
+      { t: "11:45", text: "Ask the vendor for the changelog between 1.1.3 and 1.1.20" },
+      { t: "16:50", text: "Write the release note for the window" }
+    ];
+    const people = ["Dana", "Marcus", "Vendor support"].map((name) => ({ name }));
+    const topics = ["Bootloader", "Retention", "Release planning", "USB console"].map((name) => ({ name }));
+    return { accent, accentSoft, accentGlow, hours, convs, stars, morning, afternoon, days, lines, waveBars, followUps, people, topics };
+  }
+}
+</script>
+</body>
+</html>
