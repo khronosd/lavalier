@@ -41,6 +41,9 @@ def normalise_notion_id(value: str) -> str:
     value = value.strip()
     if value == "":
         return ""
+    if "://" not in value:
+        # a bare id pasted with a view fragment ("…?v=…"), an anchor, or wrapping brackets or quotes
+        value = re.split(r"[?#]", value, maxsplit=1)[0].strip("[]()<>\"' ")
     if _HEX32.fullmatch(value):
         return value.lower()
     if _UUID.fullmatch(value):

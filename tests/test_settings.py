@@ -184,3 +184,20 @@ def test_connector_settings_refuse_a_bad_id_and_wrong_types(cfg, tmp_path):
         apply(cfg, {"notion_enabled": "yes"}, tmp_path / "c.toml")
     with pytest.raises(SettingsError):
         apply(cfg, {"calendar_ids": 3}, tmp_path / "c.toml")
+
+
+@pytest.mark.parametrize("raw", [
+    "404ad93ec4ad80f1aadcd703f6515c9e?v=]",          # the id copied with a view fragment and a stray bracket
+    "404ad93ec4ad80f1aadcd703f6515c9e?v=1ab2",
+    "404ad93ec4ad80f1aadcd703f6515c9e#top",
+    "[404ad93ec4ad80f1aadcd703f6515c9e]",
+    "\"404ad93ec4ad80f1aadcd703f6515c9e\"",
+    "<404AD93EC4AD80F1AADCD703F6515C9E>",
+])
+def test_normalise_notion_id_tolerates_a_pasted_fragment(raw):
+    assert normalise_notion_id(raw) == "404ad93ec4ad80f1aadcd703f6515c9e"
+
+
+def test_normalise_notion_id_still_refuses_junk_around_a_fragment():
+    with pytest.raises(SettingsError):
+        normalise_notion_id("404ad93ec4ad80f1aadcd703f6515c9?v=]")   # 31 hex

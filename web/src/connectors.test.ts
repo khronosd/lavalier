@@ -67,3 +67,14 @@ test("Export again forces only a day stopped by a hand edit; a failed day is ret
   expect(againBody({ ...row, state: "stopped" })).toEqual({ day: "2026-10-23", force: true });
   expect(againBody({ ...row, state: "error" })).toEqual({ day: "2026-10-23" });
 });
+
+test("normaliseNotionId tolerates a pasted view fragment and stray brackets", () => {
+  for (const raw of [
+    "404ad93ec4ad80f1aadcd703f6515c9e?v=]",
+    "404ad93ec4ad80f1aadcd703f6515c9e?v=1ab2",
+    "404ad93ec4ad80f1aadcd703f6515c9e#top",
+    "[404ad93ec4ad80f1aadcd703f6515c9e]",
+    "<404AD93EC4AD80F1AADCD703F6515C9E>",
+  ]) expect(normaliseNotionId(raw)).toBe("404ad93ec4ad80f1aadcd703f6515c9e");
+  expect(normaliseNotionId("404ad93ec4ad80f1aadcd703f6515c9?v=]")).toBeNull();
+});

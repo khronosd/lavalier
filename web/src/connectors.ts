@@ -21,8 +21,10 @@ const NOTION_HOSTS = ["notion.so", "www.notion.so"];
 /** A Notion database id as 32 lower-case hex, from the raw id, a dashed uuid or a notion.so URL whose last
  *  path segment ends in the id; "" for an empty value, null for anything else. */
 export function normaliseNotionId(value: string): string | null {
-  const v = value.trim();
+  let v = value.trim();
   if (v === "") return "";
+  // a bare id pasted with a view fragment ("…?v=…"), an anchor, or wrapping brackets or quotes
+  if (!v.includes("://")) v = v.split(/[?#]/)[0].replace(/^[\[\]()<>"' ]+|[\[\]()<>"' ]+$/g, "");
   if (HEX32.test(v)) return v.toLowerCase();
   if (UUID.test(v)) return v.replace(/-/g, "").toLowerCase();
   let url: URL;
