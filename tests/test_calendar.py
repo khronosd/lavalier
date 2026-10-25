@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from conftest import T, _real_transcript
+from conftest import T, _real_transcript, speech_transcript
 from fake_calendar import FakeCalendarSource
 from lavalier.config import Config
 from lavalier.connectors.calendar import (
@@ -167,3 +167,39 @@ def test_importing_the_connector_and_the_pipeline_loads_no_pyobjc():
 def test_the_status_map_covers_every_eventkit_status():
     from lavalier.connectors.calendar import _STATUS
     assert _STATUS == {0: "not-asked", 1: "restricted", 2: "denied", 3: "allowed", 4: "denied"}
+
+
+# --- R7: turning the calendar off removes the names at the next process
+
+@pytest.fixture
+def labelled_day(db, clip):
+    c = clip(T(10, 0, 0), T(10, 5, 0))
+    db.add_clip(dataclasses.replace(c, classification=None, transcribed_at=None))
+    db.set_transcript(c.clip_id, _real_transcript(), "speech", T(10, 6, 0))
+    convs = rebuild_day(db, DAY, Config())
+    db.set_conversation_label(convs[0].conversation_id, "Standup")
+    db.mark_day_clean(DAY)
+    return convs[0].conversation_id
+
+
+class _Untouchable:
+    def __getattr__(self, name):
+        raise AssertionError(f"the calendar was read: {name}")
+
+
+def test_label_day_with_the_connector_off_clears_the_labels(db, labelled_day):
+    assert label_day(db, Config(), _Untouchable(), DAY) == 0
+    assert [c.label for c in db.conversations_for_day(DAY)] == [None]
+    assert db.days_dirty() == [DAY]
+    db.mark_day_clean(DAY)
+    assert label_day(db, Config(), _Untouchable(), DAY) == 0
+    assert db.days_dirty() == []                       # nothing changed the second time
+
+
+def test_a_process_with_the_calendar_off_removes_the_names(root, db, labelled_day):
+    from lavalier.pipeline import process
+    from lavalier.transcribe import FakeTranscriber
+    db.mark_day_dirty(DAY)
+    process(db, root, Config(), FakeTranscriber({}, default=speech_transcript()), now_ms=T(23, 30, 0),
+            calendar=_Untouchable())
+    assert [c.label for c in db.conversations_for_day(DAY)] == [None]

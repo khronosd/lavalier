@@ -158,10 +158,12 @@ def pick_label(conv_start_ms: int, conv_end_ms: int, events: list[Event],
 
 
 def label_day(db, cfg, source: CalendarSource, day: date) -> int:
-    """Label the day's conversations from the calendar; return how many carry a label. Does nothing (0)
-    unless the connector is on and access is allowed; a failing read leaves the labels as they were.
-    Marks the day dirty when a label changed, so its file is rewritten."""
+    """Label the day's conversations from the calendar; return how many carry a label. With the connector
+    off, the day's labels are cleared (the source is not read) and 0 is returned, so turning it off removes
+    the names at the next process. With it on, nothing changes (0) unless access is allowed; a failing read
+    leaves the labels as they were. Marks the day dirty when a label changed, so its file is rewritten."""
     if not cfg.calendar_enabled:
+        _set_labels(db, day, lambda conv: None)
         return 0
     try:
         if source.authorization() != "allowed":
@@ -171,10 +173,16 @@ def label_day(db, cfg, source: CalendarSource, day: date) -> int:
         log.exception("calendar labels for %s failed; labels left as they were", day)
         return 0
     chosen = chosen_calendar_ids(cfg.calendar_ids)
+    return _set_labels(db, day, lambda conv: pick_label(conv.start_ms, conv.end_ms, events, chosen))
+
+
+def _set_labels(db, day: date, label_of) -> int:
+    """Give each of the day's conversations `label_of(conv)`; mark the day dirty when one changed. Returns
+    how many carry a label."""
     labelled = 0
     changed = False
     for conv in db.conversations_for_day(day):
-        label = pick_label(conv.start_ms, conv.end_ms, events, chosen)
+        label = label_of(conv)
         if label != conv.label:
             db.set_conversation_label(conv.conversation_id, label)
             changed = True

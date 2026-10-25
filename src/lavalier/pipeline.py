@@ -65,7 +65,7 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
         except Exception:
             log.exception("stage transcription failed")
 
-    if calendar is not None and cfg.calendar_enabled:
+    if calendar is not None:  # on or off: with the connector off, label_day clears the names
         _label_dirty_days(db, cfg, calendar)
 
     report.days_written = write_dirty_days(db, paths, cfg, now_ms=now_ms)
@@ -78,8 +78,9 @@ def process(db: Database, paths: Paths, cfg: Config, transcriber: Transcriber, *
 
 
 def _label_dirty_days(db: Database, cfg: Config, calendar: CalendarSource) -> None:
-    """Regroup each day this run will write, then label its conversations from the calendar. The
-    regroup in write_dirty_days that follows keeps the labels (same id, same label)."""
+    """Regroup each day this run will write, then label its conversations from the calendar (or clear
+    the labels, with the connector off). The regroup in write_dirty_days that follows keeps the labels
+    (same id, same label)."""
     try:
         days = db.days_dirty()
     except Exception:
