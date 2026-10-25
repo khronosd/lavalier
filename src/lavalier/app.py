@@ -606,11 +606,12 @@ class App:
         return self._start_export(list(days), force=force, changed_only=False)
 
     def export_recent(self, days: int) -> str:
-        """The newest `days` days with speech, exported oldest first. Never forced: a day stopped by a hand
-        edit is exported again only on its own."""
+        """The newest `days` days with speech and words, exported oldest first (a speech day whose transcript
+        has no words has nothing to export, so it is neither sent nor counted). Never forced: a day stopped by
+        a hand edit is exported again only on its own."""
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= EXPORT_MAX_DAYS:
             raise ValueError(f"days must be a whole number from 1 to {EXPORT_MAX_DAYS}")
-        return self.export_days(self.db.days_with_speech()[-days:])
+        return self.export_days(self.db.days_with_speech_text()[-days:])
 
     def _start_export(self, days: list[date], *, force: bool, changed_only: bool) -> str:
         cfg = self.cfg

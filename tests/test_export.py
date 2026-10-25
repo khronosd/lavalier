@@ -312,6 +312,10 @@ def test_days_to_export(db, ncfg, seeded_2026_10_23_subset, fake, client):
 
 # --- the boundary
 
+def test_days_to_export_skips_a_speech_day_without_lines(db, ncfg, seeded_2026_10_23_subset, silent_speech_day):
+    assert days_to_export(db, ncfg, [silent_speech_day, DAY]) == [DAY]
+
+
 def test_connectors_never_import_playback_or_audio():
     files = sorted(SRC.rglob("*.py"))
     assert len(files) >= 3

@@ -67,6 +67,12 @@ def test_cli_export_says_what_was_not_sent_when_notion_was_turned_off(cli_env, m
     assert r.exit_code == 1
 
 
+def test_cli_export_leaves_out_a_speech_day_without_words_and_exits_0(cli_env, served, silent_speech_day):
+    r = cli_env.invoke(["export"])
+    assert r.exit_code == 0, r.output
+    assert r.output.splitlines() == [f"{DAY}: exported", "Exported 1, unchanged 0, stopped 0, errors 0"]
+
+
 def test_cli_export_with_days_sends_them(cli_env, served):
     r = cli_env.invoke(["export", "--days", "30"])
     assert r.exit_code == 0 and f"{DAY}: exported" in r.output

@@ -357,6 +357,20 @@ def thank_you_transcript() -> Transcript:
 
 
 @pytest.fixture
+def silent_speech_day(db, clip_record):
+    """2026-10-22, whose only clip is classed speech but whose transcript has no words: a day with no lines."""
+    day = date(2026, 10, 22)
+    first = clip_record.first_ms - 86_400_000
+    cid = "clip_20261023T055514.111Z"
+    db.add_clip(dataclasses.replace(clip_record, clip_id=cid, path=f"audio/{day}/{cid}.opus", day=day,
+                                    first_ms=first, last_ms=first + 16000, classification=None, transcribed_at=None))
+    db.set_transcript(cid, Transcript(" ", "en", "m", [Segment(0, 1.0, "  ", -1.0, 0.9, [])]), "speech", first + 1)
+    rebuild_day(db, day, Config())
+    assert day in db.days_with_speech()
+    return day
+
+
+@pytest.fixture
 def snap():
     return DeviceSnapshot(1000, True, "LISTENING", 0, 786, 94, -10, "USB_DISCONNECTED", "1.1.3", 7)
 

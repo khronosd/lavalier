@@ -189,6 +189,16 @@ async def test_export_recent_takes_the_newest_days_with_speech_oldest_first(noti
         app.export_recent(7, force=True)              # a range is never forced
 
 
+async def test_export_recent_skips_a_speech_day_without_lines(notion_app, db, silent_speech_day):
+    app = notion_app
+    silent = silent_speech_day
+    jid = app.export_recent(7)
+    await app.jobs.wait(jid)
+    j = app.jobs.get(jid)
+    assert [d["day"] for d in j["result"]["days"]] == ["2026-10-23"]
+    assert j["result"]["errors"] == [] and db.export(silent, CONNECTOR) is None
+
+
 async def test_nothing_exports_while_the_app_is_stopping(notion_app):
     app = notion_app
     app.stop()

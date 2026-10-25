@@ -428,6 +428,19 @@ def test_set_insight_error_replaces_a_done_row(db):
     assert db.insight(d).insight.summary == "s2"
 
 
+def test_days_with_speech_text_needs_a_segment_with_words(db, clip):
+    from conftest import T, speech_transcript
+    from lavalier.models import Segment, Transcript
+    a = clip(T(10, 0, 0) - 86_400_000, T(10, 1, 0) - 86_400_000)
+    b = clip(T(10, 0, 0), T(10, 1, 0))
+    for c in (a, b):
+        db.add_clip(c)
+    db.set_transcript(a.clip_id, Transcript(" ", "en", "m", [Segment(0, 1.0, "  ", -1.0, 0.9, [])]), "speech", 1)
+    db.set_transcript(b.clip_id, speech_transcript(), "speech", 1)
+    assert db.days_with_speech() == [a.day, b.day]
+    assert db.days_with_speech_text() == [b.day]
+
+
 def test_insights_all_is_newest_day_first(db):
     from lavalier.insights.schema import Insight
     for d in (date(2026, 10, 21), date(2026, 10, 23), date(2026, 10, 22)):
