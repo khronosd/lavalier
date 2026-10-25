@@ -157,6 +157,46 @@ def test_event_kit_available_is_false_when_the_import_fails(monkeypatch):
     assert event_kit_available() is False
 
 
+def _fake_event_kit(monkeypatch, status):
+    """A stand-in for pyobjc's EventKit: counts the stores built; a request grants `status`[0]."""
+    from types import SimpleNamespace
+    built = []
+
+    class Store:
+        @staticmethod
+        def alloc():
+            return Store()
+
+        def init(self):
+            built.append(self)
+            return self
+
+        @staticmethod
+        def authorizationStatusForEntityType_(entity):
+            return status[0]
+
+        def requestFullAccessToEventsWithCompletion_(self, completion):
+            status[0] = 3
+            completion(True, None)
+
+        def calendarsForEntityType_(self, entity):
+            return []
+
+    monkeypatch.setitem(sys.modules, "EventKit", SimpleNamespace(EKEventStore=Store))
+    return built
+
+
+def test_request_access_drops_the_store_so_the_next_read_uses_a_fresh_one(monkeypatch):
+    from lavalier.connectors.calendar import EventKitSource
+    status = [0]
+    built = _fake_event_kit(monkeypatch, status)
+    src = EventKitSource()
+    assert src.request_access() == "allowed" and len(built) == 1
+    assert src.calendars() == [] and len(built) == 2      # a store made before the grant may not see events
+    src.calendars()
+    assert len(built) == 2                                 # and that one is kept
+
+
 def test_importing_the_connector_and_the_pipeline_loads_no_pyobjc():
     code = ("import sys, lavalier.connectors.calendar, lavalier.pipeline; "
             "bad = [m for m in ('EventKit', 'objc', 'Foundation') if m in sys.modules]; "

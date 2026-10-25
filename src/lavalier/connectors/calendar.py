@@ -135,6 +135,8 @@ class EventKitSource:
             store.requestAccessToEntityType_completion_(_ENTITY_EVENT, completion)
         if not done.wait(ACCESS_TIMEOUT_S):
             log.warning("calendar access request: no answer within %d s", ACCESS_TIMEOUT_S)
+        # a store made before access was granted may go on seeing no calendars: the next read builds a new one
+        self._store = None
         return self.authorization()
 
     def calendars(self) -> list[Calendar]:
