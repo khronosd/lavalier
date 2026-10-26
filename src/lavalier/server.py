@@ -595,13 +595,17 @@ def _handler(srv: ControlServer):
             _log.debug("%s %s", self.address_string(), _QUERY.sub("", format % args))
 
         def _send(self, r: _Response) -> None:
-            self.send_response(r.status)
-            self.send_header("Content-Type", r.content_type)
-            self.send_header("Content-Length", str(len(r.body)))
-            for k, v in r.headers.items():
-                self.send_header(k, v)
-            self.end_headers()
-            self.wfile.write(r.body)
+            try:
+                self.send_response(r.status)
+                self.send_header("Content-Type", r.content_type)
+                self.send_header("Content-Length", str(len(r.body)))
+                for k, v in r.headers.items():
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(r.body)
+            except (BrokenPipeError, ConnectionResetError):
+                # the client gave up (a poll that timed out, a window closed): nothing to tell it, nothing wrong here
+                _log.info("%s %s: the client went away before the reply", self.command, _QUERY.sub("", self.path))
 
         def _reply(self, status: int, body: dict) -> None:
             self._send(_json(body, status))

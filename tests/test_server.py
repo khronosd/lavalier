@@ -416,3 +416,29 @@ def test_the_request_log_never_carries_the_query_string(server, caplog):
         get(server, "/api/status?token=secret-launch-token")
     assert caplog.records and "secret-launch-token" not in caplog.text and "token=" not in caplog.text
     assert "/api/status" in caplog.text
+
+
+def test_a_client_that_went_away_before_the_reply_is_a_note_not_an_error(server, caplog):
+    """A poll that timed out closes its socket; the reply then meets a broken pipe. That is the client's
+    doing, so the server notes it (without the query string) and raises nothing."""
+    import io
+    import logging
+    from lavalier.server import _handler, _json
+
+    class Gone:
+        def write(self, b):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            pass
+
+    Handler = _handler(server)
+    h = Handler.__new__(Handler)
+    h.wfile, h.rfile, h.client_address = Gone(), io.BytesIO(), ("127.0.0.1", 1)
+    h.command, h.path, h.request_version = "GET", "/api/status?token=secret-launch-token", "HTTP/1.1"
+    h.requestline, h.close_connection, h._headers_buffer = "GET /api/status HTTP/1.1", True, []
+    with caplog.at_level(logging.INFO, logger="lavalier.server"):
+        h._send(_json({"ok": True}, 200))
+    assert "GET /api/status: the client went away before the reply" in caplog.text
+    assert "token=" not in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
